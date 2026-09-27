@@ -20,7 +20,7 @@ FRAGMENT="$KERNEL_ROOT/common/arch/arm64/configs/xiaomi_sm8850.fragment"
 
 case "$VARIANT" in
   base)
-    note "Variant A: stock-compatible public ACK base; no root integration"
+    note "Variant A: reproducible public ACK compatibility baseline; no root integration"
     ;;
   resukisu)
     note "Variant B: ACK base + ReSukiSU built-in (tracepoint)"
@@ -58,6 +58,18 @@ frag_flag=()
 if [[ -s "$FRAGMENT" ]]; then
   note "defconfig fragment:"
   cat "$FRAGMENT"
+
+  # Kleaf requires command-line defconfig fragments to be exported by the
+  # Bazel package that owns the source file. common/ is the package root;
+  # arch/arm64/configs/ has no BUILD file in ACK. Export only this generated
+  # diagnostic fragment instead of creating a nested Bazel package, which
+  # would change root-package glob boundaries.
+  cat >> common/BUILD.bazel <<'EOF'
+exports_files(
+    ["arch/arm64/configs/xiaomi_sm8850.fragment"],
+    visibility = ["//visibility:public"],
+)
+EOF
   frag_flag=("--defconfig_fragment=//common:arch/arm64/configs/xiaomi_sm8850.fragment")
 fi
 
