@@ -60,7 +60,12 @@ This keeps the late official ACK 2025-06 respin as a second controlled baseline:
 - KMI generation: 5
 - Clang: `r536225`
 
-Both profiles use the same pinned ACK build infrastructure and are built with ThinLTO and KMI enforcement intact.
+Both profiles use the same pinned ACK toolchain/build-support snapshot, but intentionally use different build methods:
+
+- `gold-cctv`: direct `make gki_defconfig Image`, matching the public Gold/cctv18 build family and producing only the boot kernel Image. This avoids Kleaf's unrelated system-DLKM module collection requirement.
+- `ack-r51`: `//common:kernel_aarch64_dist` through Kleaf/Bazel with ThinLTO and KMI enforcement intact.
+
+The exact build method and final LTO setting are recorded in each artifact's `build-metadata.txt`.
 
 ## Diagnostic variants
 
@@ -103,15 +108,16 @@ The final built Image must pass checks for:
 - `CONFIG_GENDWARFKSYMS=y`
 - `CONFIG_MODULE_SCMVERSION=y`
 - `CONFIG_CFI_CLANG=y`
-- ThinLTO
-- `kmi_enforced = True`
-- `kmi_symbol_list_strict_mode = True`
-- `trim_nonlisted_kmi = True`
+- final LTO mode recorded from the built Image config
+- source definition still contains `kmi_enforced = True`
+- source definition still contains `kmi_symbol_list_strict_mode = True`
+- source definition still contains `trim_nonlisted_kmi = True`
+- runtime KMI enforcement applies to the `ack-r51` Kleaf control; `gold-cctv` intentionally builds only `Image` and does not request the system-DLKM module set
 - exact pinned source commit
 - exact pinned ReSukiSU/SUSFS commits when enabled
 - no patch reject files
 
-The generic workflow's ABI/KMI bypasses and its Android 16/6.12 `--lto=none` path are intentionally not inherited.
+The generic workflow's ABI/KMI source edits are intentionally not inherited. The `gold-cctv` lane follows the source defconfig's own LTO choice, while `ack-r51` explicitly uses ThinLTO.
 
 ## AnyKernel3 behavior
 
