@@ -67,35 +67,83 @@ Both profiles use the same pinned ACK toolchain/build-support snapshot, but inte
 
 The exact build method and final LTO setting are recorded in each artifact's `build-metadata.txt`.
 
-## Diagnostic variants
+## Current custom builder
 
-For either source profile:
+The Xiaomi lane has completed the original A/B/C compatibility ladder and is now a selectable custom builder.
 
-- `base`: source only, no KernelSU and no SUSFS.
-- `resukisu`: same source + ReSukiSU built-in using tracepoint hook.
-- `resukisu-susfs`: same source + ReSukiSU built-in + strict SUSFS integration.
-- `all`: builds all three independently.
+Physical validation on Xiaomi 17 Pro (`pandora`):
 
-Recommended first phone test:
+- A / base: run #60 — booted and short hardware/stability check passed.
+- B / ReSukiSU: run #62 — booted; Manager reported version code 35184; root authorization worked.
+- C / ReSukiSU + SUSFS: run #63 — booted; SUSFS v2.3.0 was visible and working.
+- Full feature candidate: run #76 — booted successfully and showed no immediate abnormal behavior during the initial post-boot check.
 
-1. `gold-cctv / base`
-2. if it boots, `gold-cctv / resukisu`
-3. if that boots, `gold-cctv / resukisu-susfs`
-4. use `ack-r51 / base` as the clean-source control if needed
+The #76 full candidate keeps the proven C foundation and simultaneously enables every Xiaomi optional feature that passed the individual CI matrix, except KPM:
 
-This ladder isolates source compatibility from ReSukiSU and SUSFS.
+- SUSFS extra features
+- ZRAM/LZ4 enhancement
+- Baseband Guard (BBG)
+- Re-Kernel
+- NoMount
+- Android 16 / 6.12 networking feature set
+- DroidSpaces
+- NTSync
+- CVE-2026-43499 / CVE-2026-53163 fix chain
 
-## Root and SUSFS pins
+KPM remains disabled because the current ReSukiSU main used by this lane does not declare `CONFIG_KPM`; the Xiaomi integration intentionally rejects an unsupported KPM request instead of pretending it is enabled.
 
-The diagnostic lane currently pins:
+### Validation levels
 
-- ReSukiSU: `3c1882886dbbb54f4aae7ddf205f8ccde32c2a34`
-- SUSFS `gki-android16-6.12`: `7d91da2d2ce056d1abf378d9199aaf1072d37ab0`
+Do not conflate these states:
+
+1. **CI integration validated** — patch/config integration, kernel compilation and final validation pass.
+2. **Physical boot validated** — the resulting AnyKernel package boots on the Xiaomi 17 Pro.
+3. **Feature behavior validated** — the individual feature has been exercised on-device and its runtime behavior confirmed.
+
+Run #74 proved the optional features individually at level 1. Runs #75/#76 proved the combined full profile at level 1. Run #76 has currently reached level 2 plus a short basic-use sanity check. The optional features still need individual runtime checks before they are described as fully device-validated.
+
+## Root and SUSFS tracking
+
+The normal custom build follows the upstream branches but records the exact resolved commits in every artifact for reproducibility.
+
+Current physically proven foundation:
+
+- ReSukiSU: `fa8311f632a215b5381ec644627c6198d1e8a13e`, tag `v4.2.0-rc3`, version code `35184`
+- SUSFS `gki-android16-6.12`: `b213c54126fb243595ce7876e91d84d6e0861fec`, version `v2.3.0`
 - AnyKernel3: `dca9dc370838d919d56c1f59ec78b27a14a72c68`
 
-ReSukiSU is built in with `CONFIG_KSU=y`; no LKM mode is used.
+ReSukiSU is built in with `CONFIG_KSU=y`; no LKM mode is used. SUSFS application is fail-fast: dry-run first, patch failure is fatal, and any `.rej` file fails the build.
 
-SUSFS application is fail-fast: dry-run first, patch failure is fatal, and any `.rej` file fails the build. The Xiaomi lane does not use the generic `patch ... || true` behavior.
+## Full candidate provenance
+
+The physically boot-tested #76 full artifact was built from workflow commit:
+
+```text
+adce911ce19573f148ada2c066f2b52b93a97bdf
+```
+
+Its validated release is:
+
+```text
+6.12.23-android16-5-g9e91eb74a201-xiaomi-4k
+```
+
+Feature source commits recorded by the artifact include:
+
+- ZRAM patch stack: `2844bf492f557fb39113fc93a2dd1602e05790d7`
+- Re-Kernel: `ac08296174d7fb2801c0eee1084f067a34f8a0fe`
+- NoMount: `6b1be186322d4e0bdc465cf27f6fc0d3679087c6`
+- DroidSpaces: `b24eec0194e9b0ce8981152eba4603b40bf919e5`
+
+Artifact checksums:
+
+```text
+Image
+49c26004039b0230ff207c7183483685ff9556a106c31d95866eb609b7f23277
+
+Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
+998535cb5f0946460011a1398fff5e933300b29f3ab680e1ded33ec78b6004fa
+```
 
 ## CI guardrails
 
@@ -106,27 +154,48 @@ The final built Image must pass checks for:
 - KMI generation 5
 - `CONFIG_MODVERSIONS=y`
 - `CONFIG_GENDWARFKSYMS=y`
-- `CONFIG_MODULE_SCMVERSION=y`
-- `CONFIG_CFI_CLANG=y`
-- final LTO mode recorded from the built Image config
-- source definition still contains `kmi_enforced = True`
-- source definition still contains `kmi_symbol_list_strict_mode = True`
-- source definition still contains `trim_nonlisted_kmi = True`
-- runtime KMI enforcement applies to the `ack-r51` Kleaf control; `gold-cctv` intentionally builds only `Image` and does not request the system-DLKM module set
-- exact pinned source commit
-- exact pinned ReSukiSU/SUSFS commits when enabled
+- deterministic local version with no accidental trailing `+`
+- exact pinned Gold source commit
+- resolved ReSukiSU/SUSFS provenance when enabled
+- requested optional feature configs present in the final config
 - no patch reject files
 
-The generic workflow's ABI/KMI source edits are intentionally not inherited. The `gold-cctv` lane follows the source defconfig's own LTO choice, while `ack-r51` explicitly uses ThinLTO.
+The `gold-cctv` lane intentionally builds only the kernel Image using the known-compatible direct-make path. The `ack-r51` profile remains the clean Kleaf/Bazel control lane.
+
+PR CI first runs `bash -n` over the Xiaomi scripts. Normal regression CI is then reduced to two profiles:
+
+- `baseline`: the physically proven ReSukiSU + SUSFS core with optional features off.
+- `full`: all currently CI-supported Xiaomi optional features enabled together, except KPM.
+
+The earlier #74 ten-profile matrix remains the evidence that each optional integration also compiles independently.
+
+## Cache strategy
+
+The Xiaomi Gold path uses three safe cache layers:
+
+- immutable Gold common Git object store
+- pinned r536225 toolchain bundle
+- ccache compiler objects
+
+The common source cache is never used as a dirty modified working tree: every build creates a fresh checkout before applying ReSukiSU, SUSFS and optional features. The kernel `out/` directory is deliberately not cached.
+
+A warm baseline build has demonstrated approximately 99.9% incremental ccache hits and roughly two minutes for the Image compilation phase.
 
 ## AnyKernel3 behavior
 
-The package is boot-only and device-scoped. It contains only `Image`, `anykernel.sh`, `META-INF/` and `tools/`.
+The package is boot-only and device-scoped. It contains only the kernel Image plus the required AnyKernel3 scripts/tools.
 
 It targets `boot`, auto-detects the active slot, disables vbmeta flag patching, and uses `split_boot; flash_boot;`. It does not package or flash `init_boot`, `vendor_boot`, `vendor_kernel_boot`, `dtbo` or `vbmeta`.
 
-## Deliberately disabled for first boot
+## Next device-validation stage
 
-No NoMount, BBG, DroidSpaces, NTSync, extra ptrace patch, Unicode workaround, networking extras, Re-Kernel, KPM, ZRAM tweaks or unrelated CVE patch stack is added to this lane.
+The #76 full image has passed boot and initial basic-use checks on `pandora`. The next stage is runtime verification of the optional features, preferably without changing the kernel between checks:
 
-Those capabilities can continue to arrive from upstream on `dev`, but they should only be enabled for Xiaomi after the A/B/C compatibility ladder is proven stable.
+- confirm ZRAM backend/compression behavior
+- confirm BBG is initialized and its interface/logging behaves normally
+- confirm Re-Kernel runtime interface
+- confirm NoMount runtime state
+- confirm DroidSpaces and NTSync behavior
+- confirm networking additions are present without regressions
+
+Only after those checks should the full optional stack be labeled fully validated on `pandora`. `pudding` and `popsicle` remain same-platform build targets but are not yet physically validated.
