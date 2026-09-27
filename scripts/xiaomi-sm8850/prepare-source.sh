@@ -56,7 +56,10 @@ case "$SOURCE_PROFILE" in
     common_cache="${XIAOMI_GOLD_COMMON_CACHE:-$HOME/.cache/xiaomi-sm8850/gold-common-$GOLD_COMMON_COMMIT.git}"
 
     common_cache_valid() {
-      [[ -d "$common_cache" ]] &&
+      [[ -d "$common_cache" ]] || return 1
+      local pinned
+      pinned="$(git --git-dir="$common_cache" rev-parse refs/heads/pinned 2>/dev/null || true)"
+      [[ "$pinned" == "$GOLD_COMMON_COMMIT" ]] &&
       git --git-dir="$common_cache" cat-file -e "$GOLD_COMMON_COMMIT^{commit}" 2>/dev/null
     }
 
@@ -69,7 +72,13 @@ case "$SOURCE_PROFILE" in
       git init --bare "$common_cache"
       git --git-dir="$common_cache" remote add origin "$GOLD_COMMON_REPO"
       git --git-dir="$common_cache" fetch --depth=1 --no-tags origin "$GOLD_COMMON_COMMIT"
-      common_cache_valid || die "Gold common cache does not contain pinned commit"
+
+      # FETCH_HEAD alone is not a persistent reachable ref. Without this,
+      # cloning the bare cache treats it as an empty repository and drops the
+      # fetched commit objects.
+      git --git-dir="$common_cache" update-ref refs/heads/pinned "$GOLD_COMMON_COMMIT"
+
+      common_cache_valid || die "Gold common cache does not contain pinned reachable commit"
     fi
 
     # Clone a fresh worktree from the immutable cached object store for every
