@@ -133,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","susfs-extra","zram","bbg","rekernel","nomount","networking","droidspaces","droidspaces-ntsync","cve"]' || '["custom"]') }}
+        profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","full"]' || '["custom"]') }}
     env:
       XIAOMI_CI_PROFILE: ${{ matrix.profile }}
       XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
@@ -226,32 +226,18 @@ jobs:
           case "$profile" in
             baseline)
               ;;
-            susfs-extra)
+            full)
+              # Combination smoke: every Xiaomi feature that passed the
+              # individual #74 matrix, except KPM (not declared by current
+              # ReSukiSU main). This catches cross-feature conflicts.
               echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
-              ;;
-            zram)
               echo "XIAOMI_USE_ZRAM=true" >> "$GITHUB_ENV"
-              ;;
-            bbg)
               echo "XIAOMI_USE_BBG=true" >> "$GITHUB_ENV"
-              ;;
-            rekernel)
               echo "XIAOMI_USE_REKERNEL=true" >> "$GITHUB_ENV"
-              ;;
-            nomount)
               echo "XIAOMI_USE_NOMOUNT=true" >> "$GITHUB_ENV"
-              ;;
-            networking)
               echo "XIAOMI_USE_NETWORKING=true" >> "$GITHUB_ENV"
-              ;;
-            droidspaces)
-              echo "XIAOMI_DROIDSPACES=on" >> "$GITHUB_ENV"
-              ;;
-            droidspaces-ntsync)
               echo "XIAOMI_DROIDSPACES=on" >> "$GITHUB_ENV"
               echo "XIAOMI_DROIDSPACES_NTSYNC=true" >> "$GITHUB_ENV"
-              ;;
-            cve)
               echo "XIAOMI_CVE_2026_43499_PATCH=true" >> "$GITHUB_ENV"
               ;;
             *)
