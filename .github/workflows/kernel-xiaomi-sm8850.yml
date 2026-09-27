@@ -133,6 +133,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Cache pinned Gold common source
+        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-sm8850/gold-common-9e91eb74a201e8cee839c8db6d642ff9b8408388.git
+          key: xiaomi-sm8850-gold-common-9e91eb74a201-v1
+
       - name: Cache pinned Gold toolchain
         if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
         uses: actions/cache@v6

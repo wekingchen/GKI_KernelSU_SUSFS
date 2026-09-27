@@ -53,9 +53,31 @@ case "$SOURCE_PROFILE" in
     require_cmd curl
     require_cmd unzip
 
-    note "source profile gold-cctv: cloning pinned public GKI common"
-    git clone --filter=blob:none --no-checkout "$GOLD_COMMON_REPO" common
-    git -C common fetch --depth=1 origin "$GOLD_COMMON_COMMIT"
+    common_cache="${XIAOMI_GOLD_COMMON_CACHE:-$HOME/.cache/xiaomi-sm8850/gold-common-$GOLD_COMMON_COMMIT.git}"
+
+    common_cache_valid() {
+      [[ -d "$common_cache" ]] &&
+      git --git-dir="$common_cache" cat-file -e "$GOLD_COMMON_COMMIT^{commit}" 2>/dev/null
+    }
+
+    if common_cache_valid; then
+      note "using cached Gold common object store: $common_cache"
+    else
+      note "Gold common cache miss; fetching pinned source commit once"
+      rm -rf "$common_cache"
+      mkdir -p "$(dirname "$common_cache")"
+      git init --bare "$common_cache"
+      git --git-dir="$common_cache" remote add origin "$GOLD_COMMON_REPO"
+      git --git-dir="$common_cache" fetch --depth=1 --no-tags origin "$GOLD_COMMON_COMMIT"
+      common_cache_valid || die "Gold common cache does not contain pinned commit"
+    fi
+
+    # Clone a fresh worktree from the immutable cached object store for every
+    # build. This preserves the clean-source guarantee while avoiding the
+    # multi-minute network fetch of the same pinned common commit.
+    note "source profile gold-cctv: creating clean common worktree from cache"
+    git clone --no-checkout "$common_cache" common
+    git -C common remote set-url origin "$GOLD_COMMON_REPO"
     git -C common checkout --detach "$GOLD_COMMON_COMMIT"
     actual_common="$(git -C common rev-parse HEAD)"
     [[ "$actual_common" == "$GOLD_COMMON_COMMIT" ]] ||
