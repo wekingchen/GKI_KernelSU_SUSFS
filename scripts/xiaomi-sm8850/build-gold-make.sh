@@ -75,10 +75,42 @@ echo "pahole=$(command -v pahole)"
 pahole --version | head -n1
 echo "resolve_btfids will be built from the pinned kernel source"
 
-# Mirror cctv18's standalone environment initialization. This may return
-# non-zero on the standalone tree; their reference build intentionally ignores
-# that and continues with the exported variables that were set successfully.
+# Mirror cctv18's standalone environment initialization. Their reference
+# script does not run with nounset; ACK's _setup_env.sh reads optional
+# variables before defining them. Temporarily disable nounset while sourcing,
+# then restore our strict shell mode. A non-zero return is intentionally
+# tolerated exactly like the public cctv18 build.
+set +u
 source "./_setup_env.sh" 2>/dev/null || true
+set -u
+
+# _setup_env.sh may rewrite PATH from build-config variables. Reassert the
+# pinned standalone toolchain paths so host tools cannot shadow them.
+export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
+export RUSTC=rustc
+export BINDGEN=bindgen
+export CC=clang
+export HOSTCC=clang
+export LD=ld.lld
+export HOSTLD=ld.lld
+export LLVM=1
+export LLVM_IAS=1
+export ARCH=arm64
+export SUBARCH=arm64
+export CROSS_COMPILE=aarch64-linux-gnu-
+export AR=llvm-ar
+export NM=llvm-nm
+export AS=clang
+export READELF=llvm-readelf
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
+export OBJSIZE=llvm-size
+export STRIP=llvm-strip
+export LIBCLANG_PATH="$TOOLROOT/clang19/lib"
+
+note "post-setup tool paths:"
+echo "clang=$(command -v clang)"
+echo "pahole=$(command -v pahole)"
 
 rm -rf "$KOUT"
 
