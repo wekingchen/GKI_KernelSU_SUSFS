@@ -1,149 +1,126 @@
 # Xiaomi 17 Series / SM8850 — Android 16 / Linux 6.12.23
 
-This target is intentionally separate from the repository's generic GKI workflows. It exists to debug Xiaomi 17-series boot compatibility without changing the existing Generic GKI behavior.
+This target is intentionally isolated from the repository's generic GKI workflows. The repository can keep following `zzh20188/GKI_KernelSU_SUSFS:dev` while Xiaomi-specific compatibility work remains on `xiaomi-sm8850-pandora`.
+
+## Branch maintenance model
+
+- `dev` tracks upstream `zzh20188/GKI_KernelSU_SUSFS:dev` as closely as possible.
+- `xiaomi-sm8850-pandora` contains only Xiaomi/SM8850-specific workflow, pins, validation and packaging.
+- Upstream feature changes should land/sync into `dev` first, then `dev` is merged into the Xiaomi branch.
+- Xiaomi compatibility changes should not be copied back into generic `build.yml` unless they are genuinely generic fixes.
+
+At the time this Xiaomi lane was reviewed, the local and upstream `dev` heads were identical at `29428612f180915f64e9b7c231e17705290e87b5`.
 
 ## Verified device scope
 
 | Marketing name | Codename | Platform | Target |
 |---|---|---|---|
 | Xiaomi 17 | `pudding` | Qualcomm SM8850 | supported |
-| Xiaomi 17 Pro | `pandora` | Qualcomm SM8850 | supported / primary |
+| Xiaomi 17 Pro | `pandora` | Qualcomm SM8850 | primary |
 | Xiaomi 17 Pro Max | `popsicle` | Qualcomm SM8850 | supported |
 
-Xiaomi's MiCode `popsicle-w-oss` branch identifies Xiaomi 17 / 17 Pro / 17 Pro Max as `release-w-qcom-sm8850`:
+Xiaomi's MiCode `popsicle-w-oss` branch identifies the family as `release-w-qcom-sm8850`. Its root BSP tree is Linux 6.11, so it is a vendor/BSP reference and is not used as the 6.12.23 boot Image source.
 
-- https://github.com/MiCode/Xiaomi_Kernel_OpenSource/tree/popsicle-w-oss
+## Stock evidence
 
-Important: that MiCode BSP tree reports Linux 6.11 at its root. It is useful as the public Xiaomi SM8850 vendor/BSP reference, but it is **not** used here as the 6.12.23 boot Image source.
-
-## Stock GKI reference versus public source
-
-Public firmware reports for this family use a stock kernel release matching:
+The uploaded Xiaomi 17 Pro OS3.0.319.0.WBLCNXM boot image contains:
 
 ```text
 6.12.23-android16-5-g75e9b1c7ae7c-abogki463945075-4k
 ```
 
-The exact Xiaomi/Google source commit represented by `g75e9b1c7ae7c` is not currently identifiable as a public ACK commit. This repository therefore does not pretend that an unrelated public commit is the stock source.
-
-The first reproducible public baseline is pinned separately:
-
-- ACK line: `android16-6.12-2025-06`
-- release tag: `android16-6.12-2025-06_r51`
-- common commit: `5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
-- KMI generation: `5`
-- Clang: `r536225`
-- page size: 4K
-- LTO: thin
-- stable KMI enforcement: kept enabled
-
-This late 2025-06 respin includes Xiaomi-specific KMI symbol-list additions that are absent from some earlier respins. It is a public compatibility baseline, not a claim of byte-identical stock provenance.
-
-The immutable values live in:
+The older generic build that bootlooped used:
 
 ```text
-.github/config/xiaomi-sm8850-android16-6.12.23.env
+6.12.23-android16-5-g13ff069897df9-ab10024759-4k
 ```
+
+Its Action log proves `g13ff069...` was the actual then-current head of Google's `deprecated/android16-6.12-2025-06` source, not merely a cosmetic local-version string. Therefore matching only `6.12.23 / android16-5 / 4K` is not sufficient evidence of Xiaomi vendor-module compatibility.
+
+## Source profiles
+
+The Xiaomi workflow now exposes two immutable source profiles.
+
+### `gold-cctv` — default diagnostic baseline
+
+This uses the public source family referenced by the Droidspaces Xiaomi 17-series entry and by the known-booting Gold 6.12.23 package:
+
+- repo: `cctv18/android_gki_kernel_common`
+- branch family: `android16-6.12-2025-06`
+- pinned commit: `9e91eb74a201e8cee839c8db6d642ff9b8408388`
+
+This is deliberately described as a **Gold-compatible public source line**, not proof that this exact commit produced the binary Gold ZIP already tested on the phone. The branch moved over time, so the Xiaomi workflow pins the commit rather than following its moving head.
+
+### `ack-r51` — clean official control
+
+This keeps the late official ACK 2025-06 respin as a second controlled baseline:
+
+- tag: `android16-6.12-2025-06_r51`
+- commit: `5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- KMI generation: 5
+- Clang: `r536225`
+
+Both profiles use the same pinned ACK build infrastructure and are built with ThinLTO and KMI enforcement intact.
+
+## Diagnostic variants
+
+For either source profile:
+
+- `base`: source only, no KernelSU and no SUSFS.
+- `resukisu`: same source + ReSukiSU built-in using tracepoint hook.
+- `resukisu-susfs`: same source + ReSukiSU built-in + strict SUSFS integration.
+- `all`: builds all three independently.
+
+Recommended first phone test:
+
+1. `gold-cctv / base`
+2. if it boots, `gold-cctv / resukisu`
+3. if that boots, `gold-cctv / resukisu-susfs`
+4. use `ack-r51 / base` as the clean-source control if needed
+
+This ladder isolates source compatibility from ReSukiSU and SUSFS.
 
 ## Root and SUSFS pins
 
-The first diagnostic revision pins:
+The diagnostic lane currently pins:
 
 - ReSukiSU: `3c1882886dbbb54f4aae7ddf205f8ccde32c2a34`
 - SUSFS `gki-android16-6.12`: `7d91da2d2ce056d1abf378d9199aaf1072d37ab0`
 - AnyKernel3: `dca9dc370838d919d56c1f59ec78b27a14a72c68`
 
-ReSukiSU is integrated in-tree and the final Image must contain `CONFIG_KSU=y`. No LKM build is used by this target.
+ReSukiSU is built in with `CONFIG_KSU=y`; no LKM mode is used.
 
-SUSFS application is strict: the patch is dry-run first, patch failure is fatal, and any generated `.rej` file fails the build. There is no `patch ... || true` path.
-
-## Diagnostic variants
-
-Run the workflow **Android Kernel Build - Xiaomi 17 Series SM8850**.
-
-- `base`: pinned public ACK baseline only. No KernelSU/ReSukiSU and no SUSFS.
-- `resukisu`: same baseline + ReSukiSU built-in, using its GKI tracepoint hook.
-- `resukisu-susfs`: same baseline + ReSukiSU built-in + SUSFS inline hook and SUSFS kernel patch.
-- `all`: builds all three independently.
-
-Test in that order on the device:
-
-1. If `base` does not boot, stop. The failure is below ReSukiSU/SUSFS and the next comparison must be against the stock `boot.img` / stock Image and vendor-module KMI.
-2. If `base` boots but `resukisu` does not, isolate ReSukiSU integration/config.
-3. If `resukisu` boots but `resukisu-susfs` does not, isolate SUSFS patch/config.
-
-Do not move to extra patches until variant C boots.
+SUSFS application is fail-fast: dry-run first, patch failure is fatal, and any `.rej` file fails the build. The Xiaomi lane does not use the generic `patch ... || true` behavior.
 
 ## CI guardrails
 
-Before an artifact is uploaded, the workflow verifies the configuration embedded in the **actual built Image** using `scripts/extract-ikconfig`. It requires:
+The final built Image must pass checks for:
 
-- ARM64
-- Linux 6.12.23
-- `android16-5`
+- ARM64 / Linux 6.12.23 / `android16-5`
 - 4K page size
-- KMI generation 5 source constants
+- KMI generation 5
 - `CONFIG_MODVERSIONS=y`
 - `CONFIG_GENDWARFKSYMS=y`
 - `CONFIG_MODULE_SCMVERSION=y`
-- KMI enforcement and strict symbol-list mode still enabled
-- `CONFIG_KSU=y` for variants B/C
-- ReSukiSU tracepoint hook for B
-- `CONFIG_KSU_SUSFS=y` and required SUSFS options for C
+- `CONFIG_CFI_CLANG=y`
+- ThinLTO
+- `kmi_enforced = True`
+- `kmi_symbol_list_strict_mode = True`
+- `trim_nonlisted_kmi = True`
+- exact pinned source commit
+- exact pinned ReSukiSU/SUSFS commits when enabled
 - no patch reject files
 
-This target does **not** remove `kmi_symbol_list_strict_mode`, protected exports, `check_defconfig`, or the standard module-versioning controls.
+The generic workflow's ABI/KMI bypasses and its Android 16/6.12 `--lto=none` path are intentionally not inherited.
 
 ## AnyKernel3 behavior
 
-The generated ZIP is intentionally boot-only and device-scoped:
+The package is boot-only and device-scoped. It contains only `Image`, `anykernel.sh`, `META-INF/` and `tools/`.
 
-- `do.devicecheck=1`
-- only the selected codename is accepted
-- `BLOCK=boot`
-- `IS_SLOT_DEVICE=auto`
-- `SLOT_SELECT=active`
-- `PATCH_VBMETA_FLAG=0`
-- `NO_VBMETA_PARTITION_PATCH=1`
-- `split_boot`
-- `flash_boot`
+It targets `boot`, auto-detects the active slot, disables vbmeta flag patching, and uses `split_boot; flash_boot;`. It does not package or flash `init_boot`, `vendor_boot`, `vendor_kernel_boot`, `dtbo` or `vbmeta`.
 
-The package is created from a whitelist containing only `Image`, `anykernel.sh`, `META-INF/`, and `tools/`. CI rejects any packaged `boot.img`, `init_boot.img`, `vendor_boot.img`, `vendor_kernel_boot.img`, `dtbo.img`, or `vbmeta.img`.
+## Deliberately disabled for first boot
 
-On Android boot header v4 devices with a separate `init_boot`, `split_boot` / `flash_boot` lets AnyKernel3 replace the boot kernel payload without modifying the first-stage ramdisk.
+No NoMount, BBG, DroidSpaces, NTSync, extra ptrace patch, Unicode workaround, networking extras, Re-Kernel, KPM, ZRAM tweaks or unrelated CVE patch stack is added to this lane.
 
-## What is deliberately disabled in this lane
-
-No NoMount, BBG, DroidSpaces, NTSync, extra ptrace patch, Unicode patch, networking extras, Re-Kernel, KPM, or other experimental feature is added.
-
-The existing Generic GKI workflows remain unchanged.
-
-## Data needed to identify the original bootloop conclusively
-
-The workflow changes above make the experiment controlled, but they do not retroactively prove why an older Generic GKI ZIP bootlooped.
-
-For an exact stock-versus-failed comparison, collect:
-
-```sh
-uname -a
-uname -r
-cat /proc/version
-getprop ro.product.device
-getprop ro.build.version.release
-getprop ro.build.version.incremental
-getprop ro.build.version.security_patch
-getprop ro.boot.slot_suffix
-getconf PAGESIZE
-zcat /proc/config.gz > stock-config.txt 2>/dev/null || true
-ls -la /sys/fs/pstore
-cat /sys/fs/pstore/* 2>/dev/null
-```
-
-Most useful files to preserve/upload:
-
-1. current stock `boot.img`
-2. the previous non-booting AnyKernel3 ZIP or its `Image`
-3. `vendor_boot.img` and `init_boot.img`
-4. pstore/console-ramoops captured immediately after a failed boot
-
-With those, compare the stock and failed Images by kernel release, embedded config, size/layout, KMI-related config, and early-boot/module-load errors instead of inferring the cause from `uname -r` alone.
+Those capabilities can continue to arrive from upstream on `dev`, but they should only be enabled for Xiaomi after the A/B/C compatibility ladder is proven stable.
