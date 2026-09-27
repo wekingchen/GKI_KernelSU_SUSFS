@@ -1,0 +1,107 @@
+name: Android Kernel Build - Xiaomi 17 Series SM8850
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Device codename: pudding=Xiaomi 17, pandora=Xiaomi 17 Pro, popsicle=Xiaomi 17 Pro Max"
+        required: true
+        type: choice
+        options:
+          - pandora
+          - pudding
+          - popsicle
+        default: pandora
+      variant:
+        description: "Debug ladder: A base, B ReSukiSU built-in, C ReSukiSU built-in + SUSFS"
+        required: true
+        type: choice
+        options:
+          - all
+          - base
+          - resukisu
+          - resukisu-susfs
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xiaomi-sm8850-${{ github.ref }}-${{ inputs.device }}-${{ inputs.variant }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: "${{ inputs.device }} / ${{ matrix.variant }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variant == 'all' && '["base","resukisu","resukisu-susfs"]' || format('["{0}"]', inputs.variant)) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             bc bison build-essential ccache curl flex git jq libelf-dev             libssl-dev python3 repo rsync unzip zip zstd dwarves
+
+      - name: Build, validate and package
+        shell: bash
+        env:
+          XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-sm8850/build.sh             "${{ inputs.device }}"             "${{ matrix.variant }}"             "$XIAOMI_WORKDIR"
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        env:
+          XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.variant }}
+        run: |
+          OUT="$XIAOMI_WORKDIR/output/${{ inputs.device }}/${{ matrix.variant }}"
+          {
+            echo "## Xiaomi SM8850 build"
+            echo
+            echo "- Device: ${{ inputs.device }}"
+            echo "- Variant: ${{ matrix.variant }}"
+            echo "- Expected kernel: 6.12.23 / android16-5 / 4K"
+            echo "- Generic workflow: untouched"
+            echo
+            if [ -f "$OUT/build-metadata.txt" ]; then
+              echo "### Provenance"
+              sed 's/^/    /' "$OUT/build-metadata.txt"
+            fi
+            if [ -f "$OUT/validation.txt" ]; then
+              echo "### Validation"
+              sed 's/^/    /' "$OUT/validation.txt"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload kernel and boot-only AnyKernel3
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Xiaomi-SM8850-${{ inputs.device }}-${{ matrix.variant }}-6.12.23
+          path: |
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/Image
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/Image.lz4
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/final.config
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/build-metadata.txt
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/validation.txt
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/SHA256SUMS
+            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ inputs.device }}/${{ matrix.variant }}/*-AnyKernel3.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
