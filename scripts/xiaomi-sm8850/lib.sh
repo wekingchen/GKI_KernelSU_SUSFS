@@ -36,6 +36,13 @@ validate_variant() {
   esac
 }
 
+validate_source_profile() {
+  case "$1" in
+    gold-cctv|ack-r51) ;;
+    *) die "unsupported source profile: $1 (allowed: gold-cctv, ack-r51)" ;;
+  esac
+}
+
 device_marketing_name() {
   case "$1" in
     "$XIAOMI_17_CODENAME") echo "Xiaomi 17" ;;
