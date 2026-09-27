@@ -43,6 +43,10 @@ export OBJSIZE=llvm-size
 export STRIP=llvm-strip
 export LIBCLANG_PATH="$TOOLROOT/clang19/lib"
 export KBUILD_GENDWARFKSYMS_STABLE=1
+# Suppress setlocalversion's SCM "+" suffix. cctv18 builds from a source ZIP
+# without .git metadata; setting LOCALVERSION to an explicit empty string
+# reproduces that behavior while keeping our verified git checkout for provenance.
+export LOCALVERSION=""
 
 cd "$COMMON"
 
@@ -107,6 +111,7 @@ export OBJDUMP=llvm-objdump
 export OBJSIZE=llvm-size
 export STRIP=llvm-strip
 export LIBCLANG_PATH="$TOOLROOT/clang19/lib"
+export LOCALVERSION=""
 
 note "post-setup tool paths:"
 echo "clang=$(command -v clang)"
