@@ -43,7 +43,7 @@ permissions:
 
 concurrency:
   group: xiaomi-sm8850-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ inputs.variant }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
