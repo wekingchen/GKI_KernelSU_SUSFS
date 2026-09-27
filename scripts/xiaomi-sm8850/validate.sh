@@ -30,7 +30,7 @@ kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ "$kernel_string" == *"-4k"* ]] ||
   die "kernel release does not advertise 4K suffix: $kernel_string"
 
-for key in CONFIG_ARM64 CONFIG_MODVERSIONS CONFIG_GENDWARFKSYMS CONFIG_MODULE_SCMVERSION CONFIG_CFI_CLANG; do
+for key in CONFIG_ARM64 CONFIG_MODVERSIONS CONFIG_GENDWARFKSYMS CONFIG_CFI_CLANG; do
   config_is_y "$FINAL" "$key" || die "$key is not enabled in final Image"
 done
 
@@ -74,7 +74,11 @@ case "$SOURCE_BUILD_MODE" in
       die "make-image mode is only expected for gold-cctv"
     grep -qx "CONFIG_LOCALVERSION=\"$GOLD_KERNEL_LOCALVERSION\"" "$FINAL" ||
       die "Gold Image localversion is not deterministic"
-    kmi_guardrail_report="make-image: MODVERSIONS+GENDWARFKSYMS; Kleaf KMI enforcement not invoked"
+    config_is_not_y "$FINAL" CONFIG_LOCALVERSION_AUTO ||
+      die "Gold make path unexpectedly enables CONFIG_LOCALVERSION_AUTO"
+    config_is_not_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
+      die "Gold make path unexpectedly enables CONFIG_MODULE_SCMVERSION"
+    kmi_guardrail_report="make-image: MODVERSIONS+GENDWARFKSYMS; deterministic localversion; MODULE_SCMVERSION intentionally off"
     ;;
   kleaf-dist)
     [[ "$SOURCE_PROFILE" == "ack-r51" ]] ||
@@ -91,6 +95,8 @@ for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "t
     if required not in chunk:
         raise SystemExit(f"KMI guardrail missing after integration: {required}")
 PY
+    config_is_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
+      die "ACK Kleaf control unexpectedly disables CONFIG_MODULE_SCMVERSION"
     kmi_guardrail_report="kleaf-strict"
     ;;
   *)
@@ -120,7 +126,11 @@ fi
   echo "page_size=4K"
   echo "modversions=y"
   echo "gendwarfksyms=y"
-  echo "module_scmversion=y"
+  if config_is_y "$FINAL" CONFIG_MODULE_SCMVERSION; then
+    echo "module_scmversion=y"
+  else
+    echo "module_scmversion=n"
+  fi
   echo "kmi_guardrails=$kmi_guardrail_report"
   echo "kernel_string=$kernel_string"
   if [[ "$VARIANT" != base ]]; then
