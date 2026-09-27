@@ -15,15 +15,36 @@ cd "$KERNEL_ROOT"
 [[ ! -e ReSukiSU ]] || die "ReSukiSU checkout already exists"
 [[ ! -e common/drivers/kernelsu ]] || die "drivers/kernelsu already exists"
 
-note "cloning ReSukiSU at immutable commit $RESUKISU_COMMIT"
-git clone --filter=blob:none --no-checkout "$RESUKISU_REPO" ReSukiSU
-git -C ReSukiSU fetch --depth=1 origin "$RESUKISU_COMMIT"
-git -C ReSukiSU checkout --detach "$RESUKISU_COMMIT"
+requested_ref="${XIAOMI_RESUKISU_REF:-$RESUKISU_DEFAULT_REF}"
+note "cloning ReSukiSU ref=$requested_ref (default tracks upstream main)"
+
+# Use a full clone on purpose. ReSukiSU derives KSU_VERSION from the complete
+# git rev-list count, and the generic upstream custom workflow also follows
+# main rather than pinning a shallow historical checkout.
+git clone "$RESUKISU_REPO" ReSukiSU
+if ! git -C ReSukiSU checkout "$requested_ref"; then
+  note "ref $requested_ref is not available locally; fetching it explicitly"
+  git -C ReSukiSU fetch origin "$requested_ref"
+  git -C ReSukiSU checkout --detach FETCH_HEAD
+fi
+
 actual="$(git -C ReSukiSU rev-parse HEAD)"
-[[ "$actual" == "$RESUKISU_COMMIT" ]] ||
-  die "ReSukiSU commit mismatch: expected $RESUKISU_COMMIT got $actual"
+if [[ "$requested_ref" == "main" ]]; then
+  upstream_main="$(git -C ReSukiSU rev-parse refs/remotes/origin/main)"
+  [[ "$actual" == "$upstream_main" ]] ||
+    die "ReSukiSU main drifted during checkout: HEAD=$actual origin/main=$upstream_main"
+fi
+
+commit_count="$(git -C ReSukiSU rev-list --count HEAD)"
+version_code="$((30000 + commit_count + 700))"
+tag_name="$(git -C ReSukiSU describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
+branch_name="$(git -C ReSukiSU branch --show-current 2>/dev/null || true)"
+[[ -n "$branch_name" ]] || branch_name="detached"
+
 [[ -f ReSukiSU/kernel/Kconfig && -f ReSukiSU/kernel/Makefile ]] ||
   die "ReSukiSU kernel integration files missing"
+
+note "ReSukiSU resolved: ref=$requested_ref branch=$branch_name commit=$actual tag=$tag_name version_code=$version_code"
 
 ln -s "$(realpath --relative-to=common/drivers ReSukiSU/kernel)" common/drivers/kernelsu
 grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile ||
@@ -55,4 +76,4 @@ else
   append_config "$FRAGMENT" '# CONFIG_KSU_TRACEPOINT_HOOK is not set'
 fi
 
-note "ReSukiSU integrated built-in: CONFIG_KSU=y mode=$HOOK_MODE commit=$actual"
+note "ReSukiSU integrated built-in: CONFIG_KSU=y mode=$HOOK_MODE ref=$requested_ref commit=$actual version_code=$version_code"

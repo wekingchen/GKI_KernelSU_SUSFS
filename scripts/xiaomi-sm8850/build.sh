@@ -123,9 +123,17 @@ mv -f "$OUT/final.config.embedded" "$OUT/final.config"
 kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ -n "$kernel_string" ]] || die "Linux version string not found in Image"
 
+resukisu_ref="${XIAOMI_RESUKISU_REF:-$RESUKISU_DEFAULT_REF}"
 resukisu_actual="N/A"
+resukisu_tag="N/A"
+resukisu_version_code="N/A"
 susfs_actual="N/A"
-[[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]] && resukisu_actual="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse HEAD)"
+if [[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]]; then
+  resukisu_actual="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse HEAD)"
+  resukisu_tag="$(git -C "$KERNEL_ROOT/ReSukiSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
+  resukisu_commit_count="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-list --count HEAD)"
+  resukisu_version_code="$((30000 + resukisu_commit_count + 700))"
+fi
 [[ -d "$KERNEL_ROOT/SUSFS/.git" ]] && susfs_actual="$(git -C "$KERNEL_ROOT/SUSFS" rev-parse HEAD)"
 
 cat > "$OUT/build-metadata.txt" <<EOF
@@ -145,7 +153,11 @@ source_common_commit=$SOURCE_COMMON_COMMIT
 kmi_generation=$KMI_GENERATION
 clang_revision=$CLANG_VERSION
 clang_version=$clang_line
+resukisu_requested_ref=$resukisu_ref
 resukisu_commit=$resukisu_actual
+resukisu_tag=$resukisu_tag
+resukisu_version_code=$resukisu_version_code
+resukisu_last_known_good_commit=$RESUKISU_LAST_KNOWN_GOOD_COMMIT
 susfs_commit=$susfs_actual
 kernel_string=$kernel_string
 build_target=$build_target
