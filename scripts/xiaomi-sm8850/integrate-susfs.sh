@@ -44,8 +44,22 @@ if find . -type f -name '*.rej' -print -quit | grep -q .; then
   die "SUSFS produced .rej files"
 fi
 
-for line in   'CONFIG_KSU_SUSFS=y'   'CONFIG_KSU_SUSFS_SUS_PATH=y'   'CONFIG_KSU_SUSFS_SUS_MOUNT=y'   'CONFIG_KSU_SUSFS_SUS_KSTAT=y'   'CONFIG_KSU_SUSFS_SPOOF_UNAME=y'   'CONFIG_KSU_SUSFS_ENABLE_LOG=y'   'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y'   'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y'   'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y'   'CONFIG_KSU_SUSFS_SUS_MAP=y'
-do
+# First-boot diagnostic profile: enable only core SUSFS path/mount/kstat.
+# ReSukiSU defaults most SUSFS subfeatures to y, so optional/experimental
+# features are explicitly disabled instead of relying on Kconfig defaults.
+susfs_configs=(
+  "CONFIG_KSU_SUSFS=y"
+  "CONFIG_KSU_SUSFS_SUS_PATH=y"
+  "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+  "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+  "# CONFIG_KSU_SUSFS_SPOOF_UNAME is not set"
+  "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+  "# CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS is not set"
+  "# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set"
+  "# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set"
+  "# CONFIG_KSU_SUSFS_SUS_MAP is not set"
+)
+for line in "${susfs_configs[@]}"; do
   append_config "$FRAGMENT" "$line"
 done
 
