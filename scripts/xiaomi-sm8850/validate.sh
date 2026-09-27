@@ -15,9 +15,14 @@ OUT="$WORKDIR/output/$DEVICE/$VARIANT"
 IMAGE="$OUT/Image"
 FINAL="$OUT/final.config"
 REPORT="$OUT/validation.txt"
+PROVENANCE="$WORKDIR/source-provenance.env"
 
 [[ -s "$IMAGE" ]] || die "Image missing"
 [[ -s "$FINAL" ]] || die "final.config missing"
+[[ -s "$PROVENANCE" ]] || die "source provenance missing"
+# shellcheck disable=SC1090
+source "$PROVENANCE"
+validate_source_profile "$SOURCE_PROFILE"
 
 kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ "$kernel_string" == *"Linux version $KERNEL_VERSION-android16-5"* ]] ||
@@ -55,8 +60,8 @@ case "$VARIANT" in
 esac
 
 actual_common="$(git -C "$KERNEL_ROOT/common" rev-parse HEAD)"
-[[ "$actual_common" == "$ACK_COMMON_COMMIT" ]] ||
-  die "kernel source commit drifted: $actual_common"
+[[ "$actual_common" == "$SOURCE_COMMON_COMMIT" ]] ||
+  die "kernel source commit drifted: expected $SOURCE_COMMON_COMMIT got $actual_common"
 
 ack_kmi="$(sed -n 's/^KMI_GENERATION=//p' "$KERNEL_ROOT/common/build.config.constants")"
 ack_clang="$(sed -n 's/^CLANG_VERSION=//p' "$KERNEL_ROOT/common/build.config.constants")"
@@ -85,6 +90,10 @@ fi
   echo "PASS"
   echo "device=$DEVICE"
   echo "variant=$VARIANT"
+  echo "source_profile=$SOURCE_PROFILE"
+  echo "source_common_repo=$SOURCE_COMMON_REPO"
+  echo "source_common_ref=$SOURCE_COMMON_REF"
+  echo "source_common_commit=$SOURCE_COMMON_COMMIT"
   echo "arch=arm64"
   echo "android_branch=android16-6.12"
   echo "kernel_version=$KERNEL_VERSION"
