@@ -112,8 +112,121 @@ if truthy "$DROIDSPACES_NTSYNC"; then
   compat_patch="$DEPS/ntsync_compat_android16-6.12.patch"
   curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch     -o "$base_patch"
   curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_compat_android16-6.12.patch     -o "$compat_patch"
-  apply_patch_strict "$base_patch"
-  apply_patch_strict "$compat_patch"
+
+  # Android 16 / 6.12 already ships the NTSync driver and UAPI. The generic
+  # base patch is for older trees and would try to create those files again.
+  if [[ -f "$COMMON/drivers/misc/ntsync.c" && -f "$COMMON/include/uapi/linux/ntsync.h" ]]; then
+    note "NTSync base driver already present in 6.12; skipping ntsync_base.patch"
+  else
+    apply_patch_strict "$base_patch"
+  fi
+
+  if grep -A8 -E '^[[:space:]]*config[[:space:]]+NTSYNCfi
+
+if truthy "$USE_ZRAM"; then
+  note "integrating Gold-family Android 16 / 6.12 LZ4K/LZ4KD ZRAM backend"
+
+  CCTV_FEATURE_REPO="${XIAOMI_CCTV_FEATURE_REPO:-https://github.com/cctv18/oppo_oplus_realme_sm8850.git}"
+  CCTV_FEATURE_REF="${XIAOMI_CCTV_FEATURE_REF:-main}"
+  CCTV_FEATURE_DIR="$DEPS/cctv18-sm8850"
+
+  git clone --depth 1 --branch "$CCTV_FEATURE_REF" "$CCTV_FEATURE_REPO" "$CCTV_FEATURE_DIR"
+  zram_patch_commit="$(git -C "$CCTV_FEATURE_DIR" rev-parse HEAD)"
+  zram_patch="$CCTV_FEATURE_DIR/other_patch/lz4kd.patch"
+  [[ -f "$zram_patch" ]] || die "Gold-family 6.12 LZ4KD patch missing: $zram_patch"
+
+  # The generic SukiSU patch repository currently stops at 6.6. For 6.12,
+  # use the dedicated patch maintained by the same cctv18 SM8850 build family
+  # as our proven Gold baseline. Apply strictly so drift cannot be hidden.
+  apply_patch_strict "$zram_patch"
+
+  for line in     "CONFIG_ZSMALLOC=y"     "CONFIG_ZRAM=y"     "CONFIG_CRYPTO_LZ4HC=y"     "CONFIG_CRYPTO_LZ4K=y"     "CONFIG_CRYPTO_LZ4KD=y"     "CONFIG_CRYPTO_842=y"     "CONFIG_ZRAM_BACKEND_LZ4HC=y"     "CONFIG_ZRAM_BACKEND_LZ4K=y"     "CONFIG_ZRAM_BACKEND_LZ4KD=y"     "CONFIG_ZRAM_BACKEND_842=y"; do
+    append_config "$FRAGMENT" "$line"
+  done
+
+  note "Gold-family 6.12 ZRAM stack integrated commit=$zram_patch_commit"
+fi
+
+if truthy "$USE_BBG"; then
+  note "integrating latest Baseband Guard"
+  (cd "$KERNEL_ROOT" && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash)
+  grep -RqsE '^[[:space:]]*config[[:space:]]+BBG([[:space:]]|$)' "$COMMON" ||
+    die "BBG setup completed but CONFIG_BBG is not declared"
+  append_config "$FRAGMENT" "CONFIG_BBG=y"
+  sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }'     "$COMMON/security/Kconfig"
+fi
+
+if truthy "$USE_NETWORKING"; then
+  note "enabling Android 16 / 6.12 networking feature set (BBR baseline, IPSet, Qdisc, CIFS)"
+  for cfg in CONFIG_IP_SET CONFIG_IP_SET_BITMAP_IP CONFIG_IP_SET_BITMAP_IPMAC     CONFIG_IP_SET_BITMAP_PORT CONFIG_IP_SET_HASH_IP CONFIG_IP_SET_HASH_IPMARK     CONFIG_IP_SET_HASH_IPPORT CONFIG_IP_SET_HASH_IPPORTIP CONFIG_IP_SET_HASH_IPPORTNET     CONFIG_IP_SET_HASH_IPMAC CONFIG_IP_SET_HASH_MAC CONFIG_IP_SET_HASH_NETPORTNET     CONFIG_IP_SET_HASH_NET CONFIG_IP_SET_HASH_NETNET CONFIG_IP_SET_HASH_NETPORT     CONFIG_IP_SET_HASH_NETIFACE CONFIG_IP_SET_LIST_SET CONFIG_NETFILTER_XT_MATCH_ADDRTYPE     CONFIG_NETFILTER_XT_SET CONFIG_NETFILTER_XT_TARGET_LOG CONFIG_NETFILTER_XT_MATCH_RECENT     CONFIG_IP6_NF_NAT CONFIG_IP6_NF_TARGET_MASQUERADE CONFIG_TCP_CONG_ADVANCED     CONFIG_TCP_CONG_BBR CONFIG_TCP_CONG_CUBIC CONFIG_TCP_CONG_BIC CONFIG_TCP_CONG_WESTWOOD     CONFIG_TCP_CONG_HTCP CONFIG_NET_SCH_FQ CONFIG_NET_SCH_FQ_CODEL CONFIG_NET_SCH_CAKE     CONFIG_NET_ACT_CONNMARK CONFIG_IP_NF_TARGET_TTL CONFIG_IP6_NF_TARGET_HL     CONFIG_IP6_NF_MATCH_HL CONFIG_WIREGUARD CONFIG_CIFS CONFIG_NETWORK_FILESYSTEMS     CONFIG_KEYS CONFIG_CIFS_XATTR CONFIG_CIFS_POSIX CONFIG_NETFS_SUPPORT; do
+    enable_if_defined "$cfg"
+  done
+  if config_defined CONFIG_IP_SET_MAX; then append_config "$FRAGMENT" "CONFIG_IP_SET_MAX=65534"; fi
+  if config_defined CONFIG_DEFAULT_BBR; then append_config "$FRAGMENT" "CONFIG_DEFAULT_BBR=y"; fi
+  if config_defined CONFIG_DEFAULT_TCP_CONG; then append_config "$FRAGMENT" 'CONFIG_DEFAULT_TCP_CONG="bbr"'; fi
+fi
+
+if truthy "$USE_REKERNEL"; then
+  note "integrating latest Re-Kernel as built-in driver"
+  git clone --depth 1 https://github.com/Sakion-Team/Re-Kernel.git "$DEPS/Re-Kernel"
+  rekernel_commit="$(git -C "$DEPS/Re-Kernel" rev-parse HEAD)"
+  rm -rf "$COMMON/drivers/rekernel"
+  mkdir -p "$COMMON/drivers/rekernel"
+  cp -a "$DEPS/Re-Kernel/LKM-Source/." "$COMMON/drivers/rekernel/"
+
+  sed -i 's/^obj-m := rekernel\.o$/obj-$(CONFIG_REKERNEL) += rekernel.o/' "$COMMON/drivers/rekernel/Makefile"
+  grep -qF 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' "$COMMON/drivers/rekernel/Makefile" ||
+    echo 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' >> "$COMMON/drivers/rekernel/Makefile"
+  sed -i '/^[[:space:]]*depends on MODULES[[:space:]]*$/d' "$COMMON/drivers/rekernel/Kconfig"
+
+  if ! grep -qF 'source "drivers/rekernel/Kconfig"' "$COMMON/drivers/Kconfig"; then
+    python3 - "$COMMON/drivers/Kconfig" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text(); i=s.rfind("\nendmenu")
+if i < 0: raise SystemExit("drivers/Kconfig final endmenu not found")
+p.write_text(s[:i]+'\nsource "drivers/rekernel/Kconfig"\n'+s[i:])
+PY
+  fi
+  grep -qF 'obj-$(CONFIG_REKERNEL) += rekernel/' "$COMMON/drivers/Makefile" ||
+    echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> "$COMMON/drivers/Makefile"
+  sed -i 's|#include <../android/binder_internal.h>|#include "../android/binder_internal.h"|g'     "$COMMON/drivers/rekernel/rekernel_binder.c"
+  grep -qF '#include <linux/seq_file.h>' "$COMMON/drivers/rekernel/rekernel_binder.c" ||
+    sed -i '/#include <linux\/kprobes.h>/a #include <linux/seq_file.h>' "$COMMON/drivers/rekernel/rekernel_binder.c"
+  append_config "$FRAGMENT" "CONFIG_REKERNEL=y"
+  append_config "$FRAGMENT" "CONFIG_REKERNEL_NETWORK=y"
+  note "Re-Kernel integrated commit=$rekernel_commit"
+fi
+
+if truthy "$USE_CVE"; then
+  sublevel="$(awk -F= '/^SUBLEVEL[[:space:]]*=/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$COMMON/Makefile")"
+  [[ "$sublevel" =~ ^[0-9]+$ ]] || die "unable to resolve kernel SUBLEVEL for CVE patch"
+  note "applying repository CVE-2026-43499/CVE-2026-53163 chain to 6.12.$sublevel"
+  (cd "$COMMON" && bash "$XIAOMI_REPO_ROOT/security_patch/apply_cve_2026_43499.sh"     "6.12" "$sublevel" "$XIAOMI_REPO_ROOT/security_patch")
+fi
+
+cat > "$PROVENANCE" <<EOF
+feature_use_zram=$USE_ZRAM
+feature_zram_patch_commit=$zram_patch_commit
+feature_use_bbg=$USE_BBG
+feature_use_kpm=$USE_KPM
+feature_use_rekernel=$USE_REKERNEL
+feature_rekernel_commit=$rekernel_commit
+feature_use_nomount=$USE_NOMOUNT
+feature_nomount_commit=$nomount_commit
+feature_use_networking=$USE_NETWORKING
+feature_cve_2026_43499_patch=$USE_CVE
+feature_droidspaces=$DROIDSPACES
+feature_droidspaces_commit=$droidspaces_commit
+feature_droidspaces_ntsync=$DROIDSPACES_NTSYNC
+EOF
+
+note "optional feature integration complete"
+ "$COMMON/drivers/misc/Kconfig" | grep -q 'depends on BROKEN'; then
+    apply_patch_strict "$compat_patch"
+  else
+    note "NTSync Kconfig is already enabled/compatible; skipping compat patch"
+  fi
   append_config "$FRAGMENT" "CONFIG_NTSYNC=y"
 fi
 

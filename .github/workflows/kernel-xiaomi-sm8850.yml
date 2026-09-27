@@ -314,7 +314,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: Xiaomi-SM8850-${{ inputs.device }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3
-          path: xiaomi-sm8850-work/custom/output/${{ inputs.device }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
+          path: ${{ env.XIAOMI_WORKDIR }}/output/${{ inputs.device }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -325,13 +325,13 @@ jobs:
         with:
           name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
           path: |
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/final.config
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/build-metadata.txt
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/validation.txt
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/SHA256SUMS
-            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/final.config
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/build-metadata.txt
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/validation.txt
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/SHA256SUMS
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
