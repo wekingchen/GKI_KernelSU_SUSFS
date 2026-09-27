@@ -14,14 +14,17 @@ rm -rf "$KERNEL_ROOT"
 mkdir -p "$KERNEL_ROOT"
 cd "$KERNEL_ROOT"
 
-note "initializing pinned ACK manifest tooling snapshot"
-repo init --depth=1   -u "$ACK_MANIFEST_URL"   -b "$ACK_MANIFEST_BRANCH"   --repo-rev="$ACK_MANIFEST_COMMIT"
+note "initializing ACK manifest branch"
+repo init --depth=1 -u "$ACK_MANIFEST_URL" -b "$ACK_MANIFEST_BRANCH" --repo-rev=v2.16
 
+note "pinning manifest repository to $ACK_MANIFEST_COMMIT"
+git -C .repo/manifests fetch --depth=1 origin "$ACK_MANIFEST_COMMIT"
+git -C .repo/manifests checkout --detach "$ACK_MANIFEST_COMMIT"
 actual_manifest="$(git -C .repo/manifests rev-parse HEAD)"
 [[ "$actual_manifest" == "$ACK_MANIFEST_COMMIT" ]] ||
   die "manifest commit mismatch: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
 
-note "syncing ACK build tree"
+note "syncing ACK build tree from pinned manifest"
 repo sync -c --force-sync --no-clone-bundle --no-tags -j4
 
 note "pinning common to $ACK_COMMON_REF / $ACK_COMMON_COMMIT"
