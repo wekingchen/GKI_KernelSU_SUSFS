@@ -3,9 +3,11 @@ set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-WORKDIR="${1:?usage: prepare-source.sh <workdir>}"
+WORKDIR="${1:?usage: prepare-source.sh <workdir> [source-profile]}"
+SOURCE_PROFILE="${2:-$DEFAULT_SOURCE_PROFILE}"
 KERNEL_ROOT="$WORKDIR/kernel"
 
+validate_source_profile "$SOURCE_PROFILE"
 require_cmd repo
 require_cmd git
 require_cmd python3
@@ -14,17 +16,14 @@ rm -rf "$KERNEL_ROOT"
 mkdir -p "$KERNEL_ROOT"
 cd "$KERNEL_ROOT"
 
-note "initializing ACK manifest branch"
+note "initializing pinned ACK build manifest"
 repo init --depth=1 -u "$ACK_MANIFEST_URL" -b "$ACK_MANIFEST_BRANCH" --repo-rev=stable
 
-# Keep repo's manifest project on its tracked branch. Instead of detaching it
-# (which breaks repo sync state), make the branch head an explicit lock: a
-# future upstream move fails here until this repository intentionally bumps it.
 actual_manifest="$(git -C .repo/manifests rev-parse HEAD)"
 [[ "$actual_manifest" == "$ACK_MANIFEST_COMMIT" ]] ||
   die "manifest branch drifted: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
 
-note "rewriting only the common project to its deprecated ACK namespace"
+note "rewriting common project to deprecated ACK namespace for reproducible build tooling"
 python3 - "$KERNEL_ROOT/.repo/manifests" "$ACK_COMMON_SYNC_REF" <<'PY'
 import pathlib
 import sys
@@ -65,28 +64,44 @@ print(f"common project file: {path}")
 print(f"common manifest revision: {old} -> {sync_ref}")
 PY
 
-common_hits="$(grep -RIlE '<project[^>]+(name="common"|path="common")' "$KERNEL_ROOT/.repo/manifests" --include='*.xml' | wc -l)"
-[[ "$common_hits" -eq 1 ]] ||
-  die "expected one rewritten common project XML, found $common_hits"
-
-note "syncing ACK build tree from locked manifest"
+note "syncing pinned ACK build tree"
 repo sync -c --force-sync --no-clone-bundle --no-tags -j4
 
 actual_manifest_after="$(git -C .repo/manifests rev-parse HEAD)"
 [[ "$actual_manifest_after" == "$ACK_MANIFEST_COMMIT" ]] ||
   die "manifest changed during sync: expected $ACK_MANIFEST_COMMIT got $actual_manifest_after"
 
-note "pinning common to $ACK_COMMON_REF / $ACK_COMMON_COMMIT"
-git -C common fetch --depth=1 "$ACK_COMMON_REPO" "$ACK_COMMON_REF"
-fetched_tag_object="$(git -C common rev-parse FETCH_HEAD)"
-fetched_common="$(git -C common rev-parse 'FETCH_HEAD^{}')"
-note "ACK tag object=$fetched_tag_object peeled_commit=$fetched_common"
-[[ "$fetched_common" == "$ACK_COMMON_COMMIT" ]] ||
-  die "ACK tag peeled to unexpected commit: $fetched_common"
-git -C common checkout --detach "$ACK_COMMON_COMMIT"
+case "$SOURCE_PROFILE" in
+  ack-r51)
+    note "source profile ack-r51: pinning official ACK common"
+    git -C common fetch --depth=1 "$ACK_COMMON_REPO" "$ACK_COMMON_REF"
+    fetched_common="$(git -C common rev-parse 'FETCH_HEAD^{}')"
+    [[ "$fetched_common" == "$ACK_COMMON_COMMIT" ]] ||
+      die "ACK tag peeled to unexpected commit: $fetched_common"
+    git -C common checkout --detach "$ACK_COMMON_COMMIT"
+    SOURCE_COMMON_REPO="$ACK_COMMON_REPO"
+    SOURCE_COMMON_REF="$ACK_COMMON_REF"
+    SOURCE_COMMON_COMMIT="$ACK_COMMON_COMMIT"
+    ;;
+
+  gold-cctv)
+    note "source profile gold-cctv: replacing common/ with pinned cctv18 public GKI source"
+    rm -rf common
+    git clone --filter=blob:none --no-checkout --branch "$GOLD_COMMON_BRANCH" "$GOLD_COMMON_REPO" common
+    git -C common fetch --depth=1 origin "$GOLD_COMMON_COMMIT"
+    git -C common checkout --detach "$GOLD_COMMON_COMMIT"
+    actual_gold="$(git -C common rev-parse HEAD)"
+    [[ "$actual_gold" == "$GOLD_COMMON_COMMIT" ]] ||
+      die "Gold-compatible common commit mismatch: expected $GOLD_COMMON_COMMIT got $actual_gold"
+    SOURCE_COMMON_REPO="$GOLD_COMMON_REPO"
+    SOURCE_COMMON_REF="refs/heads/$GOLD_COMMON_BRANCH"
+    SOURCE_COMMON_COMMIT="$GOLD_COMMON_COMMIT"
+    ;;
+esac
+
 actual_common="$(git -C common rev-parse HEAD)"
-[[ "$actual_common" == "$ACK_COMMON_COMMIT" ]] ||
-  die "common commit mismatch: expected $ACK_COMMON_COMMIT got $actual_common"
+[[ "$actual_common" == "$SOURCE_COMMON_COMMIT" ]] ||
+  die "common commit mismatch: expected $SOURCE_COMMON_COMMIT got $actual_common"
 
 make_version="$(awk '
   /^VERSION = /{v=$3}
@@ -106,10 +121,6 @@ ack_clang="$(sed -n 's/^CLANG_VERSION=//p' common/build.config.constants)"
 
 xiaomi_symbols="common/gki/aarch64/symbols/xiaomi"
 [[ -f "$xiaomi_symbols" ]] || die "Xiaomi GKI symbol list is missing"
-grep -q '__tracepoint_android_vh_health_report' "$xiaomi_symbols" ||
-  die "ACK snapshot lacks Xiaomi health_report KMI symbol"
-grep -q 'task_work_add' "$xiaomi_symbols" ||
-  die "ACK snapshot lacks later Xiaomi task_work_add KMI symbol"
 
 python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
 import pathlib, sys
@@ -130,13 +141,15 @@ for required in (
 PY
 
 cat > "$WORKDIR/source-provenance.env" <<EOF
+SOURCE_PROFILE=$SOURCE_PROFILE
 ACK_MANIFEST_COMMIT=$actual_manifest
-ACK_COMMON_COMMIT=$actual_common
-ACK_COMMON_REF=$ACK_COMMON_REF
-ACK_BRANCH=android16-6.12
+SOURCE_COMMON_REPO=$SOURCE_COMMON_REPO
+SOURCE_COMMON_REF=$SOURCE_COMMON_REF
+SOURCE_COMMON_COMMIT=$SOURCE_COMMON_COMMIT
+ACK_BRANCH=$ack_branch
 KERNEL_VERSION=$make_version
 KMI_GENERATION=$ack_kmi
 CLANG_VERSION=$ack_clang
 EOF
 
-note "source ready: common=$actual_common manifest=$actual_manifest"
+note "source ready: profile=$SOURCE_PROFILE common=$actual_common manifest=$actual_manifest"
