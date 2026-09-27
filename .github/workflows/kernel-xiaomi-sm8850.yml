@@ -8,6 +8,14 @@ on:
       - ".github/workflows/kernel-xiaomi-sm8850.yml"
       - ".github/config/xiaomi-sm8850-android16-6.12.23.env"
       - "scripts/xiaomi-sm8850/**"
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/kernel-xiaomi-sm8850.yml"
+      - ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+      - "scripts/xiaomi-sm8850/**"
+      - "docs/xiaomi-sm8850.md"
   workflow_dispatch:
     inputs:
       device:
