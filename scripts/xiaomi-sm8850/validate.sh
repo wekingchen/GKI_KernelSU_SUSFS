@@ -25,6 +25,7 @@ source "$PROVENANCE"
 validate_source_profile "$SOURCE_PROFILE"
 
 kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
+kernel_release="$(awk '{print $3}' <<<"$kernel_string")"
 [[ "$kernel_string" == *"Linux version $KERNEL_VERSION-android16-5"* ]] ||
   die "unexpected kernel release: $kernel_string"
 [[ "$kernel_string" == *"-4k"* ]] ||
@@ -74,6 +75,9 @@ case "$SOURCE_BUILD_MODE" in
       die "make-image mode is only expected for gold-cctv"
     grep -qx "CONFIG_LOCALVERSION=\"$GOLD_KERNEL_LOCALVERSION\"" "$FINAL" ||
       die "Gold Image localversion is not deterministic"
+    expected_gold_release="$KERNEL_VERSION$GOLD_KERNEL_LOCALVERSION"
+    [[ "$kernel_release" == "$expected_gold_release" ]] ||
+      die "Gold kernel release mismatch: expected $expected_gold_release got $kernel_release"
     config_is_not_y "$FINAL" CONFIG_LOCALVERSION_AUTO ||
       die "Gold make path unexpectedly enables CONFIG_LOCALVERSION_AUTO"
     config_is_not_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
@@ -132,6 +136,7 @@ fi
     echo "module_scmversion=n"
   fi
   echo "kmi_guardrails=$kmi_guardrail_report"
+  echo "kernel_release=$kernel_release"
   echo "kernel_string=$kernel_string"
   if [[ "$VARIANT" != base ]]; then
     echo "resukisu_builtin=y"
