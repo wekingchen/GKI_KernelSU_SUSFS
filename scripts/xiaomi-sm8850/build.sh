@@ -13,7 +13,7 @@ validate_variant "$VARIANT"
 OUT="$WORKDIR/output/$DEVICE/$VARIANT"
 mkdir -p "$OUT"
 
-"$XIAOMI_SCRIPT_DIR/prepare-source.sh" "$WORKDIR"
+bash "$XIAOMI_SCRIPT_DIR/prepare-source.sh" "$WORKDIR"
 KERNEL_ROOT="$WORKDIR/kernel"
 FRAGMENT="$KERNEL_ROOT/common/arch/arm64/configs/xiaomi_sm8850.fragment"
 : > "$FRAGMENT"
@@ -24,12 +24,12 @@ case "$VARIANT" in
     ;;
   resukisu)
     note "Variant B: ACK base + ReSukiSU built-in (tracepoint)"
-    "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" tracepoint "$FRAGMENT"
+    bash "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" tracepoint "$FRAGMENT"
     ;;
   resukisu-susfs)
     note "Variant C: ACK base + ReSukiSU built-in + SUSFS"
-    "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" susfs "$FRAGMENT"
-    "$XIAOMI_SCRIPT_DIR/integrate-susfs.sh" "$KERNEL_ROOT" "$FRAGMENT"
+    bash "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" susfs "$FRAGMENT"
+    bash "$XIAOMI_SCRIPT_DIR/integrate-susfs.sh" "$KERNEL_ROOT" "$FRAGMENT"
     ;;
 esac
 
@@ -106,8 +106,8 @@ kmi_enforced=true
 kmi_symbol_list_strict_mode=true
 EOF
 
-"$XIAOMI_SCRIPT_DIR/validate.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
-"$XIAOMI_SCRIPT_DIR/package-anykernel3.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
+bash "$XIAOMI_SCRIPT_DIR/validate.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
+bash "$XIAOMI_SCRIPT_DIR/package-anykernel3.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
 
 sha256sum "$OUT/Image" "$OUT"/*.zip > "$OUT/SHA256SUMS"
 note "build complete: $OUT"
