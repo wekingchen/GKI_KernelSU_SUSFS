@@ -25,42 +25,49 @@ actual_manifest="$(git -C .repo/manifests rev-parse HEAD)"
   die "manifest branch drifted: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
 
 note "rewriting only the common project to its deprecated ACK namespace"
-python3 - "$KERNEL_ROOT/.repo/manifest.xml" "$ACK_COMMON_SYNC_REF" <<'PY'
+python3 - "$KERNEL_ROOT/.repo/manifests" "$ACK_COMMON_SYNC_REF" <<'PY'
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
 
-manifest_link = pathlib.Path(sys.argv[1])
+manifest_dir = pathlib.Path(sys.argv[1])
 sync_ref = sys.argv[2]
-
-# .repo/manifest.xml is the effective manifest symlink selected by repo init.
-target = manifest_link.resolve()
-tree = ET.parse(target)
-root = tree.getroot()
+expected = "android16-6.12-2025-06"
 
 matches = []
-for project in root.iter("project"):
-    name = project.get("name")
-    path = project.get("path")
-    if name == "common" or path == "common":
-        matches.append(project)
+for path in sorted(manifest_dir.rglob("*.xml")):
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError:
+        continue
+    root = tree.getroot()
+    for project in root.iter("project"):
+        name = project.get("name")
+        proj_path = project.get("path")
+        if name == "common" or proj_path == "common":
+            matches.append((path, tree, project))
 
 if len(matches) != 1:
-    raise SystemExit(f"expected exactly one common project, found {len(matches)} in {target}")
+    details = ", ".join(str(m[0]) for m in matches)
+    raise SystemExit(
+        f"expected exactly one common project, found {len(matches)}"
+        + (f": {details}" if details else "")
+    )
 
-project = matches[0]
+path, tree, project = matches[0]
 old = project.get("revision")
-expected = "android16-6.12-2025-06"
 if old not in (expected, sync_ref):
-    raise SystemExit(f"unexpected common manifest revision: {old!r}")
+    raise SystemExit(f"unexpected common manifest revision in {path}: {old!r}")
+
 project.set("revision", sync_ref)
-tree.write(target, encoding="utf-8", xml_declaration=True)
+tree.write(path, encoding="utf-8", xml_declaration=True)
+print(f"common project file: {path}")
 print(f"common manifest revision: {old} -> {sync_ref}")
 PY
 
-# Prove that repo sees the rewritten effective manifest before downloading.
-grep -nE 'project[^>]+(name="common"|path="common")' "$KERNEL_ROOT/.repo/manifest.xml" ||
-  die "unable to verify rewritten common project in effective manifest"
+common_hits="$(grep -RIlE '<project[^>]+(name="common"|path="common")' "$KERNEL_ROOT/.repo/manifests" --include='*.xml' | wc -l)"
+[[ "$common_hits" -eq 1 ]] ||
+  die "expected one rewritten common project XML, found $common_hits"
 
 note "syncing ACK build tree from locked manifest"
 repo sync -c --force-sync --no-clone-bundle --no-tags -j4
