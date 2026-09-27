@@ -111,11 +111,16 @@ concurrency:
 
 jobs:
   build:
-    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / custom"
+    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / ${{ matrix.profile }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","susfs-extra","zram","bbg","rekernel","nomount","networking","droidspaces","droidspaces-ntsync","cve"]' || '["custom"]') }}
     env:
-      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
+      XIAOMI_CI_PROFILE: ${{ matrix.profile }}
+      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.profile }}
       XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
       XIAOMI_ROOT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.root_mode || 'resukisu-susfs' }}
       XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name == 'workflow_dispatch' && inputs.susfs_extra_features || false }}
@@ -196,6 +201,50 @@ jobs:
               print("Upstream custom inputs: no unmapped feature switches detected.")
           PY
 
+      - name: Configure PR feature smoke profile
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile="${{ matrix.profile }}"
+          case "$profile" in
+            baseline)
+              ;;
+            susfs-extra)
+              echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
+              ;;
+            zram)
+              echo "XIAOMI_USE_ZRAM=true" >> "$GITHUB_ENV"
+              ;;
+            bbg)
+              echo "XIAOMI_USE_BBG=true" >> "$GITHUB_ENV"
+              ;;
+            rekernel)
+              echo "XIAOMI_USE_REKERNEL=true" >> "$GITHUB_ENV"
+              ;;
+            nomount)
+              echo "XIAOMI_USE_NOMOUNT=true" >> "$GITHUB_ENV"
+              ;;
+            networking)
+              echo "XIAOMI_USE_NETWORKING=true" >> "$GITHUB_ENV"
+              ;;
+            droidspaces)
+              echo "XIAOMI_DROIDSPACES=on" >> "$GITHUB_ENV"
+              ;;
+            droidspaces-ntsync)
+              echo "XIAOMI_DROIDSPACES=on" >> "$GITHUB_ENV"
+              echo "XIAOMI_DROIDSPACES_NTSYNC=true" >> "$GITHUB_ENV"
+              ;;
+            cve)
+              echo "XIAOMI_CVE_2026_43499_PATCH=true" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::unknown PR smoke profile: $profile"
+              exit 1
+              ;;
+          esac
+          echo "PR smoke profile: $profile"
+
       - name: Resolve custom selection
         shell: bash
         run: |
@@ -244,6 +293,7 @@ jobs:
             echo
             echo "- Device: ${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}"
             echo "- Source: $XIAOMI_SOURCE_PROFILE"
+            echo "- CI / custom profile: $XIAOMI_CI_PROFILE"
             echo "- Root mode: $XIAOMI_ROOT_MODE"
             echo "- Variant backend: $XIAOMI_VARIANT"
             echo "- Expected kernel: 6.12.23 / android16-5 / 4K"
@@ -270,10 +320,10 @@ jobs:
           compression-level: 0
 
       - name: Upload full build
-        if: success() && (github.event_name != 'workflow_dispatch' || inputs.artifact_upload_mode == '上传全部')
+        if: success() && ((github.event_name == 'pull_request' && matrix.profile == 'baseline') || (github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '上传全部'))
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ env.XIAOMI_VARIANT }}-6.12.23
+          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
           path: |
             xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image
             xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
