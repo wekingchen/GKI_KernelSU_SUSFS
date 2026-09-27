@@ -28,7 +28,7 @@ kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ "$kernel_string" == *"Linux version $KERNEL_VERSION-android16-5"* ]] ||
   die "unexpected kernel release: $kernel_string"
 [[ "$kernel_string" == *"-4k"* ]] ||
-  die "kernel release does not advertise 4K page-size suffix: $kernel_string"
+  die "kernel release does not advertise 4K suffix: $kernel_string"
 
 for key in CONFIG_ARM64 CONFIG_MODVERSIONS CONFIG_GENDWARFKSYMS CONFIG_MODULE_SCMVERSION CONFIG_CFI_CLANG; do
   config_is_y "$FINAL" "$key" || die "$key is not enabled in final Image"
@@ -68,7 +68,18 @@ ack_clang="$(sed -n 's/^CLANG_VERSION=//p' "$KERNEL_ROOT/common/build.config.con
 [[ "$ack_kmi" == "$KMI_GENERATION" ]] || die "KMI generation mismatch: $ack_kmi"
 [[ "$ack_clang" == "$CLANG_VERSION" ]] || die "clang revision mismatch: $ack_clang"
 
-python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
+case "$SOURCE_BUILD_MODE" in
+  make-image)
+    [[ "$SOURCE_PROFILE" == "gold-cctv" ]] ||
+      die "make-image mode is only expected for gold-cctv"
+    grep -qx "CONFIG_LOCALVERSION=\"$GOLD_KERNEL_LOCALVERSION\"" "$FINAL" ||
+      die "Gold Image localversion is not deterministic"
+    kmi_guardrail_report="make-image: MODVERSIONS+GENDWARFKSYMS; Kleaf KMI enforcement not invoked"
+    ;;
+  kleaf-dist)
+    [[ "$SOURCE_PROFILE" == "ack-r51" ]] ||
+      die "kleaf-dist mode is only expected for ack-r51"
+    python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
@@ -80,6 +91,12 @@ for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "t
     if required not in chunk:
         raise SystemExit(f"KMI guardrail missing after integration: {required}")
 PY
+    kmi_guardrail_report="kleaf-strict"
+    ;;
+  *)
+    die "unknown source build mode: $SOURCE_BUILD_MODE"
+    ;;
+esac
 
 if find "$KERNEL_ROOT/common" -type f -name '*.rej' -print -quit | grep -q .; then
   find "$KERNEL_ROOT/common" -type f -name '*.rej' -print >&2
@@ -91,6 +108,8 @@ fi
   echo "device=$DEVICE"
   echo "variant=$VARIANT"
   echo "source_profile=$SOURCE_PROFILE"
+  echo "source_build_mode=$SOURCE_BUILD_MODE"
+  echo "source_kmi_mode=$SOURCE_KMI_MODE"
   echo "source_common_repo=$SOURCE_COMMON_REPO"
   echo "source_common_ref=$SOURCE_COMMON_REF"
   echo "source_common_commit=$SOURCE_COMMON_COMMIT"
@@ -102,8 +121,7 @@ fi
   echo "modversions=y"
   echo "gendwarfksyms=y"
   echo "module_scmversion=y"
-  echo "kmi_enforced=true"
-  echo "kmi_symbol_list_strict_mode=true"
+  echo "kmi_guardrails=$kmi_guardrail_report"
   echo "kernel_string=$kernel_string"
   if [[ "$VARIANT" != base ]]; then
     echo "resukisu_builtin=y"
