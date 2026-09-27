@@ -136,7 +136,7 @@ jobs:
         profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","susfs-extra","zram","bbg","rekernel","nomount","networking","droidspaces","droidspaces-ntsync","cve"]' || '["custom"]') }}
     env:
       XIAOMI_CI_PROFILE: ${{ matrix.profile }}
-      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.profile }}
+      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
       XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
       XIAOMI_ROOT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.root_mode || 'resukisu-susfs' }}
       XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name == 'workflow_dispatch' && inputs.susfs_extra_features || false }}
