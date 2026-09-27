@@ -64,7 +64,7 @@ case "$SOURCE_PROFILE" in
     verify_common_constants "$KERNEL_ROOT/common"
 
     note "downloading the same r536225 standalone toolchain family used by cctv18"
-    mkdir -p gold-toolchain/clang19 gold-toolchain/rust gold-toolchain/build-tools
+    mkdir -p gold-toolchain/clang19 gold-toolchain/rust
 
     download_asset() {
       local name="$1" out="$2"
@@ -80,7 +80,10 @@ case "$SOURCE_PROFILE" in
 
     unzip -q "$KERNEL_ROOT/gold-toolchain/clang.zip" -d "$KERNEL_ROOT/gold-toolchain/clang19"
     unzip -q "$KERNEL_ROOT/gold-toolchain/rust.zip" -d "$KERNEL_ROOT/gold-toolchain/rust"
-    unzip -q "$KERNEL_ROOT/gold-toolchain/build-tools.zip" -d "$KERNEL_ROOT/gold-toolchain/build-tools"
+    # cctv18's build-tools.zip already contains a top-level build-tools/
+    # directory. Extract it at TOOLROOT, otherwise we end up with
+    # build-tools/build-tools/bin and silently fall back to host tools.
+    unzip -q "$KERNEL_ROOT/gold-toolchain/build-tools.zip" -d "$KERNEL_ROOT/gold-toolchain"
     rm -f "$KERNEL_ROOT/gold-toolchain/"*.zip
 
     [[ -x "$KERNEL_ROOT/gold-toolchain/clang19/bin/clang" ]] ||
@@ -89,6 +92,10 @@ case "$SOURCE_PROFILE" in
       die "Gold rust bundle missing rustc"
     [[ -x "$KERNEL_ROOT/gold-toolchain/rust/bin/bindgen" ]] ||
       die "Gold rust bundle missing bindgen"
+    [[ -d "$KERNEL_ROOT/gold-toolchain/build-tools/bin" ]] ||
+      die "Gold build-tools bundle extracted to unexpected layout"
+    [[ -x "$KERNEL_ROOT/gold-toolchain/build-tools/bin/pahole" ]] ||
+      die "Gold build-tools bundle missing pahole"
 
     clang_line="$("$KERNEL_ROOT/gold-toolchain/clang19/bin/clang" --version | head -n1)"
     [[ "$clang_line" == *"14043575"* && "$clang_line" == *"clang version 19.0.1"* ]] ||
