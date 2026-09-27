@@ -322,7 +322,7 @@ jobs:
           compression-level: 0
 
       - name: Upload full build
-        if: success() && ((github.event_name == 'pull_request' && matrix.profile == 'baseline') || (github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '上传全部'))
+        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '上传全部'))
         uses: actions/upload-artifact@v6
         with:
           name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
