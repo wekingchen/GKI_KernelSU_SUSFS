@@ -45,9 +45,11 @@ case "$VARIANT" in
   resukisu-susfs)
     config_is_y "$FINAL" CONFIG_KSU || die "Variant C missing CONFIG_KSU=y"
     config_is_y "$FINAL" CONFIG_KSU_SUSFS || die "Variant C missing CONFIG_KSU_SUSFS=y"
-    for key in       CONFIG_KSU_SUSFS_SUS_PATH       CONFIG_KSU_SUSFS_SUS_MOUNT       CONFIG_KSU_SUSFS_SUS_KSTAT       CONFIG_KSU_SUSFS_SPOOF_UNAME       CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS       CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG       CONFIG_KSU_SUSFS_OPEN_REDIRECT       CONFIG_KSU_SUSFS_SUS_MAP
-    do
+    for key in CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_ENABLE_LOG; do
       config_is_y "$FINAL" "$key" || die "Variant C missing $key"
+    done
+    for key in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
+      config_is_not_y "$FINAL" "$key" || die "Variant C unexpectedly enables optional first-boot feature $key"
     done
     ;;
 esac
