@@ -54,11 +54,59 @@ case "$VARIANT" in
     for key in CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_ENABLE_LOG; do
       config_is_y "$FINAL" "$key" || die "Variant C missing $key"
     done
-    for key in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
-      config_is_not_y "$FINAL" "$key" || die "Variant C unexpectedly enables optional first-boot feature $key"
-    done
+    if [[ "${XIAOMI_SUSFS_EXTRA_FEATURES:-false}" == "true" ]]; then
+      for key in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
+        config_is_y "$FINAL" "$key" || die "SUSFS extra features requested but missing $key"
+      done
+    else
+      for key in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
+        config_is_not_y "$FINAL" "$key" || die "Variant C unexpectedly enables optional first-boot feature $key"
+      done
+    fi
     ;;
 esac
+
+truthy_feature() {
+  case "${1,,}" in
+    true|1|yes|on|enabled|"enabled (开启)") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if truthy_feature "${XIAOMI_USE_KPM:-disabled}"; then
+  config_is_y "$FINAL" CONFIG_KPM || die "KPM requested but final Image lacks CONFIG_KPM=y"
+fi
+if truthy_feature "${XIAOMI_USE_ZRAM:-false}"; then
+  config_is_y "$FINAL" CONFIG_ZRAM || die "ZRAM requested but CONFIG_ZRAM=y is missing"
+  config_is_y "$FINAL" CONFIG_ZSMALLOC || die "ZRAM requested but CONFIG_ZSMALLOC=y is missing"
+fi
+if truthy_feature "${XIAOMI_USE_BBG:-false}"; then
+  config_is_y "$FINAL" CONFIG_BBG || die "BBG requested but CONFIG_BBG=y is missing"
+fi
+if truthy_feature "${XIAOMI_USE_REKERNEL:-false}"; then
+  config_is_y "$FINAL" CONFIG_REKERNEL || die "Re-Kernel requested but CONFIG_REKERNEL=y is missing"
+  config_is_y "$FINAL" CONFIG_REKERNEL_NETWORK || die "Re-Kernel networking requested but config is missing"
+fi
+if truthy_feature "${XIAOMI_USE_NOMOUNT:-false}"; then
+  config_is_y "$FINAL" CONFIG_NOMOUNT || die "NoMount requested but CONFIG_NOMOUNT=y is missing"
+fi
+if [[ "${XIAOMI_DROIDSPACES:-off}" != "off" ]]; then
+  for key in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
+    config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key"
+  done
+fi
+if truthy_feature "${XIAOMI_DROIDSPACES_NTSYNC:-false}"; then
+  config_is_y "$FINAL" CONFIG_NTSYNC || die "NTSync requested but CONFIG_NTSYNC=y is missing"
+fi
+if truthy_feature "${XIAOMI_USE_NETWORKING:-false}"; then
+  config_is_y "$FINAL" CONFIG_TCP_CONG_BBR || die "networking requested but CONFIG_TCP_CONG_BBR=y is missing"
+  config_is_y "$FINAL" CONFIG_IP_SET || die "networking requested but CONFIG_IP_SET=y is missing"
+  config_is_y "$FINAL" CONFIG_CIFS || die "networking requested but CONFIG_CIFS=y is missing"
+fi
+if truthy_feature "${XIAOMI_CVE_2026_43499_PATCH:-false}"; then
+  grep -q 'struct task_struct \*waiter_task = waiter->task;' "$KERNEL_ROOT/common/kernel/locking/rtmutex.c" ||
+    die "CVE patch requested but rtmutex fix marker is missing"
+fi
 
 actual_common="$(git -C "$KERNEL_ROOT/common" rev-parse HEAD)"
 [[ "$actual_common" == "$SOURCE_COMMON_COMMIT" ]] ||
@@ -143,5 +191,15 @@ fi
   fi
   if [[ "$VARIANT" == resukisu-susfs ]]; then
     echo "susfs=y"
+    echo "susfs_extra_features=${XIAOMI_SUSFS_EXTRA_FEATURES:-false}"
   fi
+  echo "feature_use_zram=${XIAOMI_USE_ZRAM:-false}"
+  echo "feature_use_bbg=${XIAOMI_USE_BBG:-false}"
+  echo "feature_use_kpm=${XIAOMI_USE_KPM:-disabled}"
+  echo "feature_use_rekernel=${XIAOMI_USE_REKERNEL:-false}"
+  echo "feature_use_nomount=${XIAOMI_USE_NOMOUNT:-false}"
+  echo "feature_use_networking=${XIAOMI_USE_NETWORKING:-false}"
+  echo "feature_cve_2026_43499_patch=${XIAOMI_CVE_2026_43499_PATCH:-false}"
+  echo "feature_droidspaces=${XIAOMI_DROIDSPACES:-off}"
+  echo "feature_droidspaces_ntsync=${XIAOMI_DROIDSPACES_NTSYNC:-false}"
 } | tee "$REPORT"

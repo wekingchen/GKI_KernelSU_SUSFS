@@ -67,15 +67,23 @@ susfs_configs=(
   "CONFIG_KSU_SUSFS_SUS_PATH=y"
   "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
   "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-  "# CONFIG_KSU_SUSFS_SPOOF_UNAME is not set"
   "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-  "# CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS is not set"
-  "# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set"
-  "# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set"
-  "# CONFIG_KSU_SUSFS_SUS_MAP is not set"
 )
 for line in "${susfs_configs[@]}"; do
   append_config "$FRAGMENT" "$line"
 done
+
+# Keep the proven #63 core profile as the default. The extra switches mirror
+# the generic custom workflow but remain opt-in until they receive their own
+# pandora device validation.
+if [[ "${XIAOMI_SUSFS_EXTRA_FEATURES:-false}" == "true" ]]; then
+  for line in     "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"     "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"     "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"     "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"     "CONFIG_KSU_SUSFS_SUS_MAP=y"; do
+    append_config "$FRAGMENT" "$line"
+  done
+else
+  for line in     "# CONFIG_KSU_SUSFS_SPOOF_UNAME is not set"     "# CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS is not set"     "# CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG is not set"     "# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set"     "# CONFIG_KSU_SUSFS_SUS_MAP is not set"; do
+    append_config "$FRAGMENT" "$line"
+  done
+fi
 
 note "SUSFS integrated strictly: ref=$requested_ref commit=$actual version=$susfs_version"

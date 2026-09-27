@@ -1,4 +1,4 @@
-name: Android Kernel Build - Xiaomi 17 Series SM8850
+name: Android 内核构建 - Xiaomi 17 系列
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: "Device codename: pudding=Xiaomi 17, pandora=Xiaomi 17 Pro, popsicle=Xiaomi 17 Pro Max"
+        description: "设备（pandora 已真机验证；其余同平台待验证）"
         required: true
         type: choice
         options:
@@ -21,44 +21,179 @@ on:
           - popsicle
         default: pandora
       source_profile:
-        description: "Kernel source/build: Gold-compatible make/Image or clean ACK r51 Kleaf control"
+        description: "内核源码/构建链（正常使用请选择 gold-cctv）"
         required: true
         type: choice
         options:
           - gold-cctv
           - ack-r51
         default: gold-cctv
-      variant:
-        description: "Debug ladder: A base, B ReSukiSU built-in, C ReSukiSU built-in + SUSFS"
+      root_mode:
+        description: "Root / SUSFS 模式"
         required: true
         type: choice
         options:
-          - all
-          - base
-          - resukisu
           - resukisu-susfs
-        default: all
+          - resukisu
+          - none
+        default: resukisu-susfs
+      susfs_extra_features:
+        description: "SUSFS 扩展功能（spoof/hide/open_redirect/sus_map，实验）"
+        required: true
+        type: boolean
+        default: false
+      use_kpm:
+        description: "KPM（仅当当前 ReSukiSU 上游声明 CONFIG_KPM 时可用）"
+        required: true
+        type: choice
+        options:
+          - disabled
+          - enabled
+        default: disabled
+      droidspaces:
+        description: "DroidSpaces 容器支持（6.12）"
+        required: true
+        type: choice
+        options:
+          - off
+          - on
+        default: off
+      artifact_upload_mode:
+        description: "构建产物上传模式"
+        required: true
+        type: choice
+        options:
+          - "仅上传 AnyKernel3.zip"
+          - "上传全部"
+        default: "仅上传 AnyKernel3.zip"
+      use_zram:
+        description: "ZRAM/LZ4 增强（实验，未完成 pandora 真机验证）"
+        required: true
+        type: boolean
+        default: false
+      use_bbg:
+        description: "BBG 防格机（实验，未完成 pandora 真机验证）"
+        required: true
+        type: boolean
+        default: false
+      use_rekernel:
+        description: "Re-Kernel 驱动（实验，未完成 pandora 真机验证）"
+        required: true
+        type: boolean
+        default: false
+      use_nomount:
+        description: "NoMount 挂载元模块（实验，未完成 pandora 真机验证）"
+        required: true
+        type: boolean
+        default: false
+      use_networking:
+        description: "网络增强：BBR/IPSet/Qdisc/CIFS（6.12 无 BBRv3 backport）"
+        required: true
+        type: boolean
+        default: false
+      cve_2026_43499_patch:
+        description: "CVE-2026-43499 / CVE-2026-53163 rtmutex 修复链"
+        required: true
+        type: boolean
+        default: false
+      droidspaces_ntsync:
+        description: "DroidSpaces NTSync（需要 DroidSpaces=on）"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}-${{ inputs.variant }}
+  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }} / ${{ matrix.variant }}"
+    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / custom"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.variant != 'all' && format('["{0}"]', inputs.variant) || github.event_name == 'workflow_dispatch' && '["base","resukisu","resukisu-susfs"]' || '["resukisu-susfs"]') }}
+    env:
+      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
+      XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
+      XIAOMI_ROOT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.root_mode || 'resukisu-susfs' }}
+      XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name == 'workflow_dispatch' && inputs.susfs_extra_features || false }}
+      XIAOMI_USE_KPM: ${{ github.event_name == 'workflow_dispatch' && inputs.use_kpm || 'disabled' }}
+      XIAOMI_DROIDSPACES: ${{ github.event_name == 'workflow_dispatch' && inputs.droidspaces || 'off' }}
+      XIAOMI_USE_ZRAM: ${{ github.event_name == 'workflow_dispatch' && inputs.use_zram || false }}
+      XIAOMI_USE_BBG: ${{ github.event_name == 'workflow_dispatch' && inputs.use_bbg || false }}
+      XIAOMI_USE_REKERNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_rekernel || false }}
+      XIAOMI_USE_NOMOUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.use_nomount || false }}
+      XIAOMI_USE_NETWORKING: ${{ github.event_name == 'workflow_dispatch' && inputs.use_networking || false }}
+      XIAOMI_CVE_2026_43499_PATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.cve_2026_43499_patch || false }}
+      XIAOMI_DROIDSPACES_NTSYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.droidspaces_ntsync || false }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Check upstream custom-feature drift
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import re
+          import urllib.request
+
+          url = "https://raw.githubusercontent.com/zzh20188/GKI_KernelSU_SUSFS/dev/.github/workflows/kernel-custom.yml"
+          try:
+              text = urllib.request.urlopen(url, timeout=20).read().decode()
+          except Exception as exc:
+              print(f"::warning::unable to check upstream custom workflow: {exc}")
+              raise SystemExit(0)
+
+          keys = set()
+          inside = False
+          for line in text.splitlines():
+              if line == "    inputs:":
+                  inside = True
+                  continue
+              if inside and line.startswith("jobs:"):
+                  break
+              m = re.match(r"^      ([A-Za-z0-9_]+):\s*$", line)
+              if inside and m:
+                  keys.add(m.group(1))
+
+          mapped = {
+              "kernelsu_variant", "ksu_mode", "use_kpm", "droidspaces",
+              "artifact_upload_mode", "use_zram", "use_bbg", "use_rekernel",
+              "use_nomount", "use_networking", "cve_2026_43499_patch",
+              "droidspaces_ntsync",
+          }
+          intentionally_fixed = {
+              "kernel_version", "os_patch_level", "version", "build_time", "supp_op"
+          }
+          missing = sorted(keys - mapped - intentionally_fixed)
+          if missing:
+              print("::warning::upstream kernel-custom.yml has unmapped inputs: " + ", ".join(missing))
+          else:
+              print("Upstream custom inputs: no unmapped feature switches detected.")
+          PY
+
+      - name: Resolve custom selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$XIAOMI_ROOT_MODE" in
+            none) VARIANT=base ;;
+            resukisu) VARIANT=resukisu ;;
+            resukisu-susfs) VARIANT=resukisu-susfs ;;
+            *) echo "::error::invalid root_mode: $XIAOMI_ROOT_MODE"; exit 1 ;;
+          esac
+          if [[ "$XIAOMI_DROIDSPACES_NTSYNC" == "true" && "$XIAOMI_DROIDSPACES" != "on" ]]; then
+            echo "::error::DroidSpaces NTSync requires droidspaces=on"
+            exit 1
+          fi
+          if [[ "$XIAOMI_SUSFS_EXTRA_FEATURES" == "true" && "$VARIANT" != "resukisu-susfs" ]]; then
+            echo "::error::SUSFS extra features require root_mode=resukisu-susfs"
+            exit 1
+          fi
+          echo "XIAOMI_VARIANT=$VARIANT" >> "$GITHUB_ENV"
 
       - name: Free runner disk space
         shell: bash
@@ -70,63 +205,62 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache cpio curl flex git jq \
-            libdw-dev libelf-dev libssl-dev perl python3 python-is-python3 \
-            repo rsync tar unzip xz-utils zip zstd dwarves
+          sudo apt-get install -y --no-install-recommends             bc bison build-essential ccache cpio curl flex git jq             libdw-dev libelf-dev libssl-dev perl python3 python-is-python3             repo rsync tar unzip wget xz-utils zip zstd dwarves
 
       - name: Build, validate and package
         shell: bash
-        env:
-          XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.variant }}
-          XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
         run: |
           set -euo pipefail
-          bash scripts/xiaomi-sm8850/build.sh \
-            "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}" \
-            "${{ matrix.variant }}" \
-            "$XIAOMI_WORKDIR" \
-            "$XIAOMI_SOURCE_PROFILE"
+          bash scripts/xiaomi-sm8850/build.sh             "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}"             "$XIAOMI_VARIANT"             "$XIAOMI_WORKDIR"             "$XIAOMI_SOURCE_PROFILE"
 
       - name: Publish build summary
         if: always()
         shell: bash
-        env:
-          XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.variant }}
         run: |
-          OUT="$XIAOMI_WORKDIR/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}"
+          OUT="$XIAOMI_WORKDIR/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/$XIAOMI_VARIANT"
           {
-            echo "## Xiaomi SM8850 build"
+            echo "## Xiaomi 17 Series custom build"
             echo
             echo "- Device: ${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}"
-            echo "- Source: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}"
-            echo "- Variant: ${{ matrix.variant }}"
+            echo "- Source: $XIAOMI_SOURCE_PROFILE"
+            echo "- Root mode: $XIAOMI_ROOT_MODE"
+            echo "- Variant backend: $XIAOMI_VARIANT"
             echo "- Expected kernel: 6.12.23 / android16-5 / 4K"
-            echo "- Generic upstream-tracking workflow: untouched"
+            echo "- PR regression profile: latest ReSukiSU + latest SUSFS core, extras off"
             echo
-            if [ -f "$OUT/build-metadata.txt" ]; then
+            if [[ -f "$OUT/build-metadata.txt" ]]; then
               echo "### Provenance"
               sed 's/^/    /' "$OUT/build-metadata.txt"
             fi
-            if [ -f "$OUT/validation.txt" ]; then
+            if [[ -f "$OUT/validation.txt" ]]; then
               echo "### Validation"
               sed 's/^/    /' "$OUT/validation.txt"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload kernel and boot-only AnyKernel3
-        if: success()
+      - name: Upload AnyKernel3 only
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}-${{ matrix.variant }}-6.12.23
+          name: Xiaomi-SM8850-${{ inputs.device }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3
+          path: xiaomi-sm8850-work/custom/output/${{ inputs.device }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload full build
+        if: success() && (github.event_name != 'workflow_dispatch' || inputs.artifact_upload_mode == '上传全部')
+        uses: actions/upload-artifact@v6
+        with:
+          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ env.XIAOMI_VARIANT }}-6.12.23
           path: |
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/Image
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/Image.lz4
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/final.config
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/build-metadata.txt
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/validation.txt
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/SHA256SUMS
-            xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/*-AnyKernel3.zip
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/final.config
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/build-metadata.txt
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/validation.txt
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/SHA256SUMS
+            xiaomi-sm8850-work/custom/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

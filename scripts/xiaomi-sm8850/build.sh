@@ -35,6 +35,10 @@ case "$VARIANT" in
     ;;
 esac
 
+# Optional feature layer mirrors the generic custom workflow while keeping the
+# proven Xiaomi Gold kernel source/toolchain/AnyKernel path unchanged.
+bash "$XIAOMI_SCRIPT_DIR/integrate-features.sh" "$KERNEL_ROOT" "$FRAGMENT" "$WORKDIR"
+
 # shellcheck disable=SC1090
 source "$WORKDIR/source-provenance.env"
 
@@ -167,13 +171,19 @@ resukisu_last_known_good_commit=$RESUKISU_LAST_KNOWN_GOOD_COMMIT
 susfs_requested_ref=$susfs_ref
 susfs_commit=$susfs_actual
 susfs_version=$susfs_version
+susfs_last_known_good_commit=$SUSFS_LAST_KNOWN_GOOD_COMMIT
 susfs_previous_pinned_commit=$SUSFS_PREVIOUS_PINNED_COMMIT
+susfs_extra_features=${XIAOMI_SUSFS_EXTRA_FEATURES:-false}
 kernel_string=$kernel_string
 build_target=$build_target
 lto=$lto_mode
 kmi_enforced=$kmi_enforced
 kmi_symbol_list_strict_mode=$kmi_strict
 EOF
+
+if [[ -s "$WORKDIR/feature-provenance.env" ]]; then
+  cat "$WORKDIR/feature-provenance.env" >> "$OUT/build-metadata.txt"
+fi
 
 bash "$XIAOMI_SCRIPT_DIR/validate.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
 bash "$XIAOMI_SCRIPT_DIR/package-anykernel3.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
