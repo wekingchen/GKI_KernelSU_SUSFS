@@ -110,7 +110,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preflight:
+    name: Xiaomi scripts / syntax preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Validate Xiaomi shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/xiaomi-sm8850/*.sh; do
+            echo "bash -n $script"
+            bash -n "$script"
+          done
+
   build:
+    needs: preflight
     name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / ${{ matrix.profile }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
