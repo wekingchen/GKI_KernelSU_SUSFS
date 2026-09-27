@@ -54,7 +54,7 @@ apply_patch_strict() {
     die "patch apply failed: $patch_file"
 }
 
-sukisu_patch_commit="N/A"
+zram_patch_commit="N/A"
 nomount_commit="N/A"
 droidspaces_commit="N/A"
 rekernel_commit="N/A"
@@ -118,40 +118,27 @@ if truthy "$DROIDSPACES_NTSYNC"; then
 fi
 
 if truthy "$USE_ZRAM"; then
-  note "integrating upstream custom-workflow ZRAM/LZ4 stack"
-  git clone --depth 1 https://github.com/ShirkNeko/SukiSU_patch.git "$DEPS/SukiSU_patch"
-  sukisu_patch_commit="$(git -C "$DEPS/SukiSU_patch" rev-parse HEAD)"
+  note "integrating Gold-family Android 16 / 6.12 LZ4K/LZ4KD ZRAM backend"
 
-  rm -f "$COMMON"/lib/lz4/lz4_compress.c "$COMMON"/lib/lz4/lz4_decompress.c     "$COMMON"/lib/lz4/lz4defs.h "$COMMON"/lib/lz4/lz4hc_compress.c
-  cp -r "$XIAOMI_REPO_ROOT"/zram/lz4/* "$COMMON/lib/lz4/"
-  cp -r "$XIAOMI_REPO_ROOT"/zram/include/linux/* "$COMMON/include/linux/"
-  (cd "$COMMON" && bash "$XIAOMI_REPO_ROOT/zram/apply_lz4_neon.sh")
+  CCTV_FEATURE_REPO="${XIAOMI_CCTV_FEATURE_REPO:-https://github.com/cctv18/oppo_oplus_realme_sm8850.git}"
+  CCTV_FEATURE_REF="${XIAOMI_CCTV_FEATURE_REF:-main}"
+  CCTV_FEATURE_DIR="$DEPS/cctv18-sm8850"
 
-  if [[ -f "$COMMON/fs/f2fs/Makefile" ]] &&
-     ! grep -qF 'f2fs-$(CONFIG_F2FS_IOSTAT) += iostat.o' "$COMMON/fs/f2fs/Makefile"; then
-    echo 'f2fs-$(CONFIG_F2FS_IOSTAT) += iostat.o' >> "$COMMON/fs/f2fs/Makefile"
-  fi
+  git clone --depth 1 --branch "$CCTV_FEATURE_REF" "$CCTV_FEATURE_REPO" "$CCTV_FEATURE_DIR"
+  zram_patch_commit="$(git -C "$CCTV_FEATURE_DIR" rev-parse HEAD)"
+  zram_patch="$CCTV_FEATURE_DIR/other_patch/lz4kd.patch"
+  [[ -f "$zram_patch" ]] || die "Gold-family 6.12 LZ4KD patch missing: $zram_patch"
 
-  cp -r "$DEPS/SukiSU_patch"/other/zram/lz4k/include/linux/* "$COMMON/include/linux/"
-  cp -r "$DEPS/SukiSU_patch"/other/zram/lz4k/lib/* "$COMMON/lib/"
-  cp -r "$DEPS/SukiSU_patch"/other/zram/lz4k/crypto/* "$COMMON/crypto/"
-  cp -r "$DEPS/SukiSU_patch"/other/zram/lz4k_oplus "$COMMON/lib/"
+  # The generic SukiSU patch repository currently stops at 6.6. For 6.12,
+  # use the dedicated patch maintained by the same cctv18 SM8850 build family
+  # as our proven Gold baseline. Apply strictly so drift cannot be hidden.
+  apply_patch_strict "$zram_patch"
 
-  for p in lz4kd.patch lz4k_oplus.patch; do
-    patch_file="$DEPS/SukiSU_patch/other/zram/zram_patch/6.12/$p"
-    [[ -f "$patch_file" ]] || die "ZRAM patch missing: $patch_file"
-    (cd "$COMMON" && patch --batch --forward --dry-run -F 3 -p1 < "$patch_file") ||
-      die "ZRAM patch dry-run failed: $p"
-    (cd "$COMMON" && patch --batch --forward --no-backup-if-mismatch -F 3 -p1 < "$patch_file") ||
-      die "ZRAM patch apply failed: $p"
+  for line in     "CONFIG_ZSMALLOC=y"     "CONFIG_ZRAM=y"     "CONFIG_CRYPTO_LZ4HC=y"     "CONFIG_CRYPTO_LZ4K=y"     "CONFIG_CRYPTO_LZ4KD=y"     "CONFIG_CRYPTO_842=y"     "CONFIG_ZRAM_BACKEND_LZ4HC=y"     "CONFIG_ZRAM_BACKEND_LZ4K=y"     "CONFIG_ZRAM_BACKEND_LZ4KD=y"     "CONFIG_ZRAM_BACKEND_842=y"; do
+    append_config "$FRAGMENT" "$line"
   done
 
-  append_config "$FRAGMENT" "CONFIG_ZSMALLOC=y"
-  append_config "$FRAGMENT" "CONFIG_ZRAM=y"
-  while IFS= read -r line; do
-    [[ "$line" == CONFIG_* ]] && append_config "$FRAGMENT" "$line"
-  done < "$XIAOMI_REPO_ROOT/config/zram.config"
-  note "ZRAM stack integrated SukiSU_patch commit=$sukisu_patch_commit"
+  note "Gold-family 6.12 ZRAM stack integrated commit=$zram_patch_commit"
 fi
 
 if truthy "$USE_BBG"; then
@@ -214,7 +201,7 @@ fi
 
 cat > "$PROVENANCE" <<EOF
 feature_use_zram=$USE_ZRAM
-feature_zram_patch_commit=$sukisu_patch_commit
+feature_zram_patch_commit=$zram_patch_commit
 feature_use_bbg=$USE_BBG
 feature_use_kpm=$USE_KPM
 feature_use_rekernel=$USE_REKERNEL
