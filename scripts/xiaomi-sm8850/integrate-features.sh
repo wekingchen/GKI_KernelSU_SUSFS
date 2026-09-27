@@ -108,20 +108,36 @@ fi
 if truthy "$DROIDSPACES_NTSYNC"; then
   [[ "$DROIDSPACES" == "on" ]] || die "NTSync requires DroidSpaces=on"
   note "integrating DroidSpaces NTSync for android16-6.12"
+
   base_patch="$DEPS/ntsync_base.patch"
   compat_patch="$DEPS/ntsync_compat_android16-6.12.patch"
-  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch     -o "$base_patch"
-  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_compat_android16-6.12.patch     -o "$compat_patch"
 
-  # Android 16 / 6.12 already ships the NTSync driver and UAPI. The generic
-  # base patch is for older trees and would try to create those files again.
+  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+    https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch \
+    -o "$base_patch"
+  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+    https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_compat_android16-6.12.patch \
+    -o "$compat_patch"
+
+  # Android 16 / 6.12 already contains the NTSync driver and UAPI. The base
+  # patch is only for older trees that do not have those files yet.
   if [[ -f "$COMMON/drivers/misc/ntsync.c" && -f "$COMMON/include/uapi/linux/ntsync.h" ]]; then
     note "NTSync base driver already present in 6.12; skipping ntsync_base.patch"
   else
     apply_patch_strict "$base_patch"
   fi
 
-  if grep -A8 -E '^[[:space:]]*config[[:space:]]+NTSYNCfi
+  # The Android 16 GKI tree carries NTSYNC behind depends on BROKEN. Apply the
+  # small compatibility patch only while that guard is present.
+  if grep -A8 -E '^[[:space:]]*config[[:space:]]+NTSYNC$' "$COMMON/drivers/misc/Kconfig" | grep -q 'depends on BROKEN'; then
+    apply_patch_strict "$compat_patch"
+  else
+    note "NTSync Kconfig is already enabled/compatible; skipping compat patch"
+  fi
+
+  append_config "$FRAGMENT" "CONFIG_NTSYNC=y"
+  note "NTSync integration complete"
+fi
 
 if truthy "$USE_ZRAM"; then
   note "integrating Gold-family Android 16 / 6.12 LZ4K/LZ4KD ZRAM backend"
