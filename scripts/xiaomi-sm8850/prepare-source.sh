@@ -78,9 +78,11 @@ actual_manifest_after="$(git -C .repo/manifests rev-parse HEAD)"
 
 note "pinning common to $ACK_COMMON_REF / $ACK_COMMON_COMMIT"
 git -C common fetch --depth=1 "$ACK_COMMON_REPO" "$ACK_COMMON_REF"
-fetched_common="$(git -C common rev-parse FETCH_HEAD)"
+fetched_tag_object="$(git -C common rev-parse FETCH_HEAD)"
+fetched_common="$(git -C common rev-parse 'FETCH_HEAD^{}')"
+note "ACK tag object=$fetched_tag_object peeled_commit=$fetched_common"
 [[ "$fetched_common" == "$ACK_COMMON_COMMIT" ]] ||
-  die "ACK tag resolved to unexpected commit: $fetched_common"
+  die "ACK tag peeled to unexpected commit: $fetched_common"
 git -C common checkout --detach "$ACK_COMMON_COMMIT"
 actual_common="$(git -C common rev-parse HEAD)"
 [[ "$actual_common" == "$ACK_COMMON_COMMIT" ]] ||
