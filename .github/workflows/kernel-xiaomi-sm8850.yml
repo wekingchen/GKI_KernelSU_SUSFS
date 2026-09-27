@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.variant != 'all' && format('["{0}"]', inputs.variant) || github.event_name == 'workflow_dispatch' && '["base","resukisu","resukisu-susfs"]' || '["resukisu"]') }}
+        variant: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.variant != 'all' && format('["{0}"]', inputs.variant) || github.event_name == 'workflow_dispatch' && '["base","resukisu","resukisu-susfs"]' || '["resukisu-susfs"]') }}
 
     steps:
       - name: Checkout repository

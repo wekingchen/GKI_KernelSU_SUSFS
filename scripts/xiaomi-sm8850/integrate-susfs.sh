@@ -11,13 +11,28 @@ SUSFS_DIR="$KERNEL_ROOT/SUSFS"
 [[ -f "$FRAGMENT" ]] || die "config fragment not found: $FRAGMENT"
 [[ ! -e "$SUSFS_DIR" ]] || die "SUSFS checkout already exists"
 
-note "cloning SUSFS $SUSFS_BRANCH at immutable commit $SUSFS_COMMIT"
-git clone --filter=blob:none --no-checkout --branch "$SUSFS_BRANCH" "$SUSFS_REPO" "$SUSFS_DIR"
-git -C "$SUSFS_DIR" fetch --depth=1 origin "$SUSFS_COMMIT"
-git -C "$SUSFS_DIR" checkout --detach "$SUSFS_COMMIT"
+requested_ref="${XIAOMI_SUSFS_REF:-$SUSFS_DEFAULT_REF}"
+note "cloning SUSFS ref=$requested_ref (default tracks matching upstream branch)"
+
+git clone "$SUSFS_REPO" "$SUSFS_DIR"
+if ! git -C "$SUSFS_DIR" checkout "$requested_ref"; then
+  note "SUSFS ref $requested_ref is not available locally; fetching explicitly"
+  git -C "$SUSFS_DIR" fetch origin "$requested_ref"
+  git -C "$SUSFS_DIR" checkout --detach FETCH_HEAD
+fi
+
 actual="$(git -C "$SUSFS_DIR" rev-parse HEAD)"
-[[ "$actual" == "$SUSFS_COMMIT" ]] ||
-  die "SUSFS commit mismatch: expected $SUSFS_COMMIT got $actual"
+if [[ "$requested_ref" == "$SUSFS_DEFAULT_REF" ]]; then
+  upstream_ref="$(git -C "$SUSFS_DIR" rev-parse "refs/remotes/origin/$SUSFS_DEFAULT_REF")"
+  [[ "$actual" == "$upstream_ref" ]] ||
+    die "SUSFS branch drifted during checkout: HEAD=$actual origin/$SUSFS_DEFAULT_REF=$upstream_ref"
+fi
+
+branch_name="$(git -C "$SUSFS_DIR" branch --show-current 2>/dev/null || true)"
+[[ -n "$branch_name" ]] || branch_name="detached"
+susfs_version="$(awk '/^#define[[:space:]]+SUSFS_VERSION[[:space:]]+/ {gsub(/"/,"",$3); print $3; exit}' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" 2>/dev/null || true)"
+[[ -n "$susfs_version" ]] || susfs_version="unknown"
+note "SUSFS resolved: ref=$requested_ref branch=$branch_name commit=$actual version=$susfs_version"
 
 patch_file="$SUSFS_DIR/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 [[ -f "$patch_file" ]] || die "missing Android 16 / 6.12 SUSFS patch"
@@ -63,4 +78,4 @@ for line in "${susfs_configs[@]}"; do
   append_config "$FRAGMENT" "$line"
 done
 
-note "SUSFS integrated strictly: commit=$actual"
+note "SUSFS integrated strictly: ref=$requested_ref commit=$actual version=$susfs_version"

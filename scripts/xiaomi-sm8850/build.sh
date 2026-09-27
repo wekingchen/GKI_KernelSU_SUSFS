@@ -127,14 +127,20 @@ resukisu_ref="${XIAOMI_RESUKISU_REF:-$RESUKISU_DEFAULT_REF}"
 resukisu_actual="N/A"
 resukisu_tag="N/A"
 resukisu_version_code="N/A"
+susfs_ref="${XIAOMI_SUSFS_REF:-$SUSFS_DEFAULT_REF}"
 susfs_actual="N/A"
+susfs_version="N/A"
 if [[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]]; then
   resukisu_actual="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse HEAD)"
   resukisu_tag="$(git -C "$KERNEL_ROOT/ReSukiSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
   resukisu_commit_count="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-list --count HEAD)"
   resukisu_version_code="$((30000 + resukisu_commit_count + 700))"
 fi
-[[ -d "$KERNEL_ROOT/SUSFS/.git" ]] && susfs_actual="$(git -C "$KERNEL_ROOT/SUSFS" rev-parse HEAD)"
+if [[ -d "$KERNEL_ROOT/SUSFS/.git" ]]; then
+  susfs_actual="$(git -C "$KERNEL_ROOT/SUSFS" rev-parse HEAD)"
+  susfs_version="$(awk '/^#define[[:space:]]+SUSFS_VERSION[[:space:]]+/ {gsub(/"/,"",$3); print $3; exit}' "$KERNEL_ROOT/SUSFS/kernel_patches/include/linux/susfs.h" 2>/dev/null || true)"
+  [[ -n "$susfs_version" ]] || susfs_version="unknown"
+fi
 
 cat > "$OUT/build-metadata.txt" <<EOF
 device=$DEVICE
@@ -158,7 +164,10 @@ resukisu_commit=$resukisu_actual
 resukisu_tag=$resukisu_tag
 resukisu_version_code=$resukisu_version_code
 resukisu_last_known_good_commit=$RESUKISU_LAST_KNOWN_GOOD_COMMIT
+susfs_requested_ref=$susfs_ref
 susfs_commit=$susfs_actual
+susfs_version=$susfs_version
+susfs_previous_pinned_commit=$SUSFS_PREVIOUS_PINNED_COMMIT
 kernel_string=$kernel_string
 build_target=$build_target
 lto=$lto_mode
