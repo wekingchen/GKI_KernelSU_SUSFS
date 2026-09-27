@@ -43,18 +43,12 @@ make_version="$(awk '
 [[ "$make_version" == "$KERNEL_VERSION" ]] ||
   die "kernel Makefile version mismatch: expected $KERNEL_VERSION got $make_version"
 
-# shellcheck disable=SC1091
-source common/build.config.constants
-[[ "$BRANCH" == "android16-6.12" ]] || die "unexpected ACK BRANCH=$BRANCH"
-[[ "$KMI_GENERATION" == "$KMI_GENERATION" ]] || true
-[[ "${CLANG_VERSION:-}" == "$CLANG_VERSION" ]] || true
-
-# The sourced names collide with our config names. Read authoritative values
-# again without relying on shell variable shadowing.
+ack_branch="$(sed -n 's/^BRANCH=//p' common/build.config.constants)"
 ack_kmi="$(sed -n 's/^KMI_GENERATION=//p' common/build.config.constants)"
 ack_clang="$(sed -n 's/^CLANG_VERSION=//p' common/build.config.constants)"
-[[ "$ack_kmi" == "5" ]] || die "unexpected KMI generation: $ack_kmi"
-[[ "$ack_clang" == "r536225" ]] || die "unexpected clang revision: $ack_clang"
+[[ "$ack_branch" == "android16-6.12" ]] || die "unexpected ACK branch: $ack_branch"
+[[ "$ack_kmi" == "$KMI_GENERATION" ]] || die "unexpected KMI generation: $ack_kmi"
+[[ "$ack_clang" == "$CLANG_VERSION" ]] || die "unexpected clang revision: $ack_clang"
 
 xiaomi_symbols="common/gki/aarch64/symbols/xiaomi"
 [[ -f "$xiaomi_symbols" ]] || die "Xiaomi GKI symbol list is missing"
