@@ -17,6 +17,8 @@ KOUT="$COMMON/out"
 [[ -x "$CLANG_BIN/clang" ]] || die "Gold clang not found"
 [[ -x "$RUST_BIN/rustc" ]] || die "Gold rustc not found"
 [[ -x "$RUST_BIN/bindgen" ]] || die "Gold bindgen not found"
+[[ -d "$BUILD_TOOLS_BIN" ]] || die "Gold build-tools/bin not found"
+[[ -x "$BUILD_TOOLS_BIN/pahole" ]] || die "Gold bundled pahole not found"
 [[ -x "$COMMON/scripts/config" ]] || die "kernel scripts/config missing"
 
 export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
@@ -61,10 +63,22 @@ KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
 export KCFLAGS
 
 note "Gold make path toolchain:"
+echo "clang=$(command -v clang)"
 clang --version | head -n1
+echo "ld.lld=$(command -v ld.lld)"
 ld.lld --version | head -n1
+echo "rustc=$(command -v rustc)"
 rustc -V
+echo "bindgen=$(command -v bindgen)"
 bindgen --version
+echo "pahole=$(command -v pahole)"
+pahole --version | head -n1
+echo "resolve_btfids will be built from the pinned kernel source"
+
+# Mirror cctv18's standalone environment initialization. This may return
+# non-zero on the standalone tree; their reference build intentionally ignores
+# that and continues with the exported variables that were set successfully.
+source "./_setup_env.sh" 2>/dev/null || true
 
 rm -rf "$KOUT"
 
