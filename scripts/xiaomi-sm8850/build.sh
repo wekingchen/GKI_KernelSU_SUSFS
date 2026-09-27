@@ -35,14 +35,32 @@ case "$VARIANT" in
     ;;
 esac
 
-cd "$KERNEL_ROOT"
+# shellcheck disable=SC1090
+source "$WORKDIR/source-provenance.env"
 
-clang_bin="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
-[[ -x "$clang_bin" ]] || die "pinned clang not found: $clang_bin"
-clang_line="$("$clang_bin" --version | head -n1)"
-note "toolchain: $clang_line"
+case "$SOURCE_BUILD_MODE" in
+  make-image)
+    clang_bin="$KERNEL_ROOT/gold-toolchain/clang19/bin/clang"
+    [[ -x "$clang_bin" ]] || die "pinned Gold clang not found: $clang_bin"
+    clang_line="$("$clang_bin" --version | head -n1)"
 
-python3 - common/BUILD.bazel <<'PY'
+    note "building Gold-compatible profile with standalone make/Image path"
+    bash "$XIAOMI_SCRIPT_DIR/build-gold-make.sh" "$KERNEL_ROOT" "$FRAGMENT" "$OUT"
+
+    build_target="make O=out gki_defconfig + Image"
+    lto_mode="source-default (not forced by Kleaf)"
+    kmi_enforced="not-applicable (Image-only make path)"
+    kmi_strict="not-applicable (Image-only make path)"
+    ;;
+
+  kleaf-dist)
+    cd "$KERNEL_ROOT"
+    clang_bin="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
+    [[ -x "$clang_bin" ]] || die "pinned ACK clang not found: $clang_bin"
+    clang_line="$("$clang_bin" --version | head -n1)"
+    note "toolchain: $clang_line"
+
+    python3 - common/BUILD.bazel <<'PY'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
@@ -55,85 +73,55 @@ for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "t
         raise SystemExit(f"KMI guardrail disabled: {required}")
 PY
 
-frag_flag=()
-if [[ -s "$FRAGMENT" ]]; then
-  note "defconfig fragment:"
-  cat "$FRAGMENT"
+    frag_flag=()
+    if [[ -s "$FRAGMENT" ]]; then
+      note "defconfig fragment:"
+      cat "$FRAGMENT"
 
-  cat >> common/BUILD.bazel <<'EOF'
+      cat >> common/BUILD.bazel <<'EOF'
 exports_files(
     ["arch/arm64/configs/xiaomi_sm8850.fragment"],
     visibility = ["//visibility:public"],
 )
 EOF
-  frag_flag=("--defconfig_fragment=//common:arch/arm64/configs/xiaomi_sm8850.fragment")
-fi
+      frag_flag=("--defconfig_fragment=//common:arch/arm64/configs/xiaomi_sm8850.fragment")
+    fi
 
-if [[ "$SOURCE_PROFILE" == "gold-cctv" ]]; then
-  note "gold-cctv: using direct make Image path to match the known-booting Gold build family"
+    note "building ACK control with //common:kernel_aarch64_dist + ThinLTO + strict KMI"
+    tools/bazel build \
+      --config=fast \
+      --lto=thin \
+      "${frag_flag[@]}" \
+      //common:kernel_aarch64_dist
 
-  DEFCONFIG="$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
-  if [[ -s "$FRAGMENT" ]]; then
-    while IFS= read -r line; do
-      [[ -n "$line" ]] || continue
-      append_config "$DEFCONFIG" "$line"
-    done < "$FRAGMENT"
-  fi
+    IMAGE="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image"
+    [[ -s "$IMAGE" ]] || die "built Image not found: $IMAGE"
+    cp -f "$IMAGE" "$OUT/Image"
+    if [[ -s "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image.lz4" ]]; then
+      cp -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image.lz4" "$OUT/Image.lz4"
+    fi
 
-  export PATH="$(dirname "$clang_bin"):$PATH"
-  if [[ -d "$KERNEL_ROOT/prebuilts/build-tools/path/linux-x86" ]]; then
-    export PATH="$KERNEL_ROOT/prebuilts/build-tools/path/linux-x86:$PATH"
-  fi
-  rustc_bin="$(find "$KERNEL_ROOT/prebuilts" -type f -path '*/bin/rustc' -print -quit 2>/dev/null || true)"
-  if [[ -n "$rustc_bin" ]]; then
-    export PATH="$(dirname "$rustc_bin"):$PATH"
-    note "rust toolchain: $("$rustc_bin" --version 2>/dev/null || true)"
-  fi
+    build_target="//common:kernel_aarch64_dist"
+    lto_mode="thin"
+    kmi_enforced="true"
+    kmi_strict="true"
+    ;;
 
-  (
-    cd "$KERNEL_ROOT/common"
-    rm -rf out
-    make -j"$(nproc)" \
-      O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-      CROSS_COMPILE=aarch64-linux-gnu- \
-      CC=clang HOSTCC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
-      gki_defconfig
+  *)
+    die "unknown build mode from provenance: $SOURCE_BUILD_MODE"
+    ;;
+esac
 
-    make -j"$(nproc)" \
-      O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-      CROSS_COMPILE=aarch64-linux-gnu- \
-      CC=clang HOSTCC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
-      Image
-  )
+IMAGE="$OUT/Image"
+[[ -s "$IMAGE" ]] || die "Image missing after build"
 
-  IMAGE="$KERNEL_ROOT/common/out/arch/arm64/boot/Image"
-  BUILD_METHOD=direct-make-image
-else
-  note "ack-r51: building //common:kernel_aarch64_dist with ThinLTO and KMI checks intact"
-  tools/bazel build \
-    --config=fast \
-    --lto=thin \
-    "${frag_flag[@]}" \
-    //common:kernel_aarch64_dist
+"$KERNEL_ROOT/common/scripts/extract-ikconfig" "$IMAGE" > "$OUT/final.config.embedded"
+[[ -s "$OUT/final.config.embedded" ]] ||
+  die "failed to extract embedded config from final Image"
+mv -f "$OUT/final.config.embedded" "$OUT/final.config"
 
-  IMAGE="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image"
-  if [[ -s "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image.lz4" ]]; then
-    cp -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image.lz4" "$OUT/Image.lz4"
-  fi
-  BUILD_METHOD=kleaf-kernel-aarch64-dist
-fi
-
-[[ -s "$IMAGE" ]] || die "built Image not found: $IMAGE"
-cp -f "$IMAGE" "$OUT/Image"
-
-"$KERNEL_ROOT/common/scripts/extract-ikconfig" "$OUT/Image" > "$OUT/final.config"
-[[ -s "$OUT/final.config" ]] || die "failed to extract final config from Image"
-
-kernel_string="$(strings -a "$OUT/Image" | grep -m1 '^Linux version ' || true)"
+kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ -n "$kernel_string" ]] || die "Linux version string not found in Image"
-
-# shellcheck disable=SC1090
-source "$WORKDIR/source-provenance.env"
 
 resukisu_actual="N/A"
 susfs_actual="N/A"
@@ -145,10 +133,12 @@ device=$DEVICE
 device_name=$(device_marketing_name "$DEVICE")
 variant=$VARIANT
 source_profile=$SOURCE_PROFILE
+source_build_mode=$SOURCE_BUILD_MODE
+source_kmi_mode=$SOURCE_KMI_MODE
 android_version=$ANDROID_VERSION
 kernel_expected=$KERNEL_VERSION
 stock_reference=$EXPECTED_STOCK_RELEASE
-ack_manifest_commit=$(git -C "$KERNEL_ROOT/.repo/manifests" rev-parse HEAD)
+manifest_commit=$SOURCE_MANIFEST_COMMIT
 source_common_repo=$SOURCE_COMMON_REPO
 source_common_ref=$SOURCE_COMMON_REF
 source_common_commit=$SOURCE_COMMON_COMMIT
@@ -158,21 +148,10 @@ clang_version=$clang_line
 resukisu_commit=$resukisu_actual
 susfs_commit=$susfs_actual
 kernel_string=$kernel_string
-build_method=$BUILD_METHOD
-build_target=$([[ "$BUILD_METHOD" == "direct-make-image" ]] && echo Image || echo //common:kernel_aarch64_dist)
-lto=$(
-  if config_is_y "$OUT/final.config" CONFIG_LTO_CLANG_THIN; then
-    echo thin
-  elif config_is_y "$OUT/final.config" CONFIG_LTO_CLANG_FULL; then
-    echo full
-  elif config_is_y "$OUT/final.config" CONFIG_LTO_CLANG_NONE; then
-    echo none
-  else
-    echo unknown
-  fi
-)
-kmi_enforced_source=true
-kmi_symbol_list_strict_mode_source=true
+build_target=$build_target
+lto=$lto_mode
+kmi_enforced=$kmi_enforced
+kmi_symbol_list_strict_mode=$kmi_strict
 EOF
 
 bash "$XIAOMI_SCRIPT_DIR/validate.sh" "$DEVICE" "$VARIANT" "$WORKDIR"
