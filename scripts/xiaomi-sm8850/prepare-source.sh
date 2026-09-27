@@ -15,17 +15,21 @@ mkdir -p "$KERNEL_ROOT"
 cd "$KERNEL_ROOT"
 
 note "initializing ACK manifest branch"
-repo init --depth=1 -u "$ACK_MANIFEST_URL" -b "$ACK_MANIFEST_BRANCH" --repo-rev=v2.16
+repo init --depth=1 -u "$ACK_MANIFEST_URL" -b "$ACK_MANIFEST_BRANCH" --repo-rev=stable
 
-note "pinning manifest repository to $ACK_MANIFEST_COMMIT"
-git -C .repo/manifests fetch --depth=1 origin "$ACK_MANIFEST_COMMIT"
-git -C .repo/manifests checkout --detach "$ACK_MANIFEST_COMMIT"
+# Keep repo's manifest project on its tracked branch. Instead of detaching it
+# (which breaks repo sync state), make the branch head an explicit lock: a
+# future upstream move fails here until this repository intentionally bumps it.
 actual_manifest="$(git -C .repo/manifests rev-parse HEAD)"
 [[ "$actual_manifest" == "$ACK_MANIFEST_COMMIT" ]] ||
-  die "manifest commit mismatch: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
+  die "manifest branch drifted: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
 
-note "syncing ACK build tree from pinned manifest"
+note "syncing ACK build tree from locked manifest"
 repo sync -c --force-sync --no-clone-bundle --no-tags -j4
+
+actual_manifest_after="$(git -C .repo/manifests rev-parse HEAD)"
+[[ "$actual_manifest_after" == "$ACK_MANIFEST_COMMIT" ]] ||
+  die "manifest changed during sync: expected $ACK_MANIFEST_COMMIT got $actual_manifest_after"
 
 note "pinning common to $ACK_COMMON_REF / $ACK_COMMON_COMMIT"
 git -C common fetch --depth=1 "$ACK_COMMON_REPO" "$ACK_COMMON_REF"
