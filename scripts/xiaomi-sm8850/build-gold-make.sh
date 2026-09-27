@@ -34,10 +34,22 @@ if command -v ccache >/dev/null 2>&1 && [[ "${XIAOMI_USE_CCACHE:-true}" == "true
   export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
   mkdir -p "$CCACHE_DIR"
   ccache --max-size "${CCACHE_MAXSIZE:-3G}" >/dev/null
-  CC_COMMAND="ccache clang"
-  HOSTCC_COMMAND="ccache clang"
+
+  # Keep CC/HOSTCC as a single executable path. Some kernel Rust rules pass
+  # the compiler variable through as one argv item; using "ccache clang"
+  # directly makes "clang" look like a second input filename.
+  CCACHE_WRAPPER_DIR="$KERNEL_ROOT/.ccache-bin"
+  mkdir -p "$CCACHE_WRAPPER_DIR"
+  cat > "$CCACHE_WRAPPER_DIR/clang" <<EOF
+#!/usr/bin/env bash
+exec ccache "$CLANG_BIN/clang" "\$@"
+EOF
+  chmod +x "$CCACHE_WRAPPER_DIR/clang"
+  CC_COMMAND="$CCACHE_WRAPPER_DIR/clang"
+  HOSTCC_COMMAND="$CCACHE_WRAPPER_DIR/clang"
+
   CCACHE_ENABLED=true
-  note "ccache enabled: dir=$CCACHE_DIR max=${CCACHE_MAXSIZE:-3G}"
+  note "ccache enabled via wrapper: $CC_COMMAND dir=$CCACHE_DIR max=${CCACHE_MAXSIZE:-3G}"
   ccache --show-stats || true
 fi
 
