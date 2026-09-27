@@ -63,28 +63,45 @@ case "$SOURCE_PROFILE" in
 
     verify_common_constants "$KERNEL_ROOT/common"
 
-    note "downloading the same r536225 standalone toolchain family used by cctv18"
-    mkdir -p gold-toolchain/clang19 gold-toolchain/rust
+    toolchain_cache="${XIAOMI_GOLD_TOOLCHAIN_CACHE:-$HOME/.cache/xiaomi-sm8850/gold-toolchain-$CLANG_VERSION}"
 
-    download_asset() {
-      local name="$1" out="$2"
-      curl --fail --location --retry 5 --retry-all-errors \
-        --connect-timeout 30 \
-        "$GOLD_TOOLCHAIN_BASE/$name" \
-        -o "$out"
+    toolchain_cache_valid() {
+      [[ -x "$toolchain_cache/clang19/bin/clang" ]] &&
+      [[ -x "$toolchain_cache/rust/bin/rustc" ]] &&
+      [[ -x "$toolchain_cache/rust/bin/bindgen" ]] &&
+      [[ -x "$toolchain_cache/build-tools/bin/pahole" ]]
     }
 
-    download_asset "$GOLD_CLANG_ARCHIVE" "$KERNEL_ROOT/gold-toolchain/clang.zip"
-    download_asset "$GOLD_RUST_ARCHIVE" "$KERNEL_ROOT/gold-toolchain/rust.zip"
-    download_asset "$GOLD_BUILD_TOOLS_ARCHIVE" "$KERNEL_ROOT/gold-toolchain/build-tools.zip"
+    if toolchain_cache_valid; then
+      note "using cached Gold toolchain: $toolchain_cache"
+    else
+      note "Gold toolchain cache miss; downloading pinned r536225 bundle"
+      rm -rf "$toolchain_cache"
+      mkdir -p "$toolchain_cache/clang19" "$toolchain_cache/rust"
 
-    unzip -q "$KERNEL_ROOT/gold-toolchain/clang.zip" -d "$KERNEL_ROOT/gold-toolchain/clang19"
-    unzip -q "$KERNEL_ROOT/gold-toolchain/rust.zip" -d "$KERNEL_ROOT/gold-toolchain/rust"
-    # cctv18's build-tools.zip already contains a top-level build-tools/
-    # directory. Extract it at TOOLROOT, otherwise we end up with
-    # build-tools/build-tools/bin and silently fall back to host tools.
-    unzip -q "$KERNEL_ROOT/gold-toolchain/build-tools.zip" -d "$KERNEL_ROOT/gold-toolchain"
-    rm -f "$KERNEL_ROOT/gold-toolchain/"*.zip
+      download_asset() {
+        local name="$1" out="$2"
+        curl --fail --location --retry 5 --retry-all-errors \
+          --connect-timeout 30 \
+          "$GOLD_TOOLCHAIN_BASE/$name" \
+          -o "$out"
+      }
+
+      download_asset "$GOLD_CLANG_ARCHIVE" "$toolchain_cache/clang.zip"
+      download_asset "$GOLD_RUST_ARCHIVE" "$toolchain_cache/rust.zip"
+      download_asset "$GOLD_BUILD_TOOLS_ARCHIVE" "$toolchain_cache/build-tools.zip"
+
+      unzip -q "$toolchain_cache/clang.zip" -d "$toolchain_cache/clang19"
+      unzip -q "$toolchain_cache/rust.zip" -d "$toolchain_cache/rust"
+      # cctv18's build-tools.zip already contains a top-level build-tools/
+      # directory. Extract it at TOOLROOT.
+      unzip -q "$toolchain_cache/build-tools.zip" -d "$toolchain_cache"
+      rm -f "$toolchain_cache/"*.zip
+
+      toolchain_cache_valid || die "downloaded Gold toolchain cache is incomplete"
+    fi
+
+    ln -s "$toolchain_cache" "$KERNEL_ROOT/gold-toolchain"
 
     [[ -x "$KERNEL_ROOT/gold-toolchain/clang19/bin/clang" ]] ||
       die "Gold clang bundle missing clang"

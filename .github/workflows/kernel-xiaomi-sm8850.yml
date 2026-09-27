@@ -133,6 +133,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Cache pinned Gold toolchain
+        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-sm8850/gold-toolchain-r536225
+          key: xiaomi-sm8850-gold-toolchain-r536225-v1
+
+      - name: Cache Gold compiler objects
+        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache-xiaomi-sm8850
+          key: xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
+
       - name: Check upstream custom-feature drift
         shell: bash
         run: |

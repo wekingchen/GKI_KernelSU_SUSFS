@@ -24,8 +24,25 @@ KOUT="$COMMON/out"
 export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
 export RUSTC=rustc
 export BINDGEN=bindgen
-export CC=clang
-export HOSTCC=clang
+
+CC_COMMAND=clang
+HOSTCC_COMMAND=clang
+CCACHE_ENABLED=false
+if command -v ccache >/dev/null 2>&1 && [[ "${XIAOMI_USE_CCACHE:-true}" == "true" ]]; then
+  export CCACHE_DIR="${CCACHE_DIR:-$HOME/.cache/ccache-xiaomi-sm8850}"
+  export CCACHE_BASEDIR="$XIAOMI_REPO_ROOT"
+  export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
+  mkdir -p "$CCACHE_DIR"
+  ccache --max-size "${CCACHE_MAXSIZE:-3G}" >/dev/null
+  CC_COMMAND="ccache clang"
+  HOSTCC_COMMAND="ccache clang"
+  CCACHE_ENABLED=true
+  note "ccache enabled: dir=$CCACHE_DIR max=${CCACHE_MAXSIZE:-3G}"
+  ccache --show-stats || true
+fi
+
+export CC="$CC_COMMAND"
+export HOSTCC="$HOSTCC_COMMAND"
 export LD=ld.lld
 export HOSTLD=ld.lld
 export LLVM=1
@@ -93,8 +110,8 @@ set -u
 export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
 export RUSTC=rustc
 export BINDGEN=bindgen
-export CC=clang
-export HOSTCC=clang
+export CC="$CC_COMMAND"
+export HOSTCC="$HOSTCC_COMMAND"
 export LD=ld.lld
 export HOSTLD=ld.lld
 export LLVM=1
@@ -121,7 +138,7 @@ rm -rf "$KOUT"
 
 make -j"$(nproc)" \
   LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-  CC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
   O=out gki_defconfig
 
 # cctv18 packages use a deterministic custom kernel suffix. Do the same rather
@@ -138,6 +155,14 @@ if [[ -s "$FRAGMENT" ]]; then
     [[ -z "$line" ]] && continue
     if [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=y$ ]]; then
       "$COMMON/scripts/config" --file "$KOUT/.config" --enable "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=m$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --module "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=n$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --disable "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=\"(.*)\"$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --set-str "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=(-?[0-9]+|0x[0-9A-Fa-f]+)$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --set-val "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
     elif [[ "$line" =~ ^#\ CONFIG_([A-Z0-9_]+)\ is\ not\ set$ ]]; then
       "$COMMON/scripts/config" --file "$KOUT/.config" --disable "${BASH_REMATCH[1]}"
     else
@@ -148,13 +173,13 @@ fi
 
 make -j"$(nproc)" \
   LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-  CC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
   O=out olddefconfig
 
 note "Gold make path: building Image only (no Kleaf dist/module-output enforcement)"
 make -j"$(nproc)" \
   LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-  CC=clang LD=ld.lld OBJCOPY=llvm-objcopy \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
   O=out Image
 
 IMAGE="$KOUT/arch/arm64/boot/Image"
@@ -163,3 +188,8 @@ cp -f "$IMAGE" "$OUT/Image"
 cp -f "$KOUT/.config" "$OUT/final.config"
 
 note "Gold make Image ready: $OUT/Image"
+
+if [[ "$CCACHE_ENABLED" == "true" ]]; then
+  note "ccache statistics after kernel build:"
+  ccache --show-stats || true
+fi
