@@ -28,7 +28,7 @@ on:
           - popsicle
         default: pandora
       source_profile:
-        description: "Kernel source: Gold-compatible public line or clean ACK r51 control"
+        description: "Kernel source/build: Gold-compatible make/Image or clean ACK r51 Kleaf control"
         required: true
         type: choice
         options:
@@ -78,8 +78,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bc bison build-essential ccache curl flex git jq libelf-dev \
-            libssl-dev python3 repo rsync unzip zip zstd dwarves
+            bc bison build-essential ccache cpio curl flex git jq \
+            libdw-dev libelf-dev libssl-dev perl python3 python-is-python3 \
+            repo rsync tar unzip xz-utils zip zstd dwarves
 
       - name: Build, validate and package
         shell: bash
