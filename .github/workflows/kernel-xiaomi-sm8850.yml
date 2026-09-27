@@ -27,6 +27,14 @@ on:
           - pudding
           - popsicle
         default: pandora
+      source_profile:
+        description: "Kernel source: Gold-compatible public line or clean ACK r51 control"
+        required: true
+        type: choice
+        options:
+          - gold-cctv
+          - ack-r51
+        default: gold-cctv
       variant:
         description: "Debug ladder: A base, B ReSukiSU built-in, C ReSukiSU built-in + SUSFS"
         required: true
@@ -42,12 +50,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: xiaomi-sm8850-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ inputs.variant }}
+  group: xiaomi-sm8850-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}-${{ inputs.variant }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / ${{ matrix.variant }}"
+    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }} / ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }} / ${{ matrix.variant }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -69,15 +77,22 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             bc bison build-essential ccache curl flex git jq libelf-dev             libssl-dev python3 repo rsync unzip zip zstd dwarves
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache curl flex git jq libelf-dev \
+            libssl-dev python3 repo rsync unzip zip zstd dwarves
 
       - name: Build, validate and package
         shell: bash
         env:
           XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.variant }}
+          XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
         run: |
           set -euo pipefail
-          bash scripts/xiaomi-sm8850/build.sh             "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}"             "${{ matrix.variant }}"             "$XIAOMI_WORKDIR"
+          bash scripts/xiaomi-sm8850/build.sh \
+            "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}" \
+            "${{ matrix.variant }}" \
+            "$XIAOMI_WORKDIR" \
+            "$XIAOMI_SOURCE_PROFILE"
 
       - name: Publish build summary
         if: always()
@@ -90,9 +105,10 @@ jobs:
             echo "## Xiaomi SM8850 build"
             echo
             echo "- Device: ${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}"
+            echo "- Source: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}"
             echo "- Variant: ${{ matrix.variant }}"
             echo "- Expected kernel: 6.12.23 / android16-5 / 4K"
-            echo "- Generic workflow: untouched"
+            echo "- Generic upstream-tracking workflow: untouched"
             echo
             if [ -f "$OUT/build-metadata.txt" ]; then
               echo "### Provenance"
@@ -108,7 +124,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ matrix.variant }}-6.12.23
+          name: Xiaomi-SM8850-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}-${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}-${{ matrix.variant }}-6.12.23
           path: |
             xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/Image
             xiaomi-sm8850-work/${{ matrix.variant }}/output/${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}/${{ matrix.variant }}/Image.lz4
