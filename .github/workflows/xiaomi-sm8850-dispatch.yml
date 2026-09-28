@@ -54,9 +54,9 @@ on:
         required: true
         type: choice
         options:
-          - off
-          - on
-        default: on
+          - "off"
+          - "on"
+        default: "on"
       droidspaces_ntsync:
         description: "NTSync（DroidSpaces/Wine 兼容能力；需要 DroidSpaces=on）"
         required: true
