@@ -102,7 +102,7 @@ on:
         default: "仅上传 AnyKernel3.zip"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   xiaomi-sm8850:
