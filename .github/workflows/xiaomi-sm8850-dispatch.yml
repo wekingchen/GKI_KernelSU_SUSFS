@@ -1,0 +1,126 @@
+# Fork-local Xiaomi workflow dispatcher.
+# Keep this file when syncing dev from upstream.
+# Normal merge/Sync fork updates preserve it; do not force-reset dev to upstream/dev.
+#
+# All Xiaomi build implementation lives on branch: xiaomi-sm8850-pandora
+# This default-branch file only exposes the GitHub Actions Run workflow GUI.
+
+name: Xiaomi 17 系列 - 自定义内核
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "设备（17 Pro/pandora 已真机验证）"
+        required: true
+        type: choice
+        options:
+          - "Xiaomi 17 Pro (pandora)"
+          - "Xiaomi 17 (pudding)"
+          - "Xiaomi 17 Pro Max (popsicle)"
+        default: "Xiaomi 17 Pro (pandora)"
+      source_profile:
+        description: "内核源码/构建链（推荐 gold-cctv）"
+        required: true
+        type: choice
+        options:
+          - gold-cctv
+          - ack-r51
+        default: gold-cctv
+      root_mode:
+        description: "Root / SUSFS 模式"
+        required: true
+        type: choice
+        options:
+          - resukisu-susfs
+          - resukisu
+          - none
+        default: resukisu-susfs
+      susfs_extra_features:
+        description: "SUSFS 扩展（pandora 真机验证，推荐开启）"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "KPM（当前 ReSukiSU 未声明 CONFIG_KPM，请保持 disabled）"
+        required: true
+        type: choice
+        options:
+          - disabled
+          - enabled
+        default: disabled
+      droidspaces:
+        description: "DroidSpaces 容器支持"
+        required: true
+        type: choice
+        options:
+          - off
+          - on
+        default: on
+      droidspaces_ntsync:
+        description: "NTSync（DroidSpaces/Wine 兼容能力；需要 DroidSpaces=on）"
+        required: true
+        type: boolean
+        default: true
+      use_zram:
+        description: "ZRAM/LZ4K/LZ4KD 增强"
+        required: true
+        type: boolean
+        default: true
+      use_bbg:
+        description: "BBG Baseband Guard"
+        required: true
+        type: boolean
+        default: true
+      use_rekernel:
+        description: "Re-Kernel 11.7"
+        required: true
+        type: boolean
+        default: true
+      use_nomount:
+        description: "NoMount VFS 注入（Magic Mount 用户通常无需）"
+        required: true
+        type: boolean
+        default: false
+      use_networking:
+        description: "网络增强：BBR/IPSet/Qdisc/CIFS"
+        required: true
+        type: boolean
+        default: true
+      cve_2026_43499_patch:
+        description: "CVE-2026-43499 / CVE-2026-53163 修复链"
+        required: true
+        type: boolean
+        default: true
+      artifact_upload_mode:
+        description: "构建产物上传模式"
+        required: true
+        type: choice
+        options:
+          - "仅上传 AnyKernel3.zip"
+          - "上传全部"
+        default: "仅上传 AnyKernel3.zip"
+
+permissions:
+  contents: read
+
+jobs:
+  xiaomi-sm8850:
+    name: ${{ inputs.device }}
+    uses: wekingchen/GKI_KernelSU_SUSFS/.github/workflows/kernel-xiaomi-sm8850.yml@xiaomi-sm8850-pandora
+    with:
+      device: ${{ inputs.device }}
+      source_profile: ${{ inputs.source_profile }}
+      root_mode: ${{ inputs.root_mode }}
+      susfs_extra_features: ${{ inputs.susfs_extra_features }}
+      use_kpm: ${{ inputs.use_kpm }}
+      droidspaces: ${{ inputs.droidspaces }}
+      droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
+      use_zram: ${{ inputs.use_zram }}
+      use_bbg: ${{ inputs.use_bbg }}
+      use_rekernel: ${{ inputs.use_rekernel }}
+      use_nomount: ${{ inputs.use_nomount }}
+      use_networking: ${{ inputs.use_networking }}
+      cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
+      artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
+    secrets: inherit
