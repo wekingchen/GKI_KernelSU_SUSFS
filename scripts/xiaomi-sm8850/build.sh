@@ -59,6 +59,60 @@ case "$SOURCE_BUILD_MODE" in
 
   kleaf-dist)
     cd "$KERNEL_ROOT"
+
+    # ReSukiSU derives version metadata from its .git directory. A normal
+    # Kleaf sandbox intentionally exposes only declared source inputs, so .git
+    # metadata is absent and upstream Kbuild aborts. Resolve the pinned metadata
+    # before entering Bazel and replace only the Git-probing block with
+    # deterministic values. This ACK-only compatibility layer keeps the action
+    # hermetic/cacheable; the Gold make path remains untouched.
+    if [[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]]; then
+      ksu_kbuild="$KERNEL_ROOT/ReSukiSU/kernel/Kbuild"
+      [[ -f "$ksu_kbuild" ]] || die "ReSukiSU Kbuild missing: $ksu_kbuild"
+
+      ksu_local_version="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-list --count HEAD)"
+      ksu_version="$((30000 + ksu_local_version + 700))"
+      ksu_tag="$(git -C "$KERNEL_ROOT/ReSukiSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
+      ksu_commit="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse --short=8 HEAD)"
+      ksu_branch="$(git -C "$KERNEL_ROOT/ReSukiSU" branch --show-current 2>/dev/null || true)"
+      [[ -n "$ksu_branch" ]] || ksu_branch="detached"
+
+      note "freezing ReSukiSU metadata for ACK sandbox: version=$ksu_version tag=$ksu_tag commit=$ksu_commit branch=$ksu_branch"
+
+      python3 - "$ksu_kbuild" "$ksu_local_version" "$ksu_version" "$ksu_tag" "$ksu_commit" "$ksu_branch" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+local_version, version, tag, commit, branch = sys.argv[2:]
+text = path.read_text()
+
+start = text.find("LOCAL_GIT_EXISTS :=")
+end_marker = "KSU_BRANCH_NAME := $(shell cd $(KSU_SRC); $(GIT_BIN) branch --show-current 2>/dev/null || echo \"unknown\")"
+end = text.find(end_marker, start)
+if start < 0 or end < 0:
+    raise SystemExit("ReSukiSU Git metadata block layout changed; refusing unsafe ACK patch")
+end += len(end_marker)
+
+replacement = f"""# ACK/Kleaf sandbox: metadata resolved before Bazel; do not require .git.
+ifdef KBUILD_EXTMOD
+include $(KSU_SRC)/tools/ddk_compatible.mk
+endif
+
+KSU_LOCAL_VERSION := {local_version}
+KSU_VERSION := {version}
+KSU_TAG_NAME := {tag}
+KSU_COMMIT_SHA := {commit}
+KSU_BRANCH_NAME := {branch}"""
+
+text = text[:start] + replacement + text[end:]
+path.write_text(text)
+PY
+
+      grep -q "^KSU_VERSION := $ksu_version$" "$ksu_kbuild" ||
+        die "failed to freeze ReSukiSU ACK metadata"
+    fi
+
     clang_bin="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
     [[ -x "$clang_bin" ]] || die "pinned ACK clang not found: $clang_bin"
     clang_line="$("$clang_bin" --version | head -n1)"
