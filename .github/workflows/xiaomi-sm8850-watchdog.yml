@@ -1,0 +1,179 @@
+name: Xiaomi SM8850 Safeguard Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * *"
+  push:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/xiaomi-sm8850-dispatch.yml"
+      - ".github/workflows/kernel-xiaomi-sm8850.yml"
+      - ".github/workflows/xiaomi-sm8850-watchdog.yml"
+      - ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+      - "scripts/xiaomi-sm8850/**"
+      - "docs/xiaomi-sm8850.md"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: xiaomi-sm8850-watchdog
+  cancel-in-progress: true
+
+jobs:
+  safeguard:
+    name: Verify Xiaomi recovery safeguards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      STABLE_BRANCH: xiaomi-sm8850-stable
+      LKG_BRANCH: xiaomi-sm8850-lkg-20260928
+      LKG_SHA: a6739500cf10f9d73453d6eb4f86bf17c6e722a4
+
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 1
+
+      - name: Verify safeguards
+        id: verify
+        shell: bash
+        run: |
+          set -u
+
+          failures=()
+
+          require_file() {
+            local path="$1"
+            [[ -f "$path" ]] || failures+=("missing file on dev: $path")
+          }
+
+          require_dir() {
+            local path="$1"
+            [[ -d "$path" ]] || failures+=("missing directory on dev: $path")
+          }
+
+          require_branch() {
+            local branch="$1"
+            gh api "repos/$REPO/branches/$branch" >/dev/null 2>&1 ||
+              failures+=("missing recovery branch: $branch")
+          }
+
+          require_ref_file() {
+            local branch="$1"
+            local path="$2"
+            gh api "repos/$REPO/contents/$path?ref=$branch" >/dev/null 2>&1 ||
+              failures+=("$branch is missing recovery file: $path")
+          }
+
+          require_file ".github/workflows/xiaomi-sm8850-dispatch.yml"
+          require_file ".github/workflows/kernel-xiaomi-sm8850.yml"
+          require_file ".github/workflows/xiaomi-sm8850-watchdog.yml"
+          require_file ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+          require_dir  "scripts/xiaomi-sm8850"
+          require_file "docs/xiaomi-sm8850.md"
+
+          if [[ -f ".github/workflows/xiaomi-sm8850-dispatch.yml" ]]; then
+            grep -Fq 'uses: ./.github/workflows/kernel-xiaomi-sm8850.yml'               ".github/workflows/xiaomi-sm8850-dispatch.yml" ||
+              failures+=("dispatcher no longer calls the local Xiaomi workflow")
+
+            if grep -Fq 'xiaomi-sm8850-pandora' ".github/workflows/xiaomi-sm8850-dispatch.yml"; then
+              failures+=("dispatcher regressed to obsolete xiaomi-sm8850-pandora dependency")
+            fi
+          fi
+
+          require_branch "$STABLE_BRANCH"
+          require_branch "$LKG_BRANCH"
+
+          stable_sha="$(gh api "repos/$REPO/branches/$STABLE_BRANCH" --jq '.commit.sha' 2>/dev/null || true)"
+          lkg_sha="$(gh api "repos/$REPO/branches/$LKG_BRANCH" --jq '.commit.sha' 2>/dev/null || true)"
+
+          if [[ -n "$lkg_sha" && "$lkg_sha" != "$LKG_SHA" ]]; then
+            failures+=("LKG moved unexpectedly: expected $LKG_SHA, got $lkg_sha")
+          fi
+
+          if [[ -n "$stable_sha" ]]; then
+            require_ref_file "$STABLE_BRANCH" ".github/workflows/xiaomi-sm8850-dispatch.yml"
+            require_ref_file "$STABLE_BRANCH" ".github/workflows/kernel-xiaomi-sm8850.yml"
+            require_ref_file "$STABLE_BRANCH" ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+            require_ref_file "$STABLE_BRANCH" "docs/xiaomi-sm8850.md"
+          fi
+
+          if ((${#failures[@]} == 0)); then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+            echo "Xiaomi safeguards healthy."
+            exit 0
+          fi
+
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "details<<WATCHDOG_EOF"
+            printf -- '- %s\n' "${failures[@]}"
+            echo "WATCHDOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          printf 'Watchdog failures:\n'
+          printf -- '  - %s\n' "${failures[@]}"
+
+      - name: Open or update recovery alert
+        if: steps.verify.outputs.healthy == 'false'
+        shell: bash
+        env:
+          DETAILS: ${{ steps.verify.outputs.details }}
+        run: |
+          set -euo pipefail
+
+          title="[Xiaomi watchdog] SM8850 safeguard failure"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="$(cat <<EOF
+          Xiaomi SM8850 safeguard verification failed.
+
+          $DETAILS
+
+          Workflow run: $run_url
+
+          Safety policy:
+          - do not force-push or reset dev
+          - do not delete or move $LKG_BRANCH
+          - restore through a normal PR/merge from $STABLE_BRANCH where appropriate
+          EOF
+          )"
+
+          issue_number="$(gh issue list             --repo "$REPO"             --state open             --search "$title in:title"             --json number,title             --jq '.[] | select(.title == "'"$title"'") | .number'             | head -n1)"
+
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
+
+          if gh api "repos/$REPO/branches/$STABLE_BRANCH" >/dev/null 2>&1; then
+            existing_pr="$(gh pr list               --repo "$REPO"               --base dev               --head "$STABLE_BRANCH"               --state open               --json url               --jq '.[0].url // empty')"
+
+            if [[ -z "$existing_pr" ]]; then
+              gh pr create                 --repo "$REPO"                 --base dev                 --head "$STABLE_BRANCH"                 --title "recovery: restore Xiaomi SM8850 safeguards"                 --body "Created automatically by the Xiaomi watchdog after safeguard verification failed. Review and merge normally; do not force-update dev."                 || true
+            fi
+          fi
+
+          exit 1
+
+      - name: Close resolved watchdog alert
+        if: steps.verify.outputs.healthy == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="[Xiaomi watchdog] SM8850 safeguard failure"
+          issue_number="$(gh issue list             --repo "$REPO"             --state open             --search "$title in:title"             --json number,title             --jq '.[] | select(.title == "'"$title"'") | .number'             | head -n1)"
+
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" --repo "$REPO"               --body "Safeguards are healthy again in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+            gh issue close "$issue_number" --repo "$REPO" --reason completed
+          fi
