@@ -110,8 +110,8 @@ Run #74 proved the optional features individually at level 1. Runs #75/#76 prove
 | Networking | BBR registered and selected at runtime; IPSet symbols present; iptables nat/mangle/raw/filter tables present; CIFS registered | runtime validated |
 | NTSync | `/dev/ntsync` misc device exists and NTSync runtime symbols/initcall are present | runtime validated |
 | DroidSpaces prerequisites | IPC/PID/User namespaces were created successfully with `unshare`; PID namespace child ran as PID 1 | kernel/runtime prerequisites validated; full userspace workload pending |
-| Re-Kernel | built-in Re-Kernel 11.7 symbols and Generic Netlink implementation are present in the running kernel | built-in presence validated; userspace protocol/hook behavior pending |
-| NoMount | built-in NoMount 20 VFS/initcall symbols are present in the running kernel | built-in presence validated; userspace protocol/rule behavior pending |
+| Re-Kernel | built-in symbols are present and a read-only Generic Netlink `GET_VERSION` probe returned `11.7` from the running kernel | runtime userspace ABI validated; individual hook behavior not destructively exercised |
+| NoMount | built-in symbols are present and a read-only NoMount `NM_CMD_GET_VERSION` probe returned `20` from the running kernel | runtime userspace ABI validated; path-rule behavior not modified during validation |
 | CVE fix chain | patch/config/build validation passed | do not intentionally trigger the vulnerabilities on the device |
 
 These levels are intentionally conservative: built-in symbol presence is not treated as proof that a userspace protocol or every hook path has been exercised.
@@ -205,8 +205,8 @@ It targets `boot`, auto-detects the active slot, disables vbmeta flag patching, 
 
 The #76 full image has passed boot, initial basic-use checks and the runtime checks recorded above on `pandora`. Keep this exact kernel installed while closing the remaining gaps:
 
-- query Re-Kernel 11.7 through its Generic Netlink userspace ABI, or otherwise exercise a safe real hook path
-- query NoMount 20 through its userspace ABI and, if desired, exercise a disposable rule
+- optionally exercise a safe real Re-Kernel hook path; its Generic Netlink userspace ABI is already proven
+- optionally exercise a disposable NoMount path rule; its userspace ABI is already proven
 - run an actual DroidSpaces userspace/container workload; namespace creation and NTSync are already proven
 - continue normal-use regression observation; do not intentionally exploit-test the CVE fixes
 
