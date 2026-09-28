@@ -202,8 +202,24 @@ print(f"common project file: {path}")
 print(f"common manifest revision: {old} -> {sync_ref}")
 PY
 
+    # Reuse only the immutable Git object stores from previous ACK runs.
+    # The checked-out source tree itself is never cached, because later Xiaomi
+    # integration intentionally modifies it. A fresh repo checkout is created
+    # every run, preserving the same clean-source guarantee as Gold.
+    ack_objects_cache="${XIAOMI_ACK_REPO_OBJECTS_CACHE:-$HOME/.cache/xiaomi-sm8850/ack-r51-project-objects-a17736b7-5a0e85dd}"
+    if [[ -d "$ack_objects_cache" ]] && find "$ack_objects_cache" -mindepth 1 -print -quit | grep -q .; then
+      note "seeding ACK repo Git object store from cache: $ack_objects_cache"
+      mkdir -p .repo/project-objects
+      rsync -a "$ack_objects_cache/" .repo/project-objects/
+    else
+      note "ACK repo Git object cache miss"
+    fi
+
     note "syncing pinned ACK build tree"
     repo sync -c --force-sync --no-clone-bundle --no-tags -j4
+
+    mkdir -p "$ack_objects_cache"
+    rsync -a .repo/project-objects/ "$ack_objects_cache/"
 
     actual_manifest_after="$(git -C .repo/manifests rev-parse HEAD)"
     [[ "$actual_manifest_after" == "$ACK_MANIFEST_COMMIT" ]] ||
