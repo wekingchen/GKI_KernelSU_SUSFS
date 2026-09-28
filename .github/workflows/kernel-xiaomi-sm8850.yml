@@ -174,13 +174,17 @@ concurrency:
 
 jobs:
   preflight:
-    name: Xiaomi scripts / syntax preflight
+    name: Xiaomi scripts / CI plan
     runs-on: ubuntu-24.04
+    outputs:
+      pr_profile: ${{ steps.plan.outputs.profile }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           ref: ${{ inputs.implementation_ref || github.ref }}
+          fetch-depth: 0
+
       - name: Validate Xiaomi shell scripts
         shell: bash
         run: |
@@ -190,15 +194,45 @@ jobs:
             bash -n "$script"
           done
 
+      - name: Select PR regression profile
+        id: plan
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          printf 'Changed files:\n'
+          printf '  %s\n' "${changed[@]}"
+
+          profile=none
+          for path in "${changed[@]}"; do
+            case "$path" in
+              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh)
+                profile=full
+                break
+                ;;
+              .github/workflows/kernel-xiaomi-sm8850.yml|scripts/xiaomi-sm8850/*)
+                profile=baseline
+                ;;
+            esac
+          done
+
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "PR regression profile: $profile"
+
   build:
     needs: preflight
+    if: github.event_name != 'pull_request' || needs.preflight.outputs.pr_profile != 'none'
     name: "${{ github.event_name != 'pull_request' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.profile }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","full"]' || '["custom"]') }}
+        profile: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', needs.preflight.outputs.pr_profile) || '["custom"]') }}
     env:
       XIAOMI_CI_PROFILE: ${{ matrix.profile }}
       XIAOMI_DEVICE: ${{ github.event_name != 'pull_request' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
@@ -241,7 +275,10 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache-xiaomi-sm8850
-          key: xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
+          key: xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-${{ hashFiles('scripts/xiaomi-sm8850/**', '.github/config/xiaomi-sm8850-android16-6.12.23.env') }}
+          restore-keys: |
+            xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-
+            xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
 
       - name: Check upstream custom-feature drift
         shell: bash
@@ -295,8 +332,9 @@ jobs:
             baseline)
               ;;
             full)
-              # CI combination smoke intentionally includes every Xiaomi
-              # optional feature that passed the #74 matrix, except KPM.
+              # Full regression runs only when feature integration or the
+              # pinned Xiaomi build configuration changes. It intentionally
+              # includes every supported optional feature except KPM.
               # NoMount stays here for regression coverage even though the
               # user-facing GUI default is OFF for Magic Mount users.
               echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
