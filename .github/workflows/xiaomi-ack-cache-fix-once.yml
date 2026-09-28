@@ -1,5 +1,5 @@
 name: Xiaomi ACK-R51 缓存修复验证
-# ack-ccache-pathfix-1
+# ack-ccache-r51-template-cold-1
 
 on:
   push:
