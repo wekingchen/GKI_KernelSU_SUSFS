@@ -104,6 +104,10 @@ on:
 
   workflow_call:
     inputs:
+      implementation_ref:
+        required: false
+        type: string
+        default: xiaomi-sm8850-pandora
       device:
         required: false
         type: string
@@ -176,7 +180,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_call' && 'xiaomi-sm8850-pandora' || github.ref }}
+          ref: ${{ inputs.implementation_ref || github.ref }}
       - name: Validate Xiaomi shell scripts
         shell: bash
         run: |
@@ -216,7 +220,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_call' && 'xiaomi-sm8850-pandora' || github.ref }}
+          ref: ${{ inputs.implementation_ref || github.ref }}
 
       - name: Cache pinned Gold common source
         if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
