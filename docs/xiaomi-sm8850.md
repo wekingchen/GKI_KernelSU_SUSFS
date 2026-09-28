@@ -167,6 +167,34 @@ PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍
 
 这说明 ACK 自身的 strict KMI、配置校验和 CI 编译通过，并不能证明与小米原厂 vendor/vendor_dlkm 模块、设备私有内核改动和启动期依赖兼容。当前不将 ACK-R51 作为可日常使用或可推进 stable 的候选；后续若继续研究，应优先收集 pstore/ramoops 等启动失败日志，再针对实际失败点分析，而不是仅依赖 KMI/版本字符串推断兼容性。
 
+### 2026-09-29 Release 覆盖事故
+
+首次 ACK 真机失败后，曾尝试从历史 `xiaomi-custom-latest` Release 下载“Gold #3”回刷，但该包同样无法启动。随后核查确认，这并不能证明原始 Gold #3 失效：旧发布逻辑让所有源码配置共用同一个可变 `xiaomi-custom-latest` tag 和同一个 ZIP 文件名，并使用 `gh release upload --clobber` 覆盖资产。
+
+ACK 自定义构建 #6（Run ID `36408437569`）在 2026-09-28 10:44:58Z 明确以 `source_profile=ack-r51` 上传了同名 ZIP；GitHub Release 中当时的资产创建时间为 10:44:59Z，与该 ACK 运行完全吻合，而 Release 的 `target_commitish` 仍停留在早先 Gold #3 的 `6e612aad...`。因此从该 Release 下载时，页面看起来仍像 Gold #3，实际内容已经是 ACK-R51。
+
+事故时被覆盖资产的 SHA256 为：
+
+```text
+b38ff5f9e3b2644b479a4532de5e98f2e2f16260dac6dd4b4dc548712403a928
+```
+
+已知能够真机启动的 Gold 自定义 Run #2（Run ID `36373339166`，Artifact ID `10950925575`）原始 AnyKernel3 ZIP 则为：
+
+```text
+ZIP   174a915d904ca1cda0f13d6bdf5ad78e45e1e76f67b6d013ee62eca550ca8776
+Image 90540ed0f30e5f55a94c607b20bc765f6bd2337a4929413d702e2b597bc704c3
+```
+
+因此后续不得再把旧 `xiaomi-custom-latest` 作为来源证明或恢复包。正式发布逻辑已经改为：
+
+- AnyKernel3 文件名包含 `source_profile`，可直接区分 `gold-cctv` 与 `ack-r51`；
+- Release tag 按每次 Actions run 唯一生成，不再跨运行覆盖；
+- “仅上传 AnyKernel3”模式也额外保存不可变 Workflow Artifact；
+- 完整 Artifact 名称同样包含源码 profile 和 Run ID。
+
+在没有取得原始 Gold #3 ZIP 本体并核对哈希之前，当前没有证据表明 Gold #3 内核本身存在启动回归。此前 Gold #3 已有一次实际成功启动记录。
+
 ## ACK-R51 CI 验证记录
 
 2026-09-28，ACK-R51 对照路径完成一次全功能 CI 验证。
