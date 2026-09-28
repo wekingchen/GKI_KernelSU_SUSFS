@@ -55,9 +55,9 @@ on:
         required: true
         type: choice
         options:
-          - off
-          - on
-        default: on
+          - "off"
+          - "on"
+        default: "on"
       artifact_upload_mode:
         description: "构建产物上传模式"
         required: true
@@ -131,7 +131,7 @@ on:
       droidspaces:
         required: false
         type: string
-        default: on
+        default: "on"
       artifact_upload_mode:
         required: false
         type: string
