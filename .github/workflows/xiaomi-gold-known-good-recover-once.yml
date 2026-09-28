@@ -1,0 +1,82 @@
+name: Xiaomi Gold known-good recovery publish
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/xiaomi-gold-known-good-recover-once.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-known-good:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore verified Gold run #2 package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ARTIFACT_ID=10950925575
+          EXPECTED_ZIP_SHA256=174a915d904ca1cda0f13d6bdf5ad78e45e1e76f67b6d013ee62eca550ca8776
+          EXPECTED_IMAGE_SHA256=90540ed0f30e5f55a94c607b20bc765f6bd2337a4929413d702e2b597bc704c3
+          KNOWN_GOOD_SHA=d97d277db868faaa7c829fb725ae03fc6763ddc4
+          TAG=xiaomi-gold-known-good-run2
+
+          work="$RUNNER_TEMP/xiaomi-gold-known-good"
+          rm -rf "$work"
+          mkdir -p "$work/artifact"
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$work/artifact.zip"
+          unzip -q "$work/artifact.zip" -d "$work/artifact"
+
+          zip_path=$(find "$work/artifact" -maxdepth 1 -type f -name '*-AnyKernel3.zip' -print -quit)
+          [[ -n "$zip_path" && -f "$zip_path" ]] || {
+            echo "::error::Known-good AnyKernel3 ZIP missing from artifact $ARTIFACT_ID"
+            exit 1
+          }
+
+          actual_zip_sha=$(sha256sum "$zip_path" | awk '{print $1}')
+          [[ "$actual_zip_sha" == "$EXPECTED_ZIP_SHA256" ]] || {
+            echo "::error::Known-good ZIP hash mismatch: $actual_zip_sha"
+            exit 1
+          }
+
+          actual_image_sha=$(unzip -p "$zip_path" Image | sha256sum | awk '{print $1}')
+          [[ "$actual_image_sha" == "$EXPECTED_IMAGE_SHA256" ]] || {
+            echo "::error::Known-good Image hash mismatch: $actual_image_sha"
+            exit 1
+          }
+
+          safe_name="Xiaomi17Series-pandora-gold-cctv-Android16-6.12.23-resukisu-susfs-KNOWN-GOOD-run2-AnyKernel3.zip"
+          safe_zip="$work/$safe_name"
+          cp -f "$zip_path" "$safe_zip"
+
+          # The historical generic latest release was cross-profile mutable and
+          # was overwritten by ACK-R51 run #6. Remove it so it cannot be mistaken
+          # for the original Gold run #3 package again.
+          if gh release view xiaomi-custom-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete xiaomi-custom-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y
+          fi
+
+          notes="Known-good Xiaomi 17 Pro (pandora) Gold recovery package from custom run #2 / artifact $ARTIFACT_ID. This exact package was reported bootable on hardware. ZIP SHA256: $EXPECTED_ZIP_SHA256. Image SHA256: $EXPECTED_IMAGE_SHA256. Source profile: gold-cctv. Head: $KNOWN_GOOD_SHA."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$safe_zip" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Xiaomi 17 Pro Gold known-good recovery (run #2)" --notes "$notes"
+          else
+            gh release create "$TAG" "$safe_zip" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$KNOWN_GOOD_SHA" \
+              --title "Xiaomi 17 Pro Gold known-good recovery (run #2)" \
+              --notes "$notes" \
+              --prerelease
+          fi
+
+          echo "Known-good ZIP SHA256: $actual_zip_sha"
+          echo "Known-good Image SHA256: $actual_image_sha"
