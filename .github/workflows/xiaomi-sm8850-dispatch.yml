@@ -2,8 +2,9 @@
 # Keep this file when syncing dev from upstream.
 # Normal merge/Sync fork updates preserve it; do not force-reset dev to upstream/dev.
 #
-# All Xiaomi build implementation lives on branch: xiaomi-sm8850-pandora
-# This default-branch file only exposes the GitHub Actions Run workflow GUI.
+# Xiaomi build implementation now lives on dev together with this dispatcher.
+# Keep these fork-local Xiaomi files when syncing dev from upstream; normal
+# GitHub "Sync fork" / merge updates preserve them unless upstream conflicts.
 
 name: Xiaomi 17 系列 - 自定义内核
 
@@ -108,7 +109,7 @@ permissions:
 jobs:
   xiaomi-sm8850:
     name: ${{ inputs.device }}
-    uses: wekingchen/GKI_KernelSU_SUSFS/.github/workflows/kernel-xiaomi-sm8850.yml@xiaomi-sm8850-pandora
+    uses: ./.github/workflows/kernel-xiaomi-sm8850.yml
     with:
       device: ${{ inputs.device }}
       source_profile: ${{ inputs.source_profile }}
