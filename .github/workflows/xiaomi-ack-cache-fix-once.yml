@@ -1,5 +1,5 @@
 name: Xiaomi ACK-R51 缓存修复验证
-# kleaf-cache-dir-warm-1
+# ack-ccache-cold-1
 
 on:
   push:
