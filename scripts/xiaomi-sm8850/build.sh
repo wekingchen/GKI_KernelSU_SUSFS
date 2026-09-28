@@ -148,10 +148,14 @@ PY
       done
     fi
 
-    note "building ACK control with //common:kernel_aarch64_dist + ThinLTO + strict KMI"
+    # Do not force ThinLTO on ACK-R51. This R51 GKI defconfig enables
+    # DEBUG_INFO_BTF + RUST + rust_binder=m, while CONFIG_RUST requires !LTO
+    # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
+    # then Kleaf still expects rust_binder.ko and fails at module collection.
+    # Keep the official R51 LTO/default behavior and retain strict KMI checks.
+    note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
     tools/bazel build \
       --config=fast \
-      --lto=thin \
       "${frag_flag[@]}" \
       //common:kernel_aarch64_dist
 
@@ -163,7 +167,7 @@ PY
     fi
 
     build_target="//common:kernel_aarch64_dist"
-    lto_mode="thin"
+    lto_mode="source-default (R51; ThinLTO not forced)"
     kmi_enforced="true"
     kmi_strict="true"
     ;;
