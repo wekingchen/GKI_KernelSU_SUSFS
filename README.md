@@ -99,6 +99,15 @@ Wiki 涵盖内容：
 | 名称 | 说明 |
 |:---:|:---|
 | **Scene** | [官网](https://omarea.com/#/) |
+
+## Xiaomi 17 系列 / SM8850 专用诊断构建
+
+新增独立工作流 **Android Kernel Build - Xiaomi 17 Series SM8850**，用于 Xiaomi 17 / 17 Pro / 17 Pro Max 的 Android 16、Linux 6.12.23 启动兼容性排查。该路径不会修改原有 Generic GKI 构建逻辑。
+
+首版只提供三阶最小变量：原始公共 ACK 基线、ReSukiSU Built-in、ReSukiSU Built-in + SUSFS；并保留 KMI/ABI 检查，使用设备限定的 boot-only AnyKernel3。
+
+详细基线、固定提交、CI 自检和刷入范围见 [docs/xiaomi-sm8850.md](docs/xiaomi-sm8850.md)。
+
 ---
 
 <div align="center">

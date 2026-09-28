@@ -1,0 +1,502 @@
+name: Android 内核构建 - Xiaomi 17 系列
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/kernel-xiaomi-sm8850.yml"
+      - ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+      - "scripts/xiaomi-sm8850/**"
+      - "docs/xiaomi-sm8850.md"
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "设备（pandora 已真机验证；其余同平台待验证）"
+        required: true
+        type: choice
+        options:
+          - "Xiaomi 17 Pro (pandora)"
+          - "Xiaomi 17 (pudding)"
+          - "Xiaomi 17 Pro Max (popsicle)"
+        default: "Xiaomi 17 Pro (pandora)"
+      source_profile:
+        description: "内核源码/构建链（正常使用请选择 gold-cctv）"
+        required: true
+        type: choice
+        options:
+          - gold-cctv
+          - ack-r51
+        default: gold-cctv
+      root_mode:
+        description: "Root / SUSFS 模式"
+        required: true
+        type: choice
+        options:
+          - resukisu-susfs
+          - resukisu
+          - none
+        default: resukisu-susfs
+      susfs_extra_features:
+        description: "SUSFS 扩展（pandora #76 真机验证；推荐开启）"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "KPM（仅当当前 ReSukiSU 上游声明 CONFIG_KPM 时可用）"
+        required: true
+        type: choice
+        options:
+          - disabled
+          - enabled
+        default: disabled
+      droidspaces:
+        description: "DroidSpaces 容器内核支持（namespace 真机验证）"
+        required: true
+        type: choice
+        options:
+          - "off"
+          - "on"
+        default: "on"
+      artifact_upload_mode:
+        description: "构建产物上传模式"
+        required: true
+        type: choice
+        options:
+          - "仅上传 AnyKernel3.zip"
+          - "上传全部"
+        default: "仅上传 AnyKernel3.zip"
+      use_zram:
+        description: "ZRAM/LZ4K/LZ4KD 增强（pandora #76 真机验证）"
+        required: true
+        type: boolean
+        default: true
+      use_bbg:
+        description: "BBG Baseband Guard（pandora #76 真机验证）"
+        required: true
+        type: boolean
+        default: true
+      use_rekernel:
+        description: "Re-Kernel 11.7（Generic Netlink ABI 真机验证）"
+        required: true
+        type: boolean
+        default: true
+      use_nomount:
+        description: "NoMount VFS 注入（仅 NoMount Metamodule 用户；Magic Mount 通常无需）"
+        required: true
+        type: boolean
+        default: false
+      use_networking:
+        description: "网络增强：BBR/IPSet/Qdisc/CIFS（pandora #76 真机验证）"
+        required: true
+        type: boolean
+        default: true
+      cve_2026_43499_patch:
+        description: "CVE-2026-43499 / CVE-2026-53163 rtmutex 修复链（构建验证）"
+        required: true
+        type: boolean
+        default: true
+      droidspaces_ntsync:
+        description: "DroidSpaces NTSync（/dev/ntsync 真机验证；需要 DroidSpaces=on）"
+        required: true
+        type: boolean
+        default: true
+
+  workflow_call:
+    inputs:
+      implementation_ref:
+        required: false
+        type: string
+        default: xiaomi-sm8850-pandora
+      device:
+        required: false
+        type: string
+        default: "Xiaomi 17 Pro (pandora)"
+      source_profile:
+        required: false
+        type: string
+        default: gold-cctv
+      root_mode:
+        required: false
+        type: string
+        default: resukisu-susfs
+      susfs_extra_features:
+        required: false
+        type: boolean
+        default: true
+      use_kpm:
+        required: false
+        type: string
+        default: disabled
+      droidspaces:
+        required: false
+        type: string
+        default: "on"
+      artifact_upload_mode:
+        required: false
+        type: string
+        default: "仅上传 AnyKernel3.zip"
+      use_zram:
+        required: false
+        type: boolean
+        default: true
+      use_bbg:
+        required: false
+        type: boolean
+        default: true
+      use_rekernel:
+        required: false
+        type: boolean
+        default: true
+      use_nomount:
+        required: false
+        type: boolean
+        default: false
+      use_networking:
+        required: false
+        type: boolean
+        default: true
+      cve_2026_43499_patch:
+        required: false
+        type: boolean
+        default: true
+      droidspaces_ntsync:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && inputs.device || 'pandora' }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Xiaomi scripts / CI plan
+    runs-on: ubuntu-24.04
+    outputs:
+      pr_profile: ${{ steps.plan.outputs.profile }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.implementation_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate Xiaomi shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/xiaomi-sm8850/*.sh; do
+            echo "bash -n $script"
+            bash -n "$script"
+          done
+
+      - name: Select PR regression profile
+        id: plan
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # For an existing PR, classify only the newly pushed commit so old
+          # feature work does not force every later GUI/docs edit into Full.
+          # On initial PR creation/reopen, validate the complete PR delta.
+          if [[ "$PR_ACTION" == "synchronize" ]]; then
+            BASE_SHA=$(git rev-parse "$HEAD_SHA^")
+          else
+            BASE_SHA="$PR_BASE_SHA"
+          fi
+          echo "CI classification range: $BASE_SHA..$HEAD_SHA"
+          mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          printf 'Changed files:\n'
+          printf '  %s\n' "${changed[@]}"
+
+          profile=none
+          for path in "${changed[@]}"; do
+            case "$path" in
+              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh)
+                profile=full
+                break
+                ;;
+              .github/workflows/kernel-xiaomi-sm8850.yml|scripts/xiaomi-sm8850/*)
+                profile=baseline
+                ;;
+            esac
+          done
+
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "PR regression profile: $profile"
+
+  build:
+    needs: preflight
+    if: github.event_name != 'pull_request' || needs.preflight.outputs.pr_profile != 'none'
+    name: "${{ github.event_name != 'pull_request' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.profile }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', needs.preflight.outputs.pr_profile) || '["custom"]') }}
+    env:
+      XIAOMI_CI_PROFILE: ${{ matrix.profile }}
+      XIAOMI_DEVICE: ${{ github.event_name != 'pull_request' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
+      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
+      XIAOMI_SOURCE_PROFILE: ${{ github.event_name != 'pull_request' && inputs.source_profile || 'gold-cctv' }}
+      XIAOMI_ROOT_MODE: ${{ github.event_name != 'pull_request' && inputs.root_mode || 'resukisu-susfs' }}
+      XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name != 'pull_request' && inputs.susfs_extra_features || false }}
+      XIAOMI_USE_KPM: ${{ github.event_name != 'pull_request' && inputs.use_kpm || 'disabled' }}
+      XIAOMI_DROIDSPACES: ${{ github.event_name != 'pull_request' && inputs.droidspaces || 'off' }}
+      XIAOMI_USE_ZRAM: ${{ github.event_name != 'pull_request' && inputs.use_zram || false }}
+      XIAOMI_USE_BBG: ${{ github.event_name != 'pull_request' && inputs.use_bbg || false }}
+      XIAOMI_USE_REKERNEL: ${{ github.event_name != 'pull_request' && inputs.use_rekernel || false }}
+      XIAOMI_USE_NOMOUNT: ${{ github.event_name != 'pull_request' && inputs.use_nomount || false }}
+      XIAOMI_USE_NETWORKING: ${{ github.event_name != 'pull_request' && inputs.use_networking || false }}
+      XIAOMI_CVE_2026_43499_PATCH: ${{ github.event_name != 'pull_request' && inputs.cve_2026_43499_patch || false }}
+      XIAOMI_DROIDSPACES_NTSYNC: ${{ github.event_name != 'pull_request' && inputs.droidspaces_ntsync || false }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.implementation_ref || github.ref }}
+
+      - name: Cache pinned Gold common source
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-sm8850/gold-common-9e91eb74a201e8cee839c8db6d642ff9b8408388.git
+          key: xiaomi-sm8850-gold-common-9e91eb74a201-v1
+
+      - name: Cache pinned Gold toolchain
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-sm8850/gold-toolchain-r536225
+          key: xiaomi-sm8850-gold-toolchain-r536225-v1
+
+      - name: Cache Gold compiler objects
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache-xiaomi-sm8850
+          key: xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-${{ hashFiles('scripts/xiaomi-sm8850/**', '.github/config/xiaomi-sm8850-android16-6.12.23.env') }}
+          restore-keys: |
+            xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-
+            xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
+
+      - name: Check upstream custom-feature drift
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import re
+          import urllib.request
+
+          url = "https://raw.githubusercontent.com/zzh20188/GKI_KernelSU_SUSFS/dev/.github/workflows/kernel-custom.yml"
+          try:
+              text = urllib.request.urlopen(url, timeout=20).read().decode()
+          except Exception as exc:
+              print(f"::warning::unable to check upstream custom workflow: {exc}")
+              raise SystemExit(0)
+
+          keys = set()
+          inside = False
+          for line in text.splitlines():
+              if line == "    inputs:":
+                  inside = True
+                  continue
+              if inside and line.startswith("jobs:"):
+                  break
+              m = re.match(r"^      ([A-Za-z0-9_]+):\s*$", line)
+              if inside and m:
+                  keys.add(m.group(1))
+
+          mapped = {
+              "kernelsu_variant", "ksu_mode", "use_kpm", "droidspaces",
+              "artifact_upload_mode", "use_zram", "use_bbg", "use_rekernel",
+              "use_nomount", "use_networking", "cve_2026_43499_patch",
+              "droidspaces_ntsync",
+          }
+          intentionally_fixed = {
+              "kernel_version", "os_patch_level", "version", "build_time", "supp_op"
+          }
+          missing = sorted(keys - mapped - intentionally_fixed)
+          if missing:
+              print("::warning::upstream kernel-custom.yml has unmapped inputs: " + ", ".join(missing))
+          else:
+              print("Upstream custom inputs: no unmapped feature switches detected.")
+          PY
+
+      - name: Configure PR feature smoke profile
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile="${{ matrix.profile }}"
+          case "$profile" in
+            baseline)
+              ;;
+            full)
+              # Full regression runs only when feature integration or the
+              # pinned Xiaomi build configuration changes. It intentionally
+              # includes every supported optional feature except KPM.
+              # NoMount stays here for regression coverage even though the
+              # user-facing GUI default is OFF for Magic Mount users.
+              echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_USE_ZRAM=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_USE_BBG=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_USE_REKERNEL=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_USE_NOMOUNT=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_USE_NETWORKING=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_DROIDSPACES=on" >> "$GITHUB_ENV"
+              echo "XIAOMI_DROIDSPACES_NTSYNC=true" >> "$GITHUB_ENV"
+              echo "XIAOMI_CVE_2026_43499_PATCH=true" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::unknown PR smoke profile: $profile"
+              exit 1
+              ;;
+          esac
+          echo "PR smoke profile: $profile"
+
+      - name: Resolve custom selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$XIAOMI_DEVICE" in
+            pandora|pudding|popsicle) ;;
+            *) echo "::error::invalid device selection: $XIAOMI_DEVICE"; exit 1 ;;
+          esac
+          case "$XIAOMI_ROOT_MODE" in
+            none) VARIANT=base ;;
+            resukisu) VARIANT=resukisu ;;
+            resukisu-susfs) VARIANT=resukisu-susfs ;;
+            *) echo "::error::invalid root_mode: $XIAOMI_ROOT_MODE"; exit 1 ;;
+          esac
+          if [[ "$XIAOMI_DROIDSPACES_NTSYNC" == "true" && "$XIAOMI_DROIDSPACES" != "on" ]]; then
+            echo "::error::DroidSpaces NTSync requires droidspaces=on"
+            exit 1
+          fi
+          if [[ "$XIAOMI_SUSFS_EXTRA_FEATURES" == "true" && "$VARIANT" != "resukisu-susfs" ]]; then
+            echo "::error::SUSFS extra features require root_mode=resukisu-susfs"
+            exit 1
+          fi
+          echo "XIAOMI_VARIANT=$VARIANT" >> "$GITHUB_ENV"
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             bc bison build-essential ccache cpio curl flex git jq             libdw-dev libelf-dev libssl-dev perl python3 python-is-python3             repo rsync tar unzip wget xz-utils zip zstd dwarves
+
+      - name: Build, validate and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-sm8850/build.sh             "$XIAOMI_DEVICE"             "$XIAOMI_VARIANT"             "$XIAOMI_WORKDIR"             "$XIAOMI_SOURCE_PROFILE"
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          OUT="$XIAOMI_WORKDIR/output/${{ env.XIAOMI_DEVICE }}/$XIAOMI_VARIANT"
+          {
+            echo "## Xiaomi 17 Series custom build"
+            echo
+            echo "- Device: $XIAOMI_DEVICE"
+            echo "- Source: $XIAOMI_SOURCE_PROFILE"
+            echo "- CI / custom profile: $XIAOMI_CI_PROFILE"
+            echo "- Root mode: $XIAOMI_ROOT_MODE"
+            echo "- Variant backend: $XIAOMI_VARIANT"
+            echo "- Expected kernel: 6.12.23 / android16-5 / 4K"
+            echo
+            echo "### Resolved feature selection"
+            echo
+            echo "| Feature | Value |"
+            echo "|---|---|"
+            echo "| SUSFS extras | $XIAOMI_SUSFS_EXTRA_FEATURES |"
+            echo "| ZRAM/LZ4K/LZ4KD | $XIAOMI_USE_ZRAM |"
+            echo "| Baseband Guard | $XIAOMI_USE_BBG |"
+            echo "| Re-Kernel | $XIAOMI_USE_REKERNEL |"
+            echo "| NoMount | $XIAOMI_USE_NOMOUNT |"
+            echo "| Networking | $XIAOMI_USE_NETWORKING |"
+            echo "| DroidSpaces | $XIAOMI_DROIDSPACES |"
+            echo "| NTSync | $XIAOMI_DROIDSPACES_NTSYNC |"
+            echo "| CVE fix chain | $XIAOMI_CVE_2026_43499_PATCH |"
+            echo "| KPM | $XIAOMI_USE_KPM |"
+            echo
+            if [[ -f "$OUT/build-metadata.txt" ]]; then
+              echo "### Provenance"
+              sed 's/^/    /' "$OUT/build-metadata.txt"
+            fi
+            if [[ -f "$OUT/validation.txt" ]]; then
+              echo "### Validation"
+              sed 's/^/    /' "$OUT/validation.txt"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish AnyKernel3 ZIP directly
+        if: success() && github.event_name != 'pull_request' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUT="$XIAOMI_WORKDIR/output/$XIAOMI_DEVICE/$XIAOMI_VARIANT"
+          ZIP=$(find "$OUT" -maxdepth 1 -type f -name '*-AnyKernel3.zip' -print -quit)
+          if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
+            echo "::error::AnyKernel3 ZIP not found in $OUT"
+            exit 1
+          fi
+
+          TAG="xiaomi-custom-latest"
+          TITLE="Xiaomi 17 系列 - 最新自定义构建"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "自定义编译生成的 AnyKernel3 可刷 ZIP。相同文件名会由后续成功构建直接覆盖；详细构建参数请查看对应 Actions 运行摘要。" \
+              --prerelease
+          fi
+
+          ZIP_NAME=$(basename "$ZIP")
+          {
+            echo
+            echo "### AnyKernel3 直接下载"
+            echo
+            echo "已直接发布可刷 ZIP（无额外 artifact 外层压缩）："
+            echo
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP_NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full build
+        if: success() && (github.event_name == 'pull_request' || (github.event_name != 'pull_request' && inputs.artifact_upload_mode == '上传全部'))
+        uses: actions/upload-artifact@v6
+        with:
+          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
+          path: |
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/final.config
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/build-metadata.txt
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/validation.txt
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/SHA256SUMS
+            ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

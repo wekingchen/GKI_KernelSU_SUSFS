@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck source=lib.sh
+source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
+KERNEL_ROOT="${1:?usage: build-gold-make.sh <kernel-root> <fragment> <out-dir>}"
+FRAGMENT="${2:?usage: build-gold-make.sh <kernel-root> <fragment> <out-dir>}"
+OUT="${3:?usage: build-gold-make.sh <kernel-root> <fragment> <out-dir>}"
+
+COMMON="$KERNEL_ROOT/common"
+TOOLROOT="$KERNEL_ROOT/gold-toolchain"
+CLANG_BIN="$TOOLROOT/clang19/bin"
+RUST_BIN="$TOOLROOT/rust/bin"
+BUILD_TOOLS_BIN="$TOOLROOT/build-tools/bin"
+KOUT="$COMMON/out"
+
+[[ -x "$CLANG_BIN/clang" ]] || die "Gold clang not found"
+[[ -x "$RUST_BIN/rustc" ]] || die "Gold rustc not found"
+[[ -x "$RUST_BIN/bindgen" ]] || die "Gold bindgen not found"
+[[ -d "$BUILD_TOOLS_BIN" ]] || die "Gold build-tools/bin not found"
+[[ -x "$BUILD_TOOLS_BIN/pahole" ]] || die "Gold bundled pahole not found"
+[[ -x "$COMMON/scripts/config" ]] || die "kernel scripts/config missing"
+
+export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
+export RUSTC=rustc
+export BINDGEN=bindgen
+
+CC_COMMAND=clang
+HOSTCC_COMMAND=clang
+CCACHE_ENABLED=false
+if command -v ccache >/dev/null 2>&1 && [[ "${XIAOMI_USE_CCACHE:-true}" == "true" ]]; then
+  export CCACHE_DIR="${CCACHE_DIR:-$HOME/.cache/ccache-xiaomi-sm8850}"
+  export CCACHE_BASEDIR="$XIAOMI_REPO_ROOT"
+  export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
+  mkdir -p "$CCACHE_DIR"
+  ccache --max-size "${CCACHE_MAXSIZE:-3G}" >/dev/null
+
+  # Keep CC/HOSTCC as a single executable path. Some kernel Rust rules pass
+  # the compiler variable through as one argv item; using "ccache clang"
+  # directly makes "clang" look like a second input filename.
+  CCACHE_WRAPPER_DIR="$KERNEL_ROOT/.ccache-bin"
+  mkdir -p "$CCACHE_WRAPPER_DIR"
+  cat > "$CCACHE_WRAPPER_DIR/clang" <<EOF
+#!/usr/bin/env bash
+exec ccache "$CLANG_BIN/clang" "\$@"
+EOF
+  chmod +x "$CCACHE_WRAPPER_DIR/clang"
+  CC_COMMAND="$CCACHE_WRAPPER_DIR/clang"
+  HOSTCC_COMMAND="$CCACHE_WRAPPER_DIR/clang"
+
+  CCACHE_ENABLED=true
+  note "ccache enabled via wrapper: $CC_COMMAND dir=$CCACHE_DIR max=${CCACHE_MAXSIZE:-3G}"
+  ccache --show-stats || true
+fi
+
+export CC="$CC_COMMAND"
+export HOSTCC="$HOSTCC_COMMAND"
+export LD=ld.lld
+export HOSTLD=ld.lld
+export LLVM=1
+export LLVM_IAS=1
+export ARCH=arm64
+export SUBARCH=arm64
+export CROSS_COMPILE=aarch64-linux-gnu-
+export AR=llvm-ar
+export NM=llvm-nm
+export AS=clang
+export READELF=llvm-readelf
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
+export OBJSIZE=llvm-size
+export STRIP=llvm-strip
+export LIBCLANG_PATH="$TOOLROOT/clang19/lib"
+export KBUILD_GENDWARFKSYMS_STABLE=1
+# Suppress setlocalversion's SCM "+" suffix. cctv18 builds from a source ZIP
+# without .git metadata; setting LOCALVERSION to an explicit empty string
+# reproduces that behavior while keeping our verified git checkout for provenance.
+export LOCALVERSION=""
+
+cd "$COMMON"
+
+# Match the compatibility-sensitive flags used by the public cctv18 6.12.23
+# make/Image workflow. In particular, remap absolute paths because 6.12 uses
+# gendwarfksyms for symbol-version generation.
+COMMON_REAL_PATH="$(pwd -P)"
+ROOT_REAL_PATH="$(dirname "$COMMON_REAL_PATH")"
+KCFLAGS=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
+KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
+KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
+KCFLAGS+=" -no-canonical-prefixes"
+KCFLAGS+=" -O2"
+KCFLAGS+=" -pipe"
+KCFLAGS+=" -Wno-error"
+KCFLAGS+=" -fno-stack-protector"
+KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
+export KCFLAGS
+
+note "Gold make path toolchain:"
+echo "clang=$(command -v clang)"
+clang --version | head -n1
+echo "ld.lld=$(command -v ld.lld)"
+ld.lld --version | head -n1
+echo "rustc=$(command -v rustc)"
+rustc -V
+echo "bindgen=$(command -v bindgen)"
+bindgen --version
+echo "pahole=$(command -v pahole)"
+pahole --version | head -n1
+echo "resolve_btfids will be built from the pinned kernel source"
+
+# Mirror cctv18's standalone environment initialization. Their reference
+# script does not run with nounset; ACK's _setup_env.sh reads optional
+# variables before defining them. Temporarily disable nounset while sourcing,
+# then restore our strict shell mode. A non-zero return is intentionally
+# tolerated exactly like the public cctv18 build.
+set +u
+source "./_setup_env.sh" 2>/dev/null || true
+set -u
+
+# _setup_env.sh may rewrite PATH from build-config variables. Reassert the
+# pinned standalone toolchain paths so host tools cannot shadow them.
+export PATH="$CLANG_BIN:$BUILD_TOOLS_BIN:$RUST_BIN:$PATH"
+export RUSTC=rustc
+export BINDGEN=bindgen
+export CC="$CC_COMMAND"
+export HOSTCC="$HOSTCC_COMMAND"
+export LD=ld.lld
+export HOSTLD=ld.lld
+export LLVM=1
+export LLVM_IAS=1
+export ARCH=arm64
+export SUBARCH=arm64
+export CROSS_COMPILE=aarch64-linux-gnu-
+export AR=llvm-ar
+export NM=llvm-nm
+export AS=clang
+export READELF=llvm-readelf
+export OBJCOPY=llvm-objcopy
+export OBJDUMP=llvm-objdump
+export OBJSIZE=llvm-size
+export STRIP=llvm-strip
+export LIBCLANG_PATH="$TOOLROOT/clang19/lib"
+export LOCALVERSION=""
+
+note "post-setup tool paths:"
+echo "clang=$(command -v clang)"
+echo "pahole=$(command -v pahole)"
+
+rm -rf "$KOUT"
+
+make -j"$(nproc)" \
+  LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
+  O=out gki_defconfig
+
+# cctv18 packages use a deterministic custom kernel suffix. Do the same rather
+# than allowing the runner checkout state ("dirty", branch movement, etc.) to
+# leak into uname -r.
+"$COMMON/scripts/config" --file "$KOUT/.config" \
+  --set-str LOCALVERSION "$GOLD_KERNEL_LOCALVERSION"
+"$COMMON/scripts/config" --file "$KOUT/.config" --disable LOCALVERSION_AUTO
+
+# Apply only the diagnostic ReSukiSU/SUSFS fragment after gki_defconfig.
+# The Xiaomi lane currently emits bool/tristate y and explicit "not set" lines.
+if [[ -s "$FRAGMENT" ]]; then
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=y$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --enable "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=m$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --module "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=n$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --disable "${BASH_REMATCH[1]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=\"(.*)\"$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --set-str "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^CONFIG_([A-Z0-9_]+)=(-?[0-9]+|0x[0-9A-Fa-f]+)$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --set-val "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    elif [[ "$line" =~ ^#\ CONFIG_([A-Z0-9_]+)\ is\ not\ set$ ]]; then
+      "$COMMON/scripts/config" --file "$KOUT/.config" --disable "${BASH_REMATCH[1]}"
+    else
+      die "unsupported Gold config fragment line: $line"
+    fi
+  done < "$FRAGMENT"
+fi
+
+make -j"$(nproc)" \
+  LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
+  O=out olddefconfig
+
+note "Gold make path: building Image only (no Kleaf dist/module-output enforcement)"
+make -j"$(nproc)" \
+  LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
+  O=out Image
+
+IMAGE="$KOUT/arch/arm64/boot/Image"
+[[ -s "$IMAGE" ]] || die "Gold make Image not found: $IMAGE"
+cp -f "$IMAGE" "$OUT/Image"
+cp -f "$KOUT/.config" "$OUT/final.config"
+
+note "Gold make Image ready: $OUT/Image"
+
+if [[ "$CCACHE_ENABLED" == "true" ]]; then
+  note "ccache statistics after kernel build:"
+  ccache --show-stats || true
+fi
