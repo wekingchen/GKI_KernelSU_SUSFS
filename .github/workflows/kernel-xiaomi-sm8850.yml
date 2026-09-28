@@ -102,11 +102,70 @@ on:
         type: boolean
         default: true
 
+  workflow_call:
+    inputs:
+      device:
+        required: false
+        type: string
+        default: "Xiaomi 17 Pro (pandora)"
+      source_profile:
+        required: false
+        type: string
+        default: gold-cctv
+      root_mode:
+        required: false
+        type: string
+        default: resukisu-susfs
+      susfs_extra_features:
+        required: false
+        type: boolean
+        default: true
+      use_kpm:
+        required: false
+        type: string
+        default: disabled
+      droidspaces:
+        required: false
+        type: string
+        default: on
+      artifact_upload_mode:
+        required: false
+        type: string
+        default: "仅上传 AnyKernel3.zip"
+      use_zram:
+        required: false
+        type: boolean
+        default: true
+      use_bbg:
+        required: false
+        type: boolean
+        default: true
+      use_rekernel:
+        required: false
+        type: boolean
+        default: true
+      use_nomount:
+        required: false
+        type: boolean
+        default: false
+      use_networking:
+        required: false
+        type: boolean
+        default: true
+      cve_2026_43499_patch:
+        required: false
+        type: boolean
+        default: true
+      droidspaces_ntsync:
+        required: false
+        type: boolean
+        default: true
+
 permissions:
   contents: read
 
 concurrency:
-  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}
+  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && inputs.device || 'pandora' }}
   cancel-in-progress: true
 
 jobs:
@@ -116,6 +175,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && 'xiaomi-sm8850-pandora' || github.ref }}
       - name: Validate Xiaomi shell scripts
         shell: bash
         run: |
@@ -127,7 +188,7 @@ jobs:
 
   build:
     needs: preflight
-    name: "${{ github.event_name == 'workflow_dispatch' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.profile }}"
+    name: "${{ github.event_name != 'pull_request' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.profile }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -136,41 +197,43 @@ jobs:
         profile: ${{ fromJSON(github.event_name == 'pull_request' && '["baseline","full"]' || '["custom"]') }}
     env:
       XIAOMI_CI_PROFILE: ${{ matrix.profile }}
-      XIAOMI_DEVICE: ${{ github.event_name == 'workflow_dispatch' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
+      XIAOMI_DEVICE: ${{ github.event_name != 'pull_request' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
       XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
-      XIAOMI_SOURCE_PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.source_profile || 'gold-cctv' }}
-      XIAOMI_ROOT_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.root_mode || 'resukisu-susfs' }}
-      XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name == 'workflow_dispatch' && inputs.susfs_extra_features || false }}
-      XIAOMI_USE_KPM: ${{ github.event_name == 'workflow_dispatch' && inputs.use_kpm || 'disabled' }}
-      XIAOMI_DROIDSPACES: ${{ github.event_name == 'workflow_dispatch' && inputs.droidspaces || 'off' }}
-      XIAOMI_USE_ZRAM: ${{ github.event_name == 'workflow_dispatch' && inputs.use_zram || false }}
-      XIAOMI_USE_BBG: ${{ github.event_name == 'workflow_dispatch' && inputs.use_bbg || false }}
-      XIAOMI_USE_REKERNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_rekernel || false }}
-      XIAOMI_USE_NOMOUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.use_nomount || false }}
-      XIAOMI_USE_NETWORKING: ${{ github.event_name == 'workflow_dispatch' && inputs.use_networking || false }}
-      XIAOMI_CVE_2026_43499_PATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.cve_2026_43499_patch || false }}
-      XIAOMI_DROIDSPACES_NTSYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.droidspaces_ntsync || false }}
+      XIAOMI_SOURCE_PROFILE: ${{ github.event_name != 'pull_request' && inputs.source_profile || 'gold-cctv' }}
+      XIAOMI_ROOT_MODE: ${{ github.event_name != 'pull_request' && inputs.root_mode || 'resukisu-susfs' }}
+      XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name != 'pull_request' && inputs.susfs_extra_features || false }}
+      XIAOMI_USE_KPM: ${{ github.event_name != 'pull_request' && inputs.use_kpm || 'disabled' }}
+      XIAOMI_DROIDSPACES: ${{ github.event_name != 'pull_request' && inputs.droidspaces || 'off' }}
+      XIAOMI_USE_ZRAM: ${{ github.event_name != 'pull_request' && inputs.use_zram || false }}
+      XIAOMI_USE_BBG: ${{ github.event_name != 'pull_request' && inputs.use_bbg || false }}
+      XIAOMI_USE_REKERNEL: ${{ github.event_name != 'pull_request' && inputs.use_rekernel || false }}
+      XIAOMI_USE_NOMOUNT: ${{ github.event_name != 'pull_request' && inputs.use_nomount || false }}
+      XIAOMI_USE_NETWORKING: ${{ github.event_name != 'pull_request' && inputs.use_networking || false }}
+      XIAOMI_CVE_2026_43499_PATCH: ${{ github.event_name != 'pull_request' && inputs.cve_2026_43499_patch || false }}
+      XIAOMI_DROIDSPACES_NTSYNC: ${{ github.event_name != 'pull_request' && inputs.droidspaces_ntsync || false }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && 'xiaomi-sm8850-pandora' || github.ref }}
 
       - name: Cache pinned Gold common source
-        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-sm8850/gold-common-9e91eb74a201e8cee839c8db6d642ff9b8408388.git
           key: xiaomi-sm8850-gold-common-9e91eb74a201-v1
 
       - name: Cache pinned Gold toolchain
-        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-sm8850/gold-toolchain-r536225
           key: xiaomi-sm8850-gold-toolchain-r536225-v1
 
       - name: Cache Gold compiler objects
-        if: github.event_name != 'workflow_dispatch' || inputs.source_profile == 'gold-cctv'
+        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache-xiaomi-sm8850
@@ -231,7 +294,7 @@ jobs:
               # CI combination smoke intentionally includes every Xiaomi
               # optional feature that passed the #74 matrix, except KPM.
               # NoMount stays here for regression coverage even though the
-              # workflow_dispatch user default is OFF for Magic Mount users.
+              # user-facing GUI default is OFF for Magic Mount users.
               echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
               echo "XIAOMI_USE_ZRAM=true" >> "$GITHUB_ENV"
               echo "XIAOMI_USE_BBG=true" >> "$GITHUB_ENV"
@@ -332,7 +395,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload AnyKernel3 only
-        if: success() && github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
+        if: success() && github.event_name != 'pull_request' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
         uses: actions/upload-artifact@v6
         with:
           name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3
@@ -342,7 +405,7 @@ jobs:
           compression-level: 0
 
       - name: Upload full build
-        if: success() && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.artifact_upload_mode == '上传全部'))
+        if: success() && (github.event_name == 'pull_request' || (github.event_name != 'pull_request' && inputs.artifact_upload_mode == '上传全部'))
         uses: actions/upload-artifact@v6
         with:
           name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
