@@ -242,3 +242,19 @@ Xiaomi 17 系列支持已经完全合入默认分支 `dev`，不依赖长期功�
 
 同步完成后建议手动运行一次 **Xiaomi 17 系列 - 自定义内核**。只要该工作流仍能看到并成功调用本地 `kernel-xiaomi-sm8850.yml`，即可确认 Xiaomi 定制没有在同步过程中丢失。
 
+### 误点 Discard commits 的恢复
+
+仓库保留长期恢复分支 `xiaomi-sm8850-stable`。该分支不参与日常上游同步，用于保存已经确认可用的 Xiaomi 17 系列实现。
+
+如果误操作导致默认分支 `dev` 被重置为上游状态，不要继续强制同步或删除恢复分支。恢复方式是将 `xiaomi-sm8850-stable` 合并回 `dev`；如果上游此时已有新提交，则先以正常 Pull Request / merge 的方式合并二者并处理实际冲突。
+
+恢复完成后应确认以下 fork 独有路径重新存在：
+
+- `.github/workflows/xiaomi-sm8850-dispatch.yml`
+- `.github/workflows/kernel-xiaomi-sm8850.yml`
+- `.github/config/xiaomi-sm8850-android16-6.12.23.env`
+- `scripts/xiaomi-sm8850/`
+- `docs/xiaomi-sm8850.md`
+
+然后运行一次 **Xiaomi 17 系列 - 自定义内核** 做 CI 验证。不要通过删除 `xiaomi-sm8850-stable`、强制 reset 或 force push 来“清理”恢复历史。
+
