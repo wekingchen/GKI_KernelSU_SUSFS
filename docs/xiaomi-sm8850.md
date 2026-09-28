@@ -305,6 +305,16 @@ common 源码缓存永远不会直接作为已经被修改过的工作树使用�
 
 实际热缓存测试已经证明，在相同功能配置下，单次新增可缓存编译调用的 ccache 命中率可以达到约 99.9%，完整工作流耗时也会从冷缓存构建的大约二十多分钟显著下降。
 
+### ACK-R51 缓存结论
+
+ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正式构建保持已验证通过的 Kleaf `--config=fast` 路径，缓存仅限单次 runner 生命周期。2026-09-28/29 已实际验证以下方案均不适合作为正式 ACK 缓存：
+
+- Bazel `--disk_cache`：热缓存可命中大量外围 action，但最耗时的 `KernelBuild` 仍完整执行，整体耗时几乎不变。
+- Kleaf 持久 `--cache_dir`：能够恢复约 1 GiB 的旧 `OUT_DIR`，但 fresh runner 的源码重新同步后仍触发主内核重编，未得到有效加速。
+- ACK ccache wrapper：将 wrapper 强行置于 Kleaf toolchain 前方会改变 R51 的编译器可用性判定，导致 `CONFIG_RUST`、`CONFIG_ASHMEM_RUST` 和 `CONFIG_ANDROID_BINDER_IPC_RUST` 被移除，破坏官方 R51 配置语义，因此明确弃用。
+
+因此 ACK-R51 以**构建正确性、Rust Binder、strict KMI 和可复现性优先**；除非未来 Kleaf 官方提供适合临时 CI runner 的稳定缓存接口，否则不再为 ACK 强行注入跨 runner 编译缓存。此结论只适用于 `ack-r51 / kleaf-dist`，不会改变已经验证有效的 `gold-cctv` 缓存策略。
+
 ## AnyKernel3 打包行为
 
 生成的 AnyKernel3 包是**仅刷 boot 的设备限定包**，其中只包含内核 Image 和必要的 AnyKernel3 脚本/工具。
