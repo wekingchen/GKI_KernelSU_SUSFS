@@ -13,6 +13,15 @@ OUT="$WORKDIR/output/$DEVICE/$VARIANT"
 IMAGE="$OUT/Image"
 [[ -s "$IMAGE" ]] || die "Image missing: $IMAGE"
 
+PROVENANCE="$WORKDIR/source-provenance.env"
+[[ -f "$PROVENANCE" ]] || die "source provenance missing: $PROVENANCE"
+# shellcheck disable=SC1090
+source "$PROVENANCE"
+case "${SOURCE_PROFILE:-}" in
+  gold-cctv|ack-r51) ;;
+  *) die "invalid source profile in provenance: ${SOURCE_PROFILE:-missing}" ;;
+esac
+
 TMP="$WORKDIR/anykernel3-$DEVICE-$VARIANT"
 AK3="$TMP/upstream"
 PKG="$TMP/package"
@@ -37,7 +46,7 @@ cat > "$PKG/anykernel.sh" <<EOF
 ## Xiaomi 17 series / SM8850 conservative boot-only kernel installer
 
 properties() { '
-kernel.string=Xiaomi SM8850 Android 16 $KERNEL_VERSION ($VARIANT)
+kernel.string=Xiaomi SM8850 Android 16 $KERNEL_VERSION ($SOURCE_PROFILE / $VARIANT)
 do.devicecheck=1
 do.modules=0
 do.systemless=0
@@ -65,6 +74,7 @@ NO_MAGISK_CHECK=1;
 
 ui_print " ";
 ui_print "Xiaomi SM8850 target: $DEVICE";
+ui_print "Source: $SOURCE_PROFILE";
 ui_print "Variant: $VARIANT";
 ui_print "Kernel: $KERNEL_VERSION / Android 16";
 ui_print "Only the active boot slot kernel payload will be replaced.";
@@ -84,7 +94,7 @@ do
   fi
 done
 
-zip_name="Xiaomi17Series-$DEVICE-Android16-$KERNEL_VERSION-$VARIANT-AnyKernel3.zip"
+zip_name="Xiaomi17Series-$DEVICE-$SOURCE_PROFILE-Android16-$KERNEL_VERSION-$VARIANT-AnyKernel3.zip"
 (
   cd "$PKG"
   zip -qr9 "$OUT/$zip_name" .
