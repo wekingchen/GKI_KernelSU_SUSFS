@@ -258,3 +258,15 @@ Xiaomi 17 系列支持已经完全合入默认分支 `dev`，不依赖长期功�
 
 然后运行一次 **Xiaomi 17 系列 - 自定义内核** 做 CI 验证。不要通过删除 `xiaomi-sm8850-stable`、强制 reset 或 force push 来“清理”恢复历史。
 
+### 稳定分支与恢复层级
+
+为了避免日常 `dev` 开发、上游同步或误点 **Discard commits** 影响已经验证过的 Xiaomi 方案，仓库采用三层恢复结构：
+
+- `dev`：日常开发与上游同步分支。
+- `xiaomi-sm8850-stable`：可移动的稳定恢复点。只有在对应版本完成 CI 且已确认真机正常后才推进；不需要用户手动维护。
+- `xiaomi-sm8850-lkg-20260928`：永久保留的 Last Known Good（LKG）里程碑，指向首个完成合并且对应实现已在 Xiaomi 17 Pro / pandora 真机验证的提交。该分支不随 `dev` 或 `stable` 更新。
+
+正常情况下用户只使用 `dev`。不要对 `xiaomi-sm8850-stable` 或 LKG 分支执行 Sync fork、Discard commits、force push、reset 或删除操作。
+
+如果未来 `dev` 被误重置，优先从 `xiaomi-sm8850-stable` 通过正常 PR / merge 恢复；如果 stable 本身也存在疑问，则使用 `xiaomi-sm8850-lkg-20260928` 作为最后兜底。恢复过程禁止 force push 覆盖历史。
+
