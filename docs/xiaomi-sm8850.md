@@ -270,3 +270,18 @@ Xiaomi 17 系列支持已经完全合入默认分支 `dev`，不依赖长期功�
 
 如果未来 `dev` 被误重置，优先从 `xiaomi-sm8850-stable` 通过正常 PR / merge 恢复；如果 stable 本身也存在疑问，则使用 `xiaomi-sm8850-lkg-20260928` 作为最后兜底。恢复过程禁止 force push 覆盖历史。
 
+### 自动看门狗
+
+默认分支 `dev` 内置 `.github/workflows/xiaomi-sm8850-watchdog.yml`：
+
+- 每天定时检查一次；
+- Xiaomi 关键 workflow、配置、脚本或本文档发生改动时立即检查；
+- 校验 Xiaomi 关键路径是否仍存在；
+- 校验 dispatcher 仍调用本地 `kernel-xiaomi-sm8850.yml`；
+- 校验 `xiaomi-sm8850-stable` 与固定 LKG 分支仍存在；
+- 校验 LKG 仍指向预期提交，没有被意外移动；
+- 异常时创建或更新 GitHub Issue，并在可行时从 stable 向 dev 创建普通恢复 PR；
+- 不执行自动 merge、force push、reset 或分支删除。
+
+由于 GitHub 的 scheduled workflow 只能依赖默认分支中的 workflow 文件，如果整个 `dev` 被 **Discard commits** 重置成上游、连 watchdog 文件本身一起消失，同仓库 Action 无法继续自检。因此另保留一个低频外部兜底，只检查 watchdog 文件以及 stable/LKG 分支是否仍存在；日常完整检查由 GitHub Actions 完成。
+
