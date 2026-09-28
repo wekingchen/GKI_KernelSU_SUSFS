@@ -56,7 +56,7 @@
 
 > **重要：截至目前，本项目所有成功编译并用于小米 17 Pro（`pandora`）真机刷入、启动验证和运行时功能验证的内核，全部来自 `gold-cctv`。**
 >
-> `ack-r51` 仅作为官方 ACK 对照方案保留，尚未完成本项目同等级的实际编译验证，更没有进行过真机刷入验证。因此，不应把 `ack-r51` 描述为“已验证可用”，日常编译继续使用 `gold-cctv`。
+> `ack-r51` 现已完成一次与当前推荐功能组合一致的 CI 全功能编译验证，但尚未进行真机刷入验证。因此它可以描述为“CI 编译通过”，不能描述为“真机已验证可用”。日常正式编译和真机使用仍以 `gold-cctv` 为稳定路径。
 
 ### `gold-cctv` — 默认推荐基线
 
@@ -70,9 +70,9 @@
 
 由于公开分支会继续前进，本工作流固定使用明确提交，而不是跟随移动中的分支最新提交。
 
-### `ack-r51` — 官方 ACK 对照基线（未实测）
+### `ack-r51` — 官方 ACK 对照基线（CI 全功能编译已通过，未真机验证）
 
-这一方案仅保留 Android 16 / Linux 6.12 官方 ACK 2025-06 后期修订版作为理论上的干净对照。目前本项目没有使用该源码方案完成正式编译验证，也没有将其产物刷入小米 17 Pro，因此它不属于已验证路径：
+这一方案使用 Android 16 / Linux 6.12 官方 ACK 2025-06 后期修订版作为干净对照。当前已经完成一次与推荐功能组合一致的完整 CI 编译、最终配置校验和 AnyKernel3 打包，但尚未将其产物刷入小米 17 Pro，因此它仍不属于真机已验证路径：
 
 - 标签：`android16-6.12-2025-06_r51`
 - 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
@@ -82,7 +82,7 @@
 从工作流设计上，两套方案使用同一套固定 ACK 工具链/构建支持快照，但采用不同的构建方式：
 
 - `gold-cctv`：直接执行 `make gki_defconfig Image`，贴近公开 Gold/cctv18 构建体系，只生成启动所需内核 Image，避免 Kleaf 对无关 system-DLKM 模块集合的额外要求。
-- `ack-r51`：通过 Kleaf/Bazel 执行 `//common:kernel_aarch64_dist`，保留 ThinLTO 与 KMI 强校验。
+- `ack-r51`：通过 Kleaf/Bazel 执行 `//common:kernel_aarch64_dist`，保留严格 KMI 校验，但不再人为强制 ThinLTO。原因是 R51 的 `CONFIG_RUST` 在 `DEBUG_INFO_BTF=y` 时要求非 LTO；强制 ThinLTO 会导致 Rust Binder 配置被静默关闭并使 `rust_binder.ko` 缺失。
 
 实际执行构建时，构建方式和最终 LTO 设置会写入产物中的 `build-metadata.txt`。目前已有实际产物和真机验证记录的均为 `gold-cctv`。
 
@@ -137,7 +137,7 @@ PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍
 
 ## 验证等级
 
-以下三种状态必须严格区分，不能混为一谈。当前文档中已经记录的 CI 成功、真机启动和运行时验证结论，除非另有明确说明，均指 `gold-cctv` 路径；`ack-r51` 当前不具备这些验证结论：
+以下三种状态必须严格区分，不能混为一谈。`gold-cctv` 已达到 CI 集成验证、真机启动验证和多项运行时功能验证；`ack-r51` 当前只达到第 1 级 CI 集成验证，尚未达到第 2 级真机启动验证和第 3 级功能行为验证：
 
 1. **CI 集成验证通过**：补丁和配置成功集成，内核成功编译，并通过最终自动校验。
 2. **真机启动验证通过**：生成的 AnyKernel3 可刷包能够在小米 17 Pro 上正常启动。
@@ -160,6 +160,59 @@ PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍
 | CVE 修复链 | 补丁、配置和编译校验均通过 | 不在真机上主动触发漏洞进行测试 |
 
 这里故意采用保守标准：仅有内置符号存在，并不等于已经证明对应用户态协议或每一条 Hook 路径都实际执行过。
+
+## ACK-R51 CI 验证记录
+
+2026-09-28，ACK-R51 对照路径完成一次全功能 CI 验证。
+
+对应一次性验证运行：
+
+```text
+Xiaomi ACK-R51 一次性全功能验证 #4
+Run ID: 36399059661
+```
+
+结果为 `success`，并通过以下关键校验：
+
+- 设备：`pandora`
+- 变体：`resukisu-susfs`
+- 源码：`ack-r51`
+- common 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- Android 分支：`android16-6.12`
+- 内核版本：`6.12.23`
+- KMI 代数：5
+- 页面大小：4K
+- `CONFIG_MODVERSIONS=y`
+- `CONFIG_GENDWARFKSYMS=y`
+- Kleaf 严格 KMI 校验通过
+- ReSukiSU 内建
+- SUSFS 与扩展功能开启
+- ZRAM / LZ4K / LZ4KD 开启
+- Baseband Guard 开启
+- Re-Kernel 开启
+- 网络增强开启
+- DroidSpaces 开启
+- NTSync 开启
+- CVE 修复链开启
+- NoMount 关闭
+- KPM 关闭
+
+最终版本字符串：
+
+```text
+6.12.23-android16-5-4k
+```
+
+此前 Kleaf 非 stamp 模式会自动加入 `-maybe-dirty` 占位符。当前 ACK 专用构建逻辑仅在 `kleaf-dist` 路径中移除这一占位符，并增加校验防止其重新出现；不会修改 `gold-cctv` 的版本字符串逻辑。
+
+ACK-R51 全功能编译过程中还修正了两个只属于 ACK/Kleaf 的兼容问题：
+
+1. Xiaomi boot-only 方案将 ZRAM、ZSMALLOC 和 NETFS 相关能力直接编入 Image，因而不再生成对应 `.ko`。ACK 专用逻辑会从 Kleaf 的预期 GKI 模块输出列表中移除这些已明确改为 built-in 的模块项。
+2. 不再强制 ThinLTO，以保持 R51 的 Rust Binder 官方配置可成立。
+
+这些兼容处理均位于 `ack-r51 / kleaf-dist` 分支，不修改 `gold-cctv / make-image` 的源码、构建目标、缓存、版本字符串或打包流程。
+
+**当前结论：ACK-R51 已完成 CI 全功能编译验证，但尚未进行真机刷入和运行时验证。**
 
 ## Root 与 SUSFS 版本追踪
 
@@ -227,7 +280,7 @@ Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
 - 用户请求开启的可选功能必须真实出现在最终配置中
 - 不允许存在补丁拒绝文件
 
-`gold-cctv` 路径通过已知兼容的直接 make 方式构建内核 Image，也是目前唯一完成成功构建、真机刷入和运行时验证的源码路径；`ack-r51` 仅保留为尚未实测的 Kleaf/Bazel 对照路径。
+`gold-cctv` 路径通过已知兼容的直接 make 方式构建内核 Image，也是目前唯一完成真机刷入和运行时验证的源码路径；`ack-r51` 已完成 Kleaf/Bazel 全功能 CI 编译验证，但仍未进行真机刷入。
 
 PR CI 会首先对小米脚本执行 `bash -n` 语法检查，然后根据改动范围选择回归等级。
 
