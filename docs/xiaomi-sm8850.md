@@ -225,3 +225,20 @@ The #76 full image has passed boot, initial basic-use checks and the runtime che
 - continue normal-use regression observation; do not intentionally exploit-test the CVE fixes
 
 The full stack should only be described as fully behavior-validated after those remaining userspace paths are exercised. `pudding` and `popsicle` remain same-platform build targets but are not yet physically validated.
+
+## 上游同步策略
+
+Xiaomi 17 系列支持已经完全合入默认分支 `dev`，不依赖长期功能分支。为降低 fork 与上游同步时的冲突概率，Xiaomi 定制尽量只放在 fork 独有的文件和目录中：
+
+- `.github/workflows/xiaomi-sm8850-dispatch.yml`
+- `.github/workflows/kernel-xiaomi-sm8850.yml`
+- `.github/config/xiaomi-sm8850-android16-6.12.23.env`
+- `scripts/xiaomi-sm8850/`
+- `docs/xiaomi-sm8850.md`
+
+日常同步 `zzh20188/GKI_KernelSU_SUSFS:dev` 时应使用正常的 GitHub **Sync fork / Update branch / merge** 流程，不要使用强制 reset、强制 push 或 “Discard commits” 把本地 `dev` 覆盖成上游 `dev`。
+
+正常 merge 同步只会更新上游发生变化的文件，以上 fork 独有文件会继续保留。只有当上游未来新增同名 Xiaomi 文件或修改同一路径时，才需要人工处理冲突。
+
+同步完成后建议手动运行一次 **Xiaomi 17 系列 - 自定义内核**。只要该工作流仍能看到并成功调用本地 `kernel-xiaomi-sm8850.yml`，即可确认 Xiaomi 定制没有在同步过程中丢失。
+
