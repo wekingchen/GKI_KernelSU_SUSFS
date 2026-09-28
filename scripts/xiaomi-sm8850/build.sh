@@ -221,19 +221,20 @@ PY
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
     # then Kleaf still expects rust_binder.ko and fails at module collection.
     # Keep the official R51 LTO/default behavior and retain strict KMI checks.
-    ack_bazel_cache="${XIAOMI_ACK_BAZEL_CACHE:-$HOME/.cache/xiaomi-sm8850/ack-r51-bazel-5a0e85dd-r536225}"
-    mkdir -p "$ack_bazel_cache/disk" "$ack_bazel_cache/repository"
+    # Kleaf's Bazel action cache cannot reliably reuse the main KernelBuild
+    # across fresh runners because the kernel environment depends on Bazel's
+    # volatile status input. Use Kleaf's official incremental OUT_DIR cache
+    # instead: --config=local + --cache_dir. Do NOT use --config=fast here,
+    # because FAST_BUILD may select ThinLTO, which conflicts with R51 Rust
+    # Binder when DEBUG_INFO_BTF=y.
+    ack_kleaf_cache="${XIAOMI_ACK_KLEAF_CACHE:-$HOME/.cache/xiaomi-sm8850/ack-r51-kleaf-out-5a0e85dd-r536225}"
+    mkdir -p "$ack_kleaf_cache"
 
     note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
-    note "ACK Bazel cache: $ack_bazel_cache"
-    # Do not use --config=fast here. Kleaf fast inherits --config=local,
-    # which forces the expensive KernelBuild chain to execute locally on every
-    # GitHub runner and prevents the disk cache from covering the real hot path.
-    # Standard Kleaf execution keeps strict KMI behavior while allowing the
-    # heavy kernel action itself to be restored from the isolated ACK cache.
+    note "ACK Kleaf incremental OUT_DIR cache: $ack_kleaf_cache"
     tools/bazel build \
-      --disk_cache="$ack_bazel_cache/disk" \
-      --repository_cache="$ack_bazel_cache/repository" \
+      --config=local \
+      --cache_dir="$ack_kleaf_cache" \
       "${frag_flag[@]}" \
       //common:kernel_aarch64_dist
 
