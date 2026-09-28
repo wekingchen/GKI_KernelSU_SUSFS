@@ -105,9 +105,10 @@ on:
   workflow_call:
     inputs:
       implementation_ref:
+        description: "Optional checkout ref for diagnostics; leave empty to build the caller ref"
         required: false
         type: string
-        default: xiaomi-sm8850-pandora
+        default: ""
       device:
         required: false
         type: string
