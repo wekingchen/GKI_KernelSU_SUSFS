@@ -135,6 +135,8 @@ case "$SOURCE_BUILD_MODE" in
   kleaf-dist)
     [[ "$SOURCE_PROFILE" == "ack-r51" ]] ||
       die "kleaf-dist mode is only expected for ack-r51"
+    [[ "$kernel_release" != *"maybe-dirty"* ]] ||
+      die "ACK release still contains Kleaf maybe-dirty placeholder: $kernel_release"
     python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
 from pathlib import Path
 import sys
