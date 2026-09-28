@@ -198,16 +198,6 @@ jobs:
             xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-
             xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
 
-      - name: Cache ACK compiler objects
-        if: github.event_name != 'pull_request' && inputs.source_profile == 'ack-r51'
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ccache-xiaomi-sm8850-ack-r51
-          key: xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-${{ matrix.profile }}-${{ github.run_id }}
-          restore-keys: |
-            xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-${{ matrix.profile }}-
-            xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-
-
       - name: Check upstream custom-feature drift
         shell: bash
         run: |
