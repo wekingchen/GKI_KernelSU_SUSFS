@@ -1,4 +1,5 @@
 name: Xiaomi ACK-R51 一次性全功能验证
+# retry-after-r51-lto-fix
 
 on:
   push:
