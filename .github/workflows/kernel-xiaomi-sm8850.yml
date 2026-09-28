@@ -368,8 +368,11 @@ jobs:
             exit 1
           fi
 
-          TAG="xiaomi-custom-latest"
-          TITLE="Xiaomi 17 系列 - 最新自定义构建"
+          # Never share a mutable release tag across source profiles. Each
+          # workflow run gets its own release identity so an ACK package can
+          # never silently replace a Gold package (or vice versa).
+          TAG="xiaomi-custom-${XIAOMI_SOURCE_PROFILE}-run-${GITHUB_RUN_ID}"
+          TITLE="Xiaomi 17 系列 - ${XIAOMI_SOURCE_PROFILE} - Run ${GITHUB_RUN_NUMBER}"
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
@@ -378,25 +381,40 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "$TITLE" \
-              --notes "自定义编译生成的 AnyKernel3 可刷 ZIP。相同文件名会由后续成功构建直接覆盖；详细构建参数请查看对应 Actions 运行摘要。" \
+              --notes "Source: ${XIAOMI_SOURCE_PROFILE}. Actions run: ${GITHUB_RUN_ID}. Head: ${GITHUB_SHA}. This release tag is unique to this workflow run and will not be overwritten by another source profile." \
               --prerelease
           fi
 
           ZIP_NAME=$(basename "$ZIP")
+          ZIP_SHA256=$(sha256sum "$ZIP" | awk '{print $1}')
           {
             echo
             echo "### AnyKernel3 直接下载"
             echo
-            echo "已直接发布可刷 ZIP（无额外 artifact 外层压缩）："
+            echo "Source: `$XIAOMI_SOURCE_PROFILE`"
+            echo
+            echo "Run ID: `$GITHUB_RUN_ID`"
+            echo
+            echo "SHA256: `$ZIP_SHA256`"
             echo
             echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP_NAME"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable AnyKernel3 artifact
+        if: success() && github.event_name != 'pull_request' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ inputs.source_profile }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3-run-${{ github.run_id }}
+          path: ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
       - name: Upload full build
         if: success() && (github.event_name == 'pull_request' || (github.event_name != 'pull_request' && inputs.artifact_upload_mode == '上传全部'))
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23
+          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ inputs.source_profile }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23-run-${{ github.run_id }}
           path: |
             ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image
             ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image.lz4
