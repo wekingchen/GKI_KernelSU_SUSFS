@@ -221,92 +221,13 @@ PY
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
     # then Kleaf still expects rust_binder.ko and fails at module collection.
     # Keep the official R51 LTO/default behavior and retain strict KMI checks.
-    # GitHub runners always start from a fresh repo checkout, so restoring
-    # Kleaf's previous OUT_DIR still causes make to see newly checked-out source
-    # files as newer and rebuild most objects. Use ccache for compiler outputs
-    # instead; ccache keys by compiler invocation/content rather than relying on
-    # source mtimes. Keep --config=local, but use an ephemeral Kleaf cache_dir
-    # only to satisfy Kleaf's local-mode requirement.
-    ack_ccache_dir="${XIAOMI_ACK_CCACHE_DIR:-$HOME/.cache/ccache-xiaomi-sm8850-ack-r51}"
-    ack_kleaf_cache="$KERNEL_ROOT/out/ack-kleaf-local-cache"
-    ack_ccache_wrapper="$KERNEL_ROOT/.ack-ccache-bin"
-    mkdir -p "$ack_ccache_dir" "$ack_kleaf_cache" "$ack_ccache_wrapper"
-
-    ccache --max-size "${CCACHE_MAXSIZE:-3G}" >/dev/null
-    ccache --zero-stats >/dev/null || true
-
-    real_clang="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
-    real_clangxx="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang++"
-    [[ -x "$real_clang" ]] || die "ACK real clang missing: $real_clang"
-    [[ -x "$real_clangxx" ]] || die "ACK real clang++ missing: $real_clangxx"
-
-    cat > "$ack_ccache_wrapper/clang" <<EOF
-#!/usr/bin/env bash
-export CCACHE_DIR="$ack_ccache_dir"
-export CCACHE_BASEDIR="$KERNEL_ROOT"
-export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
-export CCACHE_NOHASHDIR=true
-exec /usr/bin/ccache "$real_clang" "\$@"
-EOF
-    cat > "$ack_ccache_wrapper/clang++" <<EOF
-#!/usr/bin/env bash
-export CCACHE_DIR="$ack_ccache_dir"
-export CCACHE_BASEDIR="$KERNEL_ROOT"
-export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
-export CCACHE_NOHASHDIR=true
-exec /usr/bin/ccache "$real_clangxx" "\$@"
-EOF
-    chmod +x "$ack_ccache_wrapper/clang" "$ack_ccache_wrapper/clang++"
-
-    # Kleaf sources build/kernel/_setup_env.sh first, then prepends the
-    # resolved toolchain paths in kernel_env.bzl. Inject the wrapper only after
-    # that final toolchain PATH update; otherwise the real clang shadows ccache.
-    ack_kernel_env="$KERNEL_ROOT/build/kernel/kleaf/impl/kernel_env.bzl"
-    [[ -f "$ack_kernel_env" ]] || die "ACK Kleaf kernel_env missing: $ack_kernel_env"
-    python3 - "$ack_kernel_env" "$ack_ccache_wrapper" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-wrapper = sys.argv[2]
-text = path.read_text()
-
-# android16-6.12 R51 resolves build/kernel from main-kernel-2025. In this
-# Kleaf generation, _setup_env.sh is sourced first, then the resolved toolchain
-# command is expanded. Insert the wrapper immediately after that expansion so
-# it wins PATH precedence without changing the toolchain itself.
-needle = """        # Variables from resolved toolchain
-          {toolchains_setup_env_var_cmd}
-          {set_clang_autofdo_profile_cmd}"""
-replacement = f"""        # Variables from resolved toolchain
-          {{toolchains_setup_env_var_cmd}}
-        # Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's
-        # resolved clang paths so Kbuild resolves clang/clang++ through ccache.
-          export PATH={wrapper}:$PATH
-          {{set_clang_autofdo_profile_cmd}}"""
-
-count = text.count(needle)
-if count != 1:
-    raise SystemExit(
-        f"expected exactly one main-kernel-2025 toolchain template anchor, found {count}; "
-        "refusing unsafe ACK ccache injection"
-    )
-path.write_text(text.replace(needle, replacement, 1))
-PY
-
-    grep -qF "export PATH=$ack_ccache_wrapper:\$PATH" "$ack_kernel_env" ||
-      die "failed to inject ACK ccache wrapper after Kleaf toolchain setup"
-
+    # Keep the proven R51 build behavior: --config=fast with source-default
+    # LTO and strict KMI. No ACK cache is persisted across GitHub runners.
     note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
-    note "ACK compiler cache: ccache dir=$ack_ccache_dir max=${CCACHE_MAXSIZE:-3G}"
     tools/bazel build \
-      --config=local \
-      --cache_dir="$ack_kleaf_cache" \
+      --config=fast \
       "${frag_flag[@]}" \
       //common:kernel_aarch64_dist
-
-    note "ACK ccache statistics after kernel build:"
-    ccache --show-stats || true
 
     IMAGE="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image"
     [[ -s "$IMAGE" ]] || die "built Image not found: $IMAGE"
