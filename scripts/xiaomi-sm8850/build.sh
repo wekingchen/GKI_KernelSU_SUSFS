@@ -221,22 +221,61 @@ PY
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
     # then Kleaf still expects rust_binder.ko and fails at module collection.
     # Keep the official R51 LTO/default behavior and retain strict KMI checks.
-    # Kleaf's Bazel action cache cannot reliably reuse the main KernelBuild
-    # across fresh runners because the kernel environment depends on Bazel's
-    # volatile status input. Use Kleaf's official incremental OUT_DIR cache
-    # instead: --config=local + --cache_dir. Do NOT use --config=fast here,
-    # because FAST_BUILD may select ThinLTO, which conflicts with R51 Rust
-    # Binder when DEBUG_INFO_BTF=y.
-    ack_kleaf_cache="${XIAOMI_ACK_KLEAF_CACHE:-$HOME/.cache/xiaomi-sm8850/ack-r51-kleaf-out-5a0e85dd-r536225}"
-    mkdir -p "$ack_kleaf_cache"
+    # GitHub runners always start from a fresh repo checkout, so restoring
+    # Kleaf's previous OUT_DIR still causes make to see newly checked-out source
+    # files as newer and rebuild most objects. Use ccache for compiler outputs
+    # instead; ccache keys by compiler invocation/content rather than relying on
+    # source mtimes. Keep --config=local, but use an ephemeral Kleaf cache_dir
+    # only to satisfy Kleaf's local-mode requirement.
+    ack_ccache_dir="${XIAOMI_ACK_CCACHE_DIR:-$HOME/.cache/ccache-xiaomi-sm8850-ack-r51}"
+    ack_kleaf_cache="$KERNEL_ROOT/out/ack-kleaf-local-cache"
+    ack_ccache_wrapper="$KERNEL_ROOT/.ack-ccache-bin"
+    mkdir -p "$ack_ccache_dir" "$ack_kleaf_cache" "$ack_ccache_wrapper"
+
+    ccache --max-size "${CCACHE_MAXSIZE:-3G}" >/dev/null
+    ccache --zero-stats >/dev/null || true
+
+    real_clang="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
+    real_clangxx="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang++"
+    [[ -x "$real_clang" ]] || die "ACK real clang missing: $real_clang"
+    [[ -x "$real_clangxx" ]] || die "ACK real clang++ missing: $real_clangxx"
+
+    cat > "$ack_ccache_wrapper/clang" <<EOF
+#!/usr/bin/env bash
+export CCACHE_DIR="$ack_ccache_dir"
+export CCACHE_BASEDIR="$KERNEL_ROOT"
+export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
+export CCACHE_NOHASHDIR=true
+exec /usr/bin/ccache "$real_clang" "\$@"
+EOF
+    cat > "$ack_ccache_wrapper/clang++" <<EOF
+#!/usr/bin/env bash
+export CCACHE_DIR="$ack_ccache_dir"
+export CCACHE_BASEDIR="$KERNEL_ROOT"
+export CCACHE_COMPILERCHECK="string:$CLANG_VERSION"
+export CCACHE_NOHASHDIR=true
+exec /usr/bin/ccache "$real_clangxx" "\$@"
+EOF
+    chmod +x "$ack_ccache_wrapper/clang" "$ack_ccache_wrapper/clang++"
+
+    ack_setup_env="$KERNEL_ROOT/build/kernel/_setup_env.sh"
+    [[ -f "$ack_setup_env" ]] || die "ACK Kleaf setup env missing: $ack_setup_env"
+    cat >> "$ack_setup_env" <<EOF
+
+# Xiaomi ACK CI: put content-addressed compiler cache wrappers first.
+export PATH="$ack_ccache_wrapper:\$PATH"
+EOF
 
     note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
-    note "ACK Kleaf incremental OUT_DIR cache: $ack_kleaf_cache"
+    note "ACK compiler cache: ccache dir=$ack_ccache_dir max=${CCACHE_MAXSIZE:-3G}"
     tools/bazel build \
       --config=local \
       --cache_dir="$ack_kleaf_cache" \
       "${frag_flag[@]}" \
       //common:kernel_aarch64_dist
+
+    note "ACK ccache statistics after kernel build:"
+    ccache --show-stats || true
 
     IMAGE="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image"
     [[ -s "$IMAGE" ]] || die "built Image not found: $IMAGE"
