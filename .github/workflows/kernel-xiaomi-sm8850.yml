@@ -198,15 +198,15 @@ jobs:
             xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v2-${{ matrix.profile }}-
             xiaomi-sm8850-ccache-6.12.23-9e91eb74-r536225-v1
 
-      - name: Cache ACK Kleaf incremental OUT_DIR
+      - name: Cache ACK compiler objects
         if: github.event_name != 'pull_request' && inputs.source_profile == 'ack-r51'
         uses: actions/cache@v6
         with:
-          path: ~/.cache/xiaomi-sm8850/ack-r51-kleaf-out-5a0e85dd-r536225
-          key: xiaomi-sm8850-ack-r51-kleaf-out-5a0e85dd-r536225-v1-${{ matrix.profile }}-${{ hashFiles('scripts/xiaomi-sm8850/**', '.github/config/xiaomi-sm8850-android16-6.12.23.env') }}-${{ inputs.root_mode }}-${{ inputs.susfs_extra_features }}-${{ inputs.droidspaces }}-${{ inputs.droidspaces_ntsync }}-${{ inputs.use_zram }}-${{ inputs.use_bbg }}-${{ inputs.use_rekernel }}-${{ inputs.use_nomount }}-${{ inputs.use_networking }}-${{ inputs.cve_2026_43499_patch }}
+          path: ~/.cache/ccache-xiaomi-sm8850-ack-r51
+          key: xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-${{ matrix.profile }}-${{ github.run_id }}
           restore-keys: |
-            xiaomi-sm8850-ack-r51-kleaf-out-5a0e85dd-r536225-v1-${{ matrix.profile }}-
-            xiaomi-sm8850-ack-r51-kleaf-out-5a0e85dd-r536225-v1-
+            xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-${{ matrix.profile }}-
+            xiaomi-sm8850-ack-ccache-6.12.23-5a0e85dd-r536225-v1-
 
       - name: Check upstream custom-feature drift
         shell: bash
