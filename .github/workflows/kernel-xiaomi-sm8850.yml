@@ -199,10 +199,20 @@ jobs:
         if: github.event_name == 'pull_request'
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # For an existing PR, classify only the newly pushed commit so old
+          # feature work does not force every later GUI/docs edit into Full.
+          # On initial PR creation/reopen, validate the complete PR delta.
+          if [[ "$PR_ACTION" == "synchronize" ]]; then
+            BASE_SHA=$(git rev-parse "$HEAD_SHA^")
+          else
+            BASE_SHA="$PR_BASE_SHA"
+          fi
+          echo "CI classification range: $BASE_SHA..$HEAD_SHA"
           mapfile -t changed < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           printf 'Changed files:\n'
           printf '  %s\n' "${changed[@]}"
