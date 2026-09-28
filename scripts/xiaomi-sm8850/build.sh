@@ -148,6 +148,20 @@ PY
       done
     fi
 
+    # Kleaf uses "-maybe-dirty" as a deliberate placeholder when stamping
+    # is disabled (our fast local-control build). It does not mean this source
+    # tree is actually dirty. Remove only that ACK/Kleaf fallback marker so the
+    # generated release is deterministic; exact source provenance remains in
+    # build-metadata.txt. This runs only in the kleaf-dist / ack-r51 branch.
+    stamp_bzl="$KERNEL_ROOT/build/kernel/kleaf/impl/stamp.bzl"
+    [[ -f "$stamp_bzl" ]] || die "ACK Kleaf stamp file missing: $stamp_bzl"
+    if grep -q 'stable_scmversion_cmd.*-maybe-dirty' "$stamp_bzl"; then
+      sed -i '/stable_scmversion_cmd/s/-maybe-dirty//' "$stamp_bzl"
+      note "removed ACK Kleaf non-stamp maybe-dirty placeholder"
+    else
+      die "ACK Kleaf maybe-dirty fallback layout changed; refusing unverified version patch"
+    fi
+
     # Do not force ThinLTO on ACK-R51. This R51 GKI defconfig enables
     # DEBUG_INFO_BTF + RUST + rust_binder=m, while CONFIG_RUST requires !LTO
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
