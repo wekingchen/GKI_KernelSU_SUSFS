@@ -106,7 +106,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ env.XIAOMI_DEVICE }}
+  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.device || 'pandora' }}
   cancel-in-progress: true
 
 jobs:
