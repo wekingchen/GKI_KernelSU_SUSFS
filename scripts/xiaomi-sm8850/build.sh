@@ -91,6 +91,57 @@ EOF
       frag_flag=("--defconfig_fragment=//common:arch/arm64/configs/xiaomi_sm8850.fragment")
     fi
 
+    # ACK's stock GKI module list expects several drivers as .ko outputs.
+    # Xiaomi's boot-only AnyKernel path intentionally compiles selected
+    # features into Image (=y), so those .ko files no longer exist. Keep the
+    # features built-in and teach Kleaf not to require module outputs that the
+    # selected fragment deliberately converted to built-ins.
+    ack_builtin_modules=()
+    if [[ "${XIAOMI_USE_ZRAM:-false}" == "true" ]]; then
+      ack_builtin_modules+=(
+        "drivers/block/zram/zram.ko"
+        "mm/zsmalloc.ko"
+      )
+    fi
+    if [[ "${XIAOMI_USE_NETWORKING:-false}" == "true" ]]; then
+      ack_builtin_modules+=(
+        "fs/netfs/netfs.ko"
+      )
+    fi
+
+    if (("${#ack_builtin_modules[@]}" > 0)); then
+      note "adjusting ACK Kleaf module expectations for Xiaomi built-ins:"
+      printf '  - %s\n' "${ack_builtin_modules[@]}"
+
+      python3 - common/modules.bzl "${ack_builtin_modules[@]}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+remove = sys.argv[2:]
+text = path.read_text()
+
+for module in remove:
+    needle = f'    "{module}",\n'
+    count = text.count(needle)
+    if count != 1:
+        raise SystemExit(
+            f"expected exactly one GKI module entry for {module}, found {count}"
+        )
+    text = text.replace(needle, "", 1)
+
+path.write_text(text)
+PY
+
+      for module in "${ack_builtin_modules[@]}"; do
+        if grep -Fq "\"$module\"" common/modules.bzl | head -n1; then
+          # The same path may legitimately remain in the unprotected-module
+          # helper list. Only the first GKI output-list entry is removed above.
+          note "ACK module path still appears in helper metadata: $module"
+        fi
+      done
+    fi
+
     note "building ACK control with //common:kernel_aarch64_dist + ThinLTO + strict KMI"
     tools/bazel build \
       --config=fast \
