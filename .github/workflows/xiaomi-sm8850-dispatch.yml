@@ -103,6 +103,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   xiaomi-sm8850:
@@ -123,4 +124,12 @@ jobs:
       use_networking: ${{ inputs.use_networking }}
       cve_2026_43499_patch: ${{ inputs.cve_2026_43499_patch }}
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
+    secrets: inherit
+
+  get-ksu-manager:
+    name: ReSukiSU Manager
+    if: ${{ inputs.root_mode != 'none' }}
+    uses: ./.github/workflows/get-manager.yml
+    with:
+      kernelsu_variant: ReSukiSU
     secrets: inherit
