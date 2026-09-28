@@ -100,7 +100,21 @@ Do not conflate these states:
 2. **Physical boot validated** — the resulting AnyKernel package boots on the Xiaomi 17 Pro.
 3. **Feature behavior validated** — the individual feature has been exercised on-device and its runtime behavior confirmed.
 
-Run #74 proved the optional features individually at level 1. Runs #75/#76 proved the combined full profile at level 1. Run #76 has currently reached level 2 plus a short basic-use sanity check. The optional features still need individual runtime checks before they are described as fully device-validated.
+Run #74 proved the optional features individually at level 1. Runs #75/#76 proved the combined full profile at level 1. Run #76 reached level 2 and, on 2026-09-28, several optional features were additionally verified on the running Xiaomi 17 Pro without changing the kernel:
+
+| Feature | On-device evidence | Status |
+|---|---|---|
+| ZRAM | `/dev/block/zram0` active as 12 GiB swap; LZ4K/LZ4KD backends registered; current HyperOS algorithm remains `lzo-rle` | runtime validated |
+| Baseband Guard | live `baseband_guard` dmesg events marked real processes by SELinux domain | runtime validated |
+| SUSFS extras | `ksu_susfs v2.3.0 show enabled_features` reported SPOOF_UNAME, HIDE_KSU_SUSFS_SYMBOLS, SPOOF_CMDLINE_OR_BOOTCONFIG, OPEN_REDIRECT and SUS_MAP | runtime interface validated |
+| Networking | BBR registered and selected at runtime; IPSet symbols present; iptables nat/mangle/raw/filter tables present; CIFS registered | runtime validated |
+| NTSync | `/dev/ntsync` misc device exists and NTSync runtime symbols/initcall are present | runtime validated |
+| DroidSpaces prerequisites | IPC/PID/User namespaces were created successfully with `unshare`; PID namespace child ran as PID 1 | kernel/runtime prerequisites validated; full userspace workload pending |
+| Re-Kernel | built-in Re-Kernel 11.7 symbols and Generic Netlink implementation are present in the running kernel | built-in presence validated; userspace protocol/hook behavior pending |
+| NoMount | built-in NoMount 20 VFS/initcall symbols are present in the running kernel | built-in presence validated; userspace protocol/rule behavior pending |
+| CVE fix chain | patch/config/build validation passed | do not intentionally trigger the vulnerabilities on the device |
+
+These levels are intentionally conservative: built-in symbol presence is not treated as proof that a userspace protocol or every hook path has been exercised.
 
 ## Root and SUSFS tracking
 
@@ -189,13 +203,11 @@ It targets `boot`, auto-detects the active slot, disables vbmeta flag patching, 
 
 ## Next device-validation stage
 
-The #76 full image has passed boot and initial basic-use checks on `pandora`. The next stage is runtime verification of the optional features, preferably without changing the kernel between checks:
+The #76 full image has passed boot, initial basic-use checks and the runtime checks recorded above on `pandora`. Keep this exact kernel installed while closing the remaining gaps:
 
-- confirm ZRAM backend/compression behavior
-- confirm BBG is initialized and its interface/logging behaves normally
-- confirm Re-Kernel runtime interface
-- confirm NoMount runtime state
-- confirm DroidSpaces and NTSync behavior
-- confirm networking additions are present without regressions
+- query Re-Kernel 11.7 through its Generic Netlink userspace ABI, or otherwise exercise a safe real hook path
+- query NoMount 20 through its userspace ABI and, if desired, exercise a disposable rule
+- run an actual DroidSpaces userspace/container workload; namespace creation and NTSync are already proven
+- continue normal-use regression observation; do not intentionally exploit-test the CVE fixes
 
-Only after those checks should the full optional stack be labeled fully validated on `pandora`. `pudding` and `popsicle` remain same-platform build targets but are not yet physically validated.
+The full stack should only be described as fully behavior-validated after those remaining userspace paths are exercised. `pudding` and `popsicle` remain same-platform build targets but are not yet physically validated.
