@@ -92,7 +92,21 @@ The #76 full candidate keeps the proven C foundation and simultaneously enables 
 
 KPM remains disabled because the current ReSukiSU main used by this lane does not declare `CONFIG_KPM`; the Xiaomi integration intentionally rejects an unsupported KPM request instead of pretending it is enabled.
 
-### Validation levels
+### Recommended workflow defaults
+
+The Xiaomi workflow is intentionally usable without editing YAML. Its `workflow_dispatch` defaults represent the currently recommended Xiaomi 17 Pro configuration:
+
+- Xiaomi 17 Pro (`pandora`), Gold/cctv18 6.12.23 source, ReSukiSU + SUSFS
+- SUSFS extras, ZRAM/LZ4K/LZ4KD, Baseband Guard, Re-Kernel, networking, DroidSpaces/NTSync and the CVE fix chain enabled
+- KPM disabled because current ReSukiSU main does not declare `CONFIG_KPM`
+- **NoMount disabled by default.** ReSukiSU users staying on Magic Mount do not need NoMount merely to use modules. Enable it only when intentionally using the NoMount VFS injection/Metamodule path.
+- AnyKernel3-only artifact upload by default
+
+The GUI also exposes Xiaomi 17 (`pudding`) and Xiaomi 17 Pro Max (`popsicle`). They share the SM8850 build lane but have not received the same physical validation as `pandora`.
+
+PR CI is deliberately different from the user-facing defaults: its `full` combination smoke still enables NoMount so the optional integration continues to receive regression coverage.
+
+## Validation levels
 
 Do not conflate these states:
 
