@@ -258,13 +258,32 @@ exec /usr/bin/ccache "$real_clangxx" "\$@"
 EOF
     chmod +x "$ack_ccache_wrapper/clang" "$ack_ccache_wrapper/clang++"
 
-    ack_setup_env="$KERNEL_ROOT/build/kernel/_setup_env.sh"
-    [[ -f "$ack_setup_env" ]] || die "ACK Kleaf setup env missing: $ack_setup_env"
-    cat >> "$ack_setup_env" <<EOF
+    # Kleaf sources build/kernel/_setup_env.sh first, then prepends the
+    # resolved toolchain paths in kernel_env.bzl. Inject the wrapper only after
+    # that final toolchain PATH update; otherwise the real clang shadows ccache.
+    ack_kernel_env="$KERNEL_ROOT/build/kernel/kleaf/impl/kernel_env.bzl"
+    [[ -f "$ack_kernel_env" ]] || die "ACK Kleaf kernel_env missing: $ack_kernel_env"
+    python3 - "$ack_kernel_env" "$ack_ccache_wrapper" <<'PY'
+from pathlib import Path
+import sys
 
-# Xiaomi ACK CI: put content-addressed compiler cache wrappers first.
-export PATH="$ack_ccache_wrapper:\$PATH"
-EOF
+path = Path(sys.argv[1])
+wrapper = sys.argv[2]
+text = path.read_text()
+needle = """          fi # KLEAF_SET_UP_TOOLCHAIN_CMD
+        # Increase parallelism"""
+replacement = f"""          fi # KLEAF_SET_UP_TOOLCHAIN_CMD
+        # Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's
+        # resolved clang paths so Kbuild resolves clang/clang++ through ccache.
+        export PATH={wrapper}:$PATH
+        # Increase parallelism"""
+if needle not in text:
+    raise SystemExit("Kleaf kernel_env toolchain layout changed; refusing unsafe ACK ccache injection")
+path.write_text(text.replace(needle, replacement, 1))
+PY
+
+    grep -qF "export PATH=$ack_ccache_wrapper:\$PATH" "$ack_kernel_env" ||
+      die "failed to inject ACK ccache wrapper after Kleaf toolchain setup"
 
     note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
     note "ACK compiler cache: ccache dir=$ack_ccache_dir max=${CCACHE_MAXSIZE:-3G}"
