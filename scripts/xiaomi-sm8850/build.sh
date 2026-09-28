@@ -265,33 +265,33 @@ EOF
     [[ -f "$ack_kernel_env" ]] || die "ACK Kleaf kernel_env missing: $ack_kernel_env"
     python3 - "$ack_kernel_env" "$ack_ccache_wrapper" <<'PY'
 from pathlib import Path
-import re
 import sys
 
 path = Path(sys.argv[1])
 wrapper = sys.argv[2]
 text = path.read_text()
 
-# R51 may vary whitespace around the toolchain block, but the semantic anchor
-# itself is stable. Insert exactly once immediately after that line.
-pattern = re.compile(r"^(?P<indent>[ \t]*)fi # KLEAF_SET_UP_TOOLCHAIN_CMD[ \t]*$", re.MULTILINE)
-matches = list(pattern.finditer(text))
-if len(matches) != 1:
+# android16-6.12 R51 resolves build/kernel from main-kernel-2025. In this
+# Kleaf generation, _setup_env.sh is sourced first, then the resolved toolchain
+# command is expanded. Insert the wrapper immediately after that expansion so
+# it wins PATH precedence without changing the toolchain itself.
+needle = """        # Variables from resolved toolchain
+          {toolchains_setup_env_var_cmd}
+          {set_clang_autofdo_profile_cmd}"""
+replacement = f"""        # Variables from resolved toolchain
+          {{toolchains_setup_env_var_cmd}}
+        # Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's
+        # resolved clang paths so Kbuild resolves clang/clang++ through ccache.
+          export PATH={wrapper}:$PATH
+          {{set_clang_autofdo_profile_cmd}}"""
+
+count = text.count(needle)
+if count != 1:
     raise SystemExit(
-        f"expected exactly one KLEAF_SET_UP_TOOLCHAIN_CMD anchor, found {len(matches)}; "
+        f"expected exactly one main-kernel-2025 toolchain template anchor, found {count}; "
         "refusing unsafe ACK ccache injection"
     )
-
-m = matches[0]
-indent = m.group("indent")
-insertion = (
-    "\n"
-    f"{indent}# Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's\n"
-    f"{indent}# resolved clang paths so Kbuild resolves clang/clang++ through ccache.\n"
-    f"{indent}export PATH={wrapper}:$PATH"
-)
-text = text[:m.end()] + insertion + text[m.end():]
-path.write_text(text)
+path.write_text(text.replace(needle, replacement, 1))
 PY
 
     grep -qF "export PATH=$ack_ccache_wrapper:\$PATH" "$ack_kernel_env" ||
