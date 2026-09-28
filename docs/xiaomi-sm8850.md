@@ -1,169 +1,202 @@
-# Xiaomi 17 Series / SM8850 — Android 16 / Linux 6.12.23
+# 小米 17 系列 / SM8850 — Android 16 / Linux 6.12.23
 
-This target is intentionally isolated from the repository's generic GKI workflows. The repository can keep following `zzh20188/GKI_KernelSU_SUSFS:dev` while Xiaomi-specific compatibility work remains on `xiaomi-sm8850-pandora`.
+本文档记录本仓库针对小米 17 系列（Qualcomm SM8850）的专用内核构建方案、真机验证结果、源码基线、CI 校验、刷入范围以及上游同步与恢复机制。
 
-## Branch maintenance model
+该构建路径与仓库原有通用 GKI 工作流相互隔离。小米相关实现已经完整合入默认分支 `dev`，但尽量限制在本仓库独有的 Xiaomi 文件和目录中，从而在继续同步上游 `zzh20188/GKI_KernelSU_SUSFS:dev` 时降低冲突概率。
 
-- `dev` tracks upstream `zzh20188/GKI_KernelSU_SUSFS:dev` as closely as possible.
-- `xiaomi-sm8850-pandora` contains only Xiaomi/SM8850-specific workflow, pins, validation and packaging.
-- Upstream feature changes should land/sync into `dev` first, then `dev` is merged into the Xiaomi branch.
-- Xiaomi compatibility changes should not be copied back into generic `build.yml` unless they are genuinely generic fixes.
+## 当前仓库结构
 
-At the time this Xiaomi lane was reviewed, the local and upstream `dev` heads were identical at `29428612f180915f64e9b7c231e17705290e87b5`.
+小米 17 系列构建目前采用“一个人工入口 + 一个内部构建工作流”的结构：
 
-## Verified device scope
+- `.github/workflows/xiaomi-sm8850-dispatch.yml`：唯一人工编译入口，名称为 **Xiaomi 17 系列 - 自定义内核**。负责接收图形界面中的设备、Root、SUSFS、DroidSpaces、NTSync、ZRAM、BBG、Re-Kernel、NoMount、网络增强、CVE 修复等选项，并同时调用内核构建和 ReSukiSU Manager 获取流程。
+- `.github/workflows/kernel-xiaomi-sm8850.yml`：内部实际构建工作流。负责源码准备、功能集成、缓存、编译、校验、AnyKernel3 打包以及 PR 回归测试；不再提供独立的 `workflow_dispatch` 人工入口，只通过 `workflow_call` 或 PR 事件运行。
+- `.github/config/xiaomi-sm8850-android16-6.12.23.env`：小米 SM8850 固定源码、工具链和关键版本配置。
+- `scripts/xiaomi-sm8850/`：小米专用源码准备、功能集成、构建、校验和打包脚本。
+- `docs/xiaomi-sm8850.md`：本文档。
 
-| Marketing name | Codename | Platform | Target |
+日常人工编译只需要运行 **Xiaomi 17 系列 - 自定义内核**。
+
+## 已支持设备范围
+
+| 机型 | 代号 | 平台 | 当前状态 |
 |---|---|---|---|
-| Xiaomi 17 | `pudding` | Qualcomm SM8850 | supported |
-| Xiaomi 17 Pro | `pandora` | Qualcomm SM8850 | primary |
-| Xiaomi 17 Pro Max | `popsicle` | Qualcomm SM8850 | supported |
+| 小米 17 | `pudding` | Qualcomm SM8850 | 支持构建，待同等级真机验证 |
+| 小米 17 Pro | `pandora` | Qualcomm SM8850 | 主验证设备，已真机验证 |
+| 小米 17 Pro Max | `popsicle` | Qualcomm SM8850 | 支持构建，待同等级真机验证 |
 
-Xiaomi's MiCode `popsicle-w-oss` branch identifies the family as `release-w-qcom-sm8850`. Its root BSP tree is Linux 6.11, so it is a vendor/BSP reference and is not used as the 6.12.23 boot Image source.
+小米 MiCode 的 `popsicle-w-oss` 分支将这一设备家族标识为 `release-w-qcom-sm8850`。其根 BSP 内核树基于 Linux 6.11，因此这里只将其作为厂商 BSP 参考，不直接作为 Linux 6.12.23 启动内核 Image 的源码来源。
 
-## Stock evidence
+## 原厂内核依据
 
-The uploaded Xiaomi 17 Pro OS3.0.319.0.WBLCNXM boot image contains:
+已上传并检查的小米 17 Pro OS3.0.319.0.WBLCNXM 原厂 boot 镜像包含以下内核版本：
 
 ```text
 6.12.23-android16-5-g75e9b1c7ae7c-abogki463945075-4k
 ```
 
-The older generic build that bootlooped used:
+此前曾导致循环开机的旧通用构建使用：
 
 ```text
 6.12.23-android16-5-g13ff069897df9-ab10024759-4k
 ```
 
-Its Action log proves `g13ff069...` was the actual then-current head of Google's `deprecated/android16-6.12-2025-06` source, not merely a cosmetic local-version string. Therefore matching only `6.12.23 / android16-5 / 4K` is not sufficient evidence of Xiaomi vendor-module compatibility.
+对应 Actions 日志证明，`g13ff069...` 当时确实是 Google `deprecated/android16-6.12-2025-06` 源码分支的实际最新提交，而不只是人为修改的版本字符串。
 
-## Source profiles
+因此，仅仅匹配：
 
-The Xiaomi workflow now exposes two immutable source profiles.
+```text
+6.12.23 / android16-5 / 4K
+```
 
-### `gold-cctv` — default diagnostic baseline
+并不足以证明与小米厂商模块兼容。对于此设备，源码基线、KMI、工具链及实际提交来源都需要同时控制。
 
-This uses the public source family referenced by the Droidspaces Xiaomi 17-series entry and by the known-booting Gold 6.12.23 package:
+## 源码方案
 
-- repo: `cctv18/android_gki_kernel_common`
-- branch family: `android16-6.12-2025-06`
-- pinned commit: `9e91eb74a201e8cee839c8db6d642ff9b8408388`
+小米工作流目前提供两套固定源码方案。
 
-This is deliberately described as a **Gold-compatible public source line**, not proof that this exact commit produced the binary Gold ZIP already tested on the phone. The branch moved over time, so the Xiaomi workflow pins the commit rather than following its moving head.
+### `gold-cctv` — 默认推荐基线
 
-### `ack-r51` — clean official control
+这一路径采用 DroidSpaces 小米 17 系列条目以及已知可启动 Gold 6.12.23 内核包所对应的公开源码家族：
 
-This keeps the late official ACK 2025-06 respin as a second controlled baseline:
+- 仓库：`cctv18/android_gki_kernel_common`
+- 分支家族：`android16-6.12-2025-06`
+- 固定提交：`9e91eb74a201e8cee839c8db6d642ff9b8408388`
 
-- tag: `android16-6.12-2025-06_r51`
-- commit: `5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
-- KMI generation: 5
-- Clang: `r536225`
+这里将它定义为**与 Gold 构建体系兼容的公开源码线**，并不声称这个精确提交就是此前手机上测试过的某个 Gold ZIP 二进制的唯一源码来源。
 
-Both profiles use the same pinned ACK toolchain/build-support snapshot, but intentionally use different build methods:
+由于公开分支会继续前进，本工作流固定使用明确提交，而不是跟随移动中的分支最新提交。
 
-- `gold-cctv`: direct `make gki_defconfig Image`, matching the public Gold/cctv18 build family and producing only the boot kernel Image. This avoids Kleaf's unrelated system-DLKM module collection requirement.
-- `ack-r51`: `//common:kernel_aarch64_dist` through Kleaf/Bazel with ThinLTO and KMI enforcement intact.
+### `ack-r51` — 官方 ACK 对照基线
 
-The exact build method and final LTO setting are recorded in each artifact's `build-metadata.txt`.
+这一方案保留 Android 16 / Linux 6.12 官方 ACK 2025-06 后期修订版作为干净对照：
 
-## Current custom builder
+- 标签：`android16-6.12-2025-06_r51`
+- 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- KMI 代数：5
+- Clang：`r536225`
 
-The Xiaomi lane has completed the original A/B/C compatibility ladder and is now a selectable custom builder.
+两套方案使用同一套固定 ACK 工具链/构建支持快照，但故意采用不同的构建方式：
 
-Physical validation on Xiaomi 17 Pro (`pandora`):
+- `gold-cctv`：直接执行 `make gki_defconfig Image`，贴近公开 Gold/cctv18 构建体系，只生成启动所需内核 Image，避免 Kleaf 对无关 system-DLKM 模块集合的额外要求。
+- `ack-r51`：通过 Kleaf/Bazel 执行 `//common:kernel_aarch64_dist`，保留 ThinLTO 与 KMI 强校验。
 
-- A / base: run #60 — booted and short hardware/stability check passed.
-- B / ReSukiSU: run #62 — booted; Manager reported version code 35184; root authorization worked.
-- C / ReSukiSU + SUSFS: run #63 — booted; SUSFS v2.3.0 was visible and working.
-- Full feature candidate: run #76 — booted successfully and showed no immediate abnormal behavior during the initial post-boot check.
+实际使用的构建方式和最终 LTO 设置都会写入每次产物中的 `build-metadata.txt`。
 
-The #76 full candidate keeps the proven C foundation and simultaneously enables every Xiaomi optional feature that passed the individual CI matrix, except KPM:
+## 当前自定义构建器
 
-- SUSFS extra features
-- ZRAM/LZ4 enhancement
-- Baseband Guard (BBG)
+小米专用路径已经完成最初的 A/B/C 兼容性阶梯验证，目前已经进入可自由选择功能的自定义构建阶段。
+
+小米 17 Pro（`pandora`）已完成的主要真机验证：
+
+- A / 基础内核：#60 —— 成功启动，并通过短时间硬件及稳定性检查。
+- B / ReSukiSU：#62 —— 成功启动；Manager 显示版本代码 35184；Root 授权正常。
+- C / ReSukiSU + SUSFS：#63 —— 成功启动；SUSFS v2.3.0 可正常识别并工作。
+- 全功能候选：#76 —— 成功启动，首次开机后的基础检查未发现明显异常。
+- 当前自定义链路：后续自定义构建已完成缓存、DroidSpaces/NTSync、直接 AnyKernel3 ZIP、ReSukiSU Manager 等整套流程验证；最新已刷入版本在小米 17 Pro 上未发现异常。
+
+#76 全功能候选在已经验证的 C 基础上，同时启用了除 KPM 之外当时通过独立 CI 验证的全部小米可选功能：
+
+- SUSFS 扩展功能
+- ZRAM / LZ4 增强
+- Baseband Guard（BBG）
 - Re-Kernel
 - NoMount
-- Android 16 / 6.12 networking feature set
+- Android 16 / Linux 6.12 网络增强
 - DroidSpaces
 - NTSync
-- CVE-2026-43499 / CVE-2026-53163 fix chain
+- CVE-2026-43499 / CVE-2026-53163 修复链
 
-KPM remains disabled because the current ReSukiSU main used by this lane does not declare `CONFIG_KPM`; the Xiaomi integration intentionally rejects an unsupported KPM request instead of pretending it is enabled.
+KPM 目前仍保持关闭。原因是当前此构建链使用的 ReSukiSU 主线没有声明 `CONFIG_KPM`。小米集成脚本会直接拒绝不受支持的 KPM 请求，而不是在实际未启用的情况下伪装成已开启。
 
-### Recommended workflow defaults
+### 推荐的人工编译默认值
 
-The Xiaomi workflow is intentionally usable without editing YAML. Its `workflow_dispatch` defaults represent the currently recommended Xiaomi 17 Pro configuration:
+用户无需修改 YAML。唯一人工入口 **Xiaomi 17 系列 - 自定义内核** 已设置为当前推荐的小米 17 Pro 配置：
 
-- Xiaomi 17 Pro (`pandora`), Gold/cctv18 6.12.23 source, ReSukiSU + SUSFS
-- SUSFS extras, ZRAM/LZ4K/LZ4KD, Baseband Guard, Re-Kernel, networking, DroidSpaces/NTSync and the CVE fix chain enabled
-- KPM disabled because current ReSukiSU main does not declare `CONFIG_KPM`
-- **NoMount disabled by default.** ReSukiSU users staying on Magic Mount do not need NoMount merely to use modules. Enable it only when intentionally using the NoMount VFS injection/Metamodule path.
-- AnyKernel3-only artifact upload by default
+- 设备：小米 17 Pro（`pandora`）
+- 源码：Gold/cctv18 Linux 6.12.23
+- Root：ReSukiSU + SUSFS
+- SUSFS 扩展：开启
+- ZRAM / LZ4K / LZ4KD：开启
+- Baseband Guard：开启
+- Re-Kernel：开启
+- 网络增强：开启
+- DroidSpaces：开启
+- NTSync：开启
+- CVE 修复链：开启
+- KPM：关闭，因为当前 ReSukiSU 主线没有声明 `CONFIG_KPM`
+- **NoMount：默认关闭。** 使用 Magic Mount 的 ReSukiSU 用户仅为了正常使用模块并不需要开启 NoMount；只有明确准备使用 NoMount VFS 注入 / Metamodule 路径时才建议启用。
+- 默认产物模式：仅直接发布 AnyKernel3 ZIP
 
-The GUI also exposes Xiaomi 17 (`pudding`) and Xiaomi 17 Pro Max (`popsicle`). They share the SM8850 build lane but have not received the same physical validation as `pandora`.
+图形界面同时提供小米 17（`pudding`）和小米 17 Pro Max（`popsicle`），但这两个设备目前还没有获得与 `pandora` 同等级的真机验证。
 
-PR CI is deliberately different from the user-facing defaults: its `full` combination smoke still enables NoMount so the optional integration continues to receive regression coverage.
+PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍会启用 NoMount，以确保这一可选集成持续获得编译回归覆盖。
 
-## Validation levels
+## 验证等级
 
-Do not conflate these states:
+以下三种状态必须严格区分，不能混为一谈：
 
-1. **CI integration validated** — patch/config integration, kernel compilation and final validation pass.
-2. **Physical boot validated** — the resulting AnyKernel package boots on the Xiaomi 17 Pro.
-3. **Feature behavior validated** — the individual feature has been exercised on-device and its runtime behavior confirmed.
+1. **CI 集成验证通过**：补丁和配置成功集成，内核成功编译，并通过最终自动校验。
+2. **真机启动验证通过**：生成的 AnyKernel3 可刷包能够在小米 17 Pro 上正常启动。
+3. **功能行为验证通过**：对应功能已经在真机上实际调用，并确认运行时行为符合预期。
 
-Run #74 proved the optional features individually at level 1. Runs #75/#76 proved the combined full profile at level 1. Run #76 reached level 2 and, on 2026-09-28, several optional features were additionally verified on the running Xiaomi 17 Pro without changing the kernel:
+#74 已证明各个可选功能可以分别达到第 1 级；#75/#76 已证明组合后的全功能配置达到第 1 级；#76 达到第 2 级。
 
-| Feature | On-device evidence | Status |
+在 2026-09-28 对运行中的小米 17 Pro 进一步检查后，多项功能还完成了额外运行时验证：
+
+| 功能 | 真机依据 | 当前结论 |
 |---|---|---|
-| ZRAM | `/dev/block/zram0` active as 12 GiB swap; LZ4K/LZ4KD backends registered; current HyperOS algorithm remains `lzo-rle` | runtime validated |
-| Baseband Guard | live `baseband_guard` dmesg events marked real processes by SELinux domain | runtime validated |
-| SUSFS extras | `ksu_susfs v2.3.0 show enabled_features` reported SPOOF_UNAME, HIDE_KSU_SUSFS_SYMBOLS, SPOOF_CMDLINE_OR_BOOTCONFIG, OPEN_REDIRECT and SUS_MAP | runtime interface validated |
-| Networking | BBR registered and selected at runtime; IPSet symbols present; iptables nat/mangle/raw/filter tables present; CIFS registered | runtime validated |
-| NTSync | `/dev/ntsync` misc device exists and NTSync runtime symbols/initcall are present | runtime validated |
-| DroidSpaces prerequisites | IPC/PID/User namespaces were created successfully with `unshare`; PID namespace child ran as PID 1 | kernel/runtime prerequisites validated; full userspace workload pending |
-| Re-Kernel | built-in symbols are present and a read-only Generic Netlink `GET_VERSION` probe returned `11.7` from the running kernel | runtime userspace ABI validated; individual hook behavior not destructively exercised |
-| NoMount | built-in symbols are present and a read-only NoMount `NM_CMD_GET_VERSION` probe returned `20` from the running kernel | runtime userspace ABI validated; path-rule behavior not modified during validation |
-| CVE fix chain | patch/config/build validation passed | do not intentionally trigger the vulnerabilities on the device |
+| ZRAM | `/dev/block/zram0` 作为 12 GiB Swap 正常工作；LZ4K/LZ4KD 后端已注册；当前 HyperOS 实际压缩算法仍为 `lzo-rle` | 运行时已验证 |
+| Baseband Guard | `dmesg` 中出现实时 `baseband_guard` 事件，并按 SELinux 域识别真实进程 | 运行时已验证 |
+| SUSFS 扩展 | `ksu_susfs v2.3.0 show enabled_features` 显示 SPOOF_UNAME、HIDE_KSU_SUSFS_SYMBOLS、SPOOF_CMDLINE_OR_BOOTCONFIG、OPEN_REDIRECT、SUS_MAP | 运行时接口已验证 |
+| 网络增强 | BBR 已注册并可在运行时选择；存在 IPSet 符号；iptables nat/mangle/raw/filter 表存在；CIFS 已注册 | 运行时已验证 |
+| NTSync | `/dev/ntsync` 杂项设备存在，NTSync 运行时符号与初始化调用均存在 | 运行时已验证 |
+| DroidSpaces 前置能力 | 使用 `unshare` 成功创建 IPC/PID/User namespace；PID namespace 中子进程以 PID 1 运行 | 内核/运行时前置能力已验证；完整用户态负载仍待验证 |
+| Re-Kernel | 内置符号存在；只读 Generic Netlink `GET_VERSION` 探测从运行内核返回 `11.7` | 用户态 ABI 已验证；未破坏性测试各 Hook 行为 |
+| NoMount | 内置符号存在；只读 NoMount `NM_CMD_GET_VERSION` 探测从运行内核返回 `20` | 用户态 ABI 已验证；验证期间未修改路径规则 |
+| CVE 修复链 | 补丁、配置和编译校验均通过 | 不在真机上主动触发漏洞进行测试 |
 
-These levels are intentionally conservative: built-in symbol presence is not treated as proof that a userspace protocol or every hook path has been exercised.
+这里故意采用保守标准：仅有内置符号存在，并不等于已经证明对应用户态协议或每一条 Hook 路径都实际执行过。
 
-## Root and SUSFS tracking
+## Root 与 SUSFS 版本追踪
 
-The normal custom build follows the upstream branches but records the exact resolved commits in every artifact for reproducibility.
+正常自定义构建会跟随指定上游分支获取 ReSukiSU / SUSFS，但每次都会把最终解析到的精确提交写入构建产物，方便复现。
 
-Current physically proven foundation:
+当前已经获得真机验证的基础版本：
 
-- ReSukiSU: `fa8311f632a215b5381ec644627c6198d1e8a13e`, tag `v4.2.0-rc3`, version code `35184`
-- SUSFS `gki-android16-6.12`: `b213c54126fb243595ce7876e91d84d6e0861fec`, version `v2.3.0`
-- AnyKernel3: `dca9dc370838d919d56c1f59ec78b27a14a72c68`
+- ReSukiSU：`fa8311f632a215b5381ec644627c6198d1e8a13e`，标签 `v4.2.0-rc3`，版本代码 `35184`
+- SUSFS `gki-android16-6.12`：`b213c54126fb243595ce7876e91d84d6e0861fec`，版本 `v2.3.0`
+- AnyKernel3：`dca9dc370838d919d56c1f59ec78b27a14a72c68`
 
-ReSukiSU is built in with `CONFIG_KSU=y`; no LKM mode is used. SUSFS application is fail-fast: dry-run first, patch failure is fatal, and any `.rej` file fails the build.
+ReSukiSU 以内置方式编译，使用 `CONFIG_KSU=y`，不采用 LKM 模式。
 
-## Full candidate provenance
+SUSFS 补丁采用快速失败策略：
 
-The physically boot-tested #76 full artifact was built from workflow commit:
+- 先进行 dry-run 检查；
+- 补丁应用失败立即中止；
+- 出现任何 `.rej` 文件都直接判定构建失败。
+
+## #76 全功能候选版本来源
+
+已完成真机启动验证的 #76 全功能产物，其工作流提交为：
 
 ```text
 adce911ce19573f148ada2c066f2b52b93a97bdf
 ```
 
-Its validated release is:
+校验后的内核版本为：
 
 ```text
 6.12.23-android16-5-g9e91eb74a201-xiaomi-4k
 ```
 
-Feature source commits recorded by the artifact include:
+产物中记录的主要功能源码提交包括：
 
-- ZRAM patch stack: `2844bf492f557fb39113fc93a2dd1602e05790d7`
-- Re-Kernel: `ac08296174d7fb2801c0eee1084f067a34f8a0fe`
-- NoMount: `6b1be186322d4e0bdc465cf27f6fc0d3679087c6`
-- DroidSpaces: `b24eec0194e9b0ce8981152eba4603b40bf919e5`
+- ZRAM 补丁栈：`2844bf492f557fb39113fc93a2dd1602e05790d7`
+- Re-Kernel：`ac08296174d7fb2801c0eee1084f067a34f8a0fe`
+- NoMount：`6b1be186322d4e0bdc465cf27f6fc0d3679087c6`
+- DroidSpaces：`b24eec0194e9b0ce8981152eba4603b40bf919e5`
 
-Artifact checksums:
+对应产物校验和：
 
 ```text
 Image
@@ -173,115 +206,224 @@ Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
 998535cb5f0946460011a1398fff5e933300b29f3ab680e1ded33ec78b6004fa
 ```
 
-## CI guardrails
+## CI 安全校验
 
-The final built Image must pass checks for:
+最终生成的内核 Image 必须通过以下检查：
 
-- ARM64 / Linux 6.12.23 / `android16-5`
-- 4K page size
-- KMI generation 5
+- ARM64
+- Linux 6.12.23
+- `android16-5`
+- 4K 页面大小
+- KMI 第 5 代
 - `CONFIG_MODVERSIONS=y`
 - `CONFIG_GENDWARFKSYMS=y`
-- deterministic local version with no accidental trailing `+`
-- exact pinned Gold source commit
-- resolved ReSukiSU/SUSFS provenance when enabled
-- requested optional feature configs present in the final config
-- no patch reject files
+- 可重复、确定性的本地版本字符串，不能意外多出结尾 `+`
+- Gold 路径必须精确匹配固定源码提交
+- 启用 ReSukiSU / SUSFS 时必须记录最终解析到的来源提交
+- 用户请求开启的可选功能必须真实出现在最终配置中
+- 不允许存在补丁拒绝文件
 
-The `gold-cctv` lane intentionally builds only the kernel Image using the known-compatible direct-make path. The `ack-r51` profile remains the clean Kleaf/Bazel control lane.
+`gold-cctv` 路径故意只通过已知兼容的直接 make 方式构建内核 Image；`ack-r51` 保留为干净的 Kleaf/Bazel 对照路径。
 
-PR CI first runs `bash -n` over the Xiaomi scripts. Normal regression CI is then reduced to two profiles:
+PR CI 会首先对小米脚本执行 `bash -n` 语法检查，然后根据改动范围选择回归等级。
 
-- `baseline`: the physically proven ReSukiSU + SUSFS core with optional features off.
-- `full`: all currently CI-supported Xiaomi optional features enabled together, except KPM.
+当前主要回归配置：
 
-The earlier #74 ten-profile matrix remains the evidence that each optional integration also compiles independently.
+- `baseline`：已获得真机验证的 ReSukiSU + SUSFS 核心组合，关闭额外可选功能。
+- `full`：同时开启当前 CI 支持的全部小米可选功能，但 KPM 除外。
 
-## Cache strategy
+此前 #74 的十配置矩阵仍作为各个可选功能可以独立编译通过的历史证据。
 
-The Xiaomi Gold path uses three safe cache layers:
+## 缓存策略
 
-- immutable Gold common Git object store
-- pinned r536225 toolchain bundle
-- ccache compiler objects
+小米 Gold 构建路径使用三层安全缓存：
 
-The common source cache is never used as a dirty modified working tree: every build creates a fresh checkout before applying ReSukiSU, SUSFS and optional features. The kernel `out/` directory is deliberately not cached.
+- 固定 Gold common Git 对象仓库缓存
+- 固定 `r536225` 工具链缓存
+- ccache 编译对象缓存
 
-A warm baseline build has demonstrated approximately 99.9% incremental ccache hits and roughly two minutes for the Image compilation phase.
+common 源码缓存永远不会直接作为已经被修改过的工作树使用。每次构建都会从缓存对象重新创建干净 checkout，然后再应用 ReSukiSU、SUSFS 和各项可选功能。
 
-## AnyKernel3 behavior
+内核 `out/` 目录故意不做缓存。
 
-The package is boot-only and device-scoped. It contains only the kernel Image plus the required AnyKernel3 scripts/tools.
+实际热缓存测试已经证明，在相同功能配置下，单次新增可缓存编译调用的 ccache 命中率可以达到约 99.9%，完整工作流耗时也会从冷缓存构建的大约二十多分钟显著下降。
 
-It targets `boot`, auto-detects the active slot, disables vbmeta flag patching, and uses `split_boot; flash_boot;`. It does not package or flash `init_boot`, `vendor_boot`, `vendor_kernel_boot`, `dtbo` or `vbmeta`.
+## AnyKernel3 打包行为
 
-## Next device-validation stage
+生成的 AnyKernel3 包是**仅刷 boot 的设备限定包**，其中只包含内核 Image 和必要的 AnyKernel3 脚本/工具。
 
-The #76 full image has passed boot, initial basic-use checks and the runtime checks recorded above on `pandora`. Keep this exact kernel installed while closing the remaining gaps:
+其行为包括：
 
-- optionally exercise a safe real Re-Kernel hook path; its Generic Netlink userspace ABI is already proven
-- optionally exercise a disposable NoMount path rule; its userspace ABI is already proven
-- run an actual DroidSpaces userspace/container workload; namespace creation and NTSync are already proven
-- continue normal-use regression observation; do not intentionally exploit-test the CVE fixes
+- 目标分区为 `boot`
+- 自动识别当前活动槽位
+- 不修改 vbmeta 标志
+- 使用 `split_boot; flash_boot;`
+- 不打包或刷写 `init_boot`
+- 不打包或刷写 `vendor_boot`
+- 不打包或刷写 `vendor_kernel_boot`
+- 不打包或刷写 `dtbo`
+- 不打包或刷写 `vbmeta`
 
-The full stack should only be described as fully behavior-validated after those remaining userspace paths are exercised. `pudding` and `popsicle` remain same-platform build targets but are not yet physically validated.
+人工编译默认使用“仅上传 AnyKernel3.zip”模式时，可刷 ZIP 会直接发布到固定 Release，而不是再套一层 GitHub Artifact ZIP。
+
+## ReSukiSU Manager
+
+人工入口 **Xiaomi 17 系列 - 自定义内核** 在 Root 模式不为 `none` 时，会并行调用共享的 `get-manager.yml`：
+
+- 自动识别当前 ReSukiSU 版本代码
+- 查找与内核版本代码最匹配的 ReSukiSU Manager 构建
+- ReSukiSU 模式只保留 ARM64 release APK
+- 同时获取 SUSFS 模块产物
+
+这一 Manager 获取任务与小米内核构建逻辑分离，因此不会影响内核缓存和编译流程。
+
+## 后续真机验证方向
+
+当前完整功能栈已经在 `pandora` 上完成启动和大量运行时检查。仍可继续补充但不影响日常使用的验证项目包括：
+
+- 如有必要，在安全条件下实际走一次 Re-Kernel Hook 路径；其 Generic Netlink 用户态 ABI 已经验证。
+- 如有必要，使用可丢弃测试路径实际验证一次 NoMount 路径规则；其用户态 ABI 已经验证。
+- 运行真实 DroidSpaces 用户态/容器工作负载；namespace 创建和 NTSync 已经验证。
+- 继续进行正常日常使用观察；不要为了验证 CVE 修复而主动在真机上触发漏洞。
+
+只有在剩余用户态路径也实际运行后，才适合将整个功能栈描述为“全部功能行为均已完整验证”。
+
+`pudding` 和 `popsicle` 虽属于同一 SM8850 构建路径，但目前仍未获得与 `pandora` 相同等级的真机验证。
 
 ## 上游同步策略
 
-Xiaomi 17 系列支持已经完全合入默认分支 `dev`，不依赖长期功能分支。为降低 fork 与上游同步时的冲突概率，Xiaomi 定制尽量只放在 fork 独有的文件和目录中：
+小米 17 系列支持已经完全合入默认分支 `dev`，不再依赖长期功能分支。
+
+为了降低 fork 与上游同步时的冲突概率，小米定制尽量只放在本仓库独有的文件和目录中：
 
 - `.github/workflows/xiaomi-sm8850-dispatch.yml`
 - `.github/workflows/kernel-xiaomi-sm8850.yml`
+- `.github/workflows/xiaomi-sm8850-watchdog.yml`
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`
 - `scripts/xiaomi-sm8850/`
 - `docs/xiaomi-sm8850.md`
 
-日常同步 `zzh20188/GKI_KernelSU_SUSFS:dev` 时应使用正常的 GitHub **Sync fork / Update branch / merge** 流程，不要使用强制 reset、强制 push 或 “Discard commits” 把本地 `dev` 覆盖成上游 `dev`。
+日常同步 `zzh20188/GKI_KernelSU_SUSFS:dev` 时，应使用正常的 GitHub **Sync fork / Update branch / merge** 流程。
 
-正常 merge 同步只会更新上游发生变化的文件，以上 fork 独有文件会继续保留。只有当上游未来新增同名 Xiaomi 文件或修改同一路径时，才需要人工处理冲突。
+不要使用以下方式把本地 `dev` 强行覆盖成上游：
 
-同步完成后建议手动运行一次 **Xiaomi 17 系列 - 自定义内核**。只要该工作流仍能看到并成功调用本地 `kernel-xiaomi-sm8850.yml`，即可确认 Xiaomi 定制没有在同步过程中丢失。
+- `git reset --hard upstream/dev`
+- force push
+- Discard commits
 
-### 误点 Discard commits 的恢复
+正常 merge 同步只会合并上游发生变化的内容，本仓库独有的小米文件会继续保留。只有当上游未来新增同名文件或修改同一路径时，才需要人工处理真实冲突。
 
-仓库保留长期恢复分支 `xiaomi-sm8850-stable`。该分支不参与日常上游同步，用于保存已经确认可用的 Xiaomi 17 系列实现。
+同步完成后可以运行一次 **Xiaomi 17 系列 - 自定义内核**，确认 dispatcher 仍能正常调用本地 `kernel-xiaomi-sm8850.yml`。
 
-如果误操作导致默认分支 `dev` 被重置为上游状态，不要继续强制同步或删除恢复分支。恢复方式是将 `xiaomi-sm8850-stable` 合并回 `dev`；如果上游此时已有新提交，则先以正常 Pull Request / merge 的方式合并二者并处理实际冲突。
+## 误点 Discard commits 的恢复
 
-恢复完成后应确认以下 fork 独有路径重新存在：
+仓库保留长期恢复分支 `xiaomi-sm8850-stable`。该分支不参与日常上游同步，用于保存已经确认可用的小米 17 系列实现。
+
+如果误操作导致默认分支 `dev` 被重置为上游状态：
+
+1. 不要继续执行强制同步。
+2. 不要删除恢复分支。
+3. 优先将 `xiaomi-sm8850-stable` 通过正常 Pull Request / merge 恢复到 `dev`。
+4. 如果此时上游已经存在新的提交，则正常合并两边改动并处理真实冲突。
+5. 禁止为了恢复而直接 force push 覆盖历史。
+
+恢复后应确认以下路径重新存在：
 
 - `.github/workflows/xiaomi-sm8850-dispatch.yml`
 - `.github/workflows/kernel-xiaomi-sm8850.yml`
+- `.github/workflows/xiaomi-sm8850-watchdog.yml`
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`
 - `scripts/xiaomi-sm8850/`
 - `docs/xiaomi-sm8850.md`
 
-然后运行一次 **Xiaomi 17 系列 - 自定义内核** 做 CI 验证。不要通过删除 `xiaomi-sm8850-stable`、强制 reset 或 force push 来“清理”恢复历史。
+然后运行一次 **Xiaomi 17 系列 - 自定义内核** 完成 CI 验证。
 
-### 稳定分支与恢复层级
+## 稳定分支与恢复层级
 
-为了避免日常 `dev` 开发、上游同步或误点 **Discard commits** 影响已经验证过的 Xiaomi 方案，仓库采用三层恢复结构：
+为了避免日常 `dev` 开发、上游同步或误点 **Discard commits** 影响已经验证过的小米方案，仓库采用三层恢复结构。
 
-- `dev`：日常开发与上游同步分支。
-- `xiaomi-sm8850-stable`：可移动的稳定恢复点。只有在对应版本完成 CI 且已确认真机正常后才推进；不需要用户手动维护。
-- `xiaomi-sm8850-lkg-20260928`：永久保留的 Last Known Good（LKG）里程碑，指向首个完成合并且对应实现已在 Xiaomi 17 Pro / pandora 真机验证的提交。该分支不随 `dev` 或 `stable` 更新。
+### 第一层：`dev`
+
+日常开发、功能调整以及上游同步都发生在这里。
+
+### 第二层：`xiaomi-sm8850-stable`
+
+这是可移动的稳定恢复点。
+
+只有在对应版本满足以下条件后才推进：
+
+- CI 正常
+- 核心工作流结构正常
+- 修改不会破坏已确认稳定的内核方案
+- 涉及实际内核行为变化时，原则上应获得对应真机确认
+
+该分支不需要用户手动维护。
+
+### 第三层：`xiaomi-sm8850-lkg-20260928`
+
+这是永久保留的**最后已知可用版本（LKG）**里程碑。
+
+它指向第一阶段完成合并、且对应核心实现已经在小米 17 Pro / `pandora` 上获得真机验证的提交：
+
+```text
+a6739500cf10f9d73453d6eb4f86bf17c6e722a4
+```
+
+这个 LKG 分支不随 `dev` 或 `stable` 更新。
 
 正常情况下用户只使用 `dev`。不要对 `xiaomi-sm8850-stable` 或 LKG 分支执行 Sync fork、Discard commits、force push、reset 或删除操作。
 
-如果未来 `dev` 被误重置，优先从 `xiaomi-sm8850-stable` 通过正常 PR / merge 恢复；如果 stable 本身也存在疑问，则使用 `xiaomi-sm8850-lkg-20260928` 作为最后兜底。恢复过程禁止 force push 覆盖历史。
+如果未来 `dev` 被误重置：
 
-### 自动看门狗
+- 首选从 `xiaomi-sm8850-stable` 恢复。
+- 如果 stable 本身也存在疑问，则使用 `xiaomi-sm8850-lkg-20260928` 作为最后兜底。
+- 恢复过程禁止 force push 覆盖已有历史。
 
-默认分支 `dev` 内置 `.github/workflows/xiaomi-sm8850-watchdog.yml`：
+## 自动看门狗
 
-- 每天定时检查一次；
-- Xiaomi 关键 workflow、配置、脚本或本文档发生改动时立即检查；
-- 校验 Xiaomi 关键路径是否仍存在；
-- 校验 dispatcher 仍调用本地 `kernel-xiaomi-sm8850.yml`；
-- 校验 `xiaomi-sm8850-stable` 与固定 LKG 分支仍存在；
-- 校验 LKG 仍指向预期提交，没有被意外移动；
-- 异常时让该 Actions 运行明确失败并显示错误摘要，并在可行时从 stable 向 dev 创建普通恢复 PR；
-- 不执行自动 merge、force push、reset 或分支删除。
+默认分支 `dev` 内置：
 
-由于 GitHub 的 scheduled workflow 只能依赖默认分支中的 workflow 文件，如果整个 `dev` 被 **Discard commits** 重置成上游、连 watchdog 文件本身一起消失，同仓库 Action 无法继续自检。因此另保留一个低频外部兜底，只检查 watchdog 文件以及 stable/LKG 分支是否仍存在；日常完整检查由 GitHub Actions 完成。
+```text
+.github/workflows/xiaomi-sm8850-watchdog.yml
+```
 
+它负责自动检查小米专用方案是否仍然完整。
+
+当前检查内容包括：
+
+- 每天定时运行一次
+- 小米关键工作流、配置、脚本或本文档发生改动时立即运行
+- 校验小米关键文件和目录是否仍然存在
+- 校验 dispatcher 仍调用本地 `kernel-xiaomi-sm8850.yml`
+- 检查是否意外重新出现 `xiaomi-sm8850-pandora` 跨分支依赖
+- 校验 `xiaomi-sm8850-stable` 是否仍存在
+- 校验固定 LKG 分支是否仍存在
+- 校验 LKG 是否仍指向预期提交，没有被意外移动
+- 异常时让该 Actions 运行明确失败
+- 在条件允许时，从 stable 向 dev 创建普通恢复 PR
+- 不执行自动 merge
+- 不执行 force push
+- 不执行 reset
+- 不执行分支删除
+
+由于 GitHub 的定时工作流必须依赖默认分支中的 workflow 文件，如果整个 `dev` 被 **Discard commits** 重置成上游、连 watchdog 文件本身一起消失，那么同仓库 Action 无法继续检查自己。
+
+因此另保留一个低频外部兜底，只负责确认以下三项仍存在：
+
+- `xiaomi-sm8850-watchdog.yml`
+- `xiaomi-sm8850-stable`
+- `xiaomi-sm8850-lkg-20260928`
+
+日常完整检查由 GitHub Actions 完成，外部兜底只用于覆盖“看门狗本身被一起删除”的极端情况。
+
+## 维护原则
+
+后续维护遵循以下原则：
+
+- 用户日常只操作 `dev` 和 **Xiaomi 17 系列 - 自定义内核**。
+- 不要求用户手动维护 stable 或 LKG。
+- 内核功能修改优先在 `dev` 完成并经过 CI。
+- 真机确认稳定后，再推进 `xiaomi-sm8850-stable`。
+- 永久 LKG 不移动。
+- 上游同步使用正常 merge/Sync fork，不使用强制覆盖。
+- 小米专用逻辑继续限制在独立文件和目录中，避免污染上游通用 GKI 工作流。
