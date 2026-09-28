@@ -166,7 +166,7 @@ on:
         default: true
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && inputs.device || 'pandora' }}
@@ -446,15 +446,43 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload AnyKernel3 only
+      - name: Publish AnyKernel3 ZIP directly
         if: success() && github.event_name != 'pull_request' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
-        uses: actions/upload-artifact@v6
-        with:
-          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3
-          path: ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUT="$XIAOMI_WORKDIR/output/$XIAOMI_DEVICE/$XIAOMI_VARIANT"
+          ZIP=$(find "$OUT" -maxdepth 1 -type f -name '*-AnyKernel3.zip' -print -quit)
+          if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
+            echo "::error::AnyKernel3 ZIP not found in $OUT"
+            exit 1
+          fi
+
+          TAG="xiaomi-custom-latest"
+          TITLE="Xiaomi 17 系列 - 最新自定义构建"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "自定义编译生成的 AnyKernel3 可刷 ZIP。相同文件名会由后续成功构建直接覆盖；详细构建参数请查看对应 Actions 运行摘要。" \
+              --prerelease
+          fi
+
+          ZIP_NAME=$(basename "$ZIP")
+          {
+            echo
+            echo "### AnyKernel3 直接下载"
+            echo
+            echo "已直接发布可刷 ZIP（无额外 artifact 外层压缩）："
+            echo
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP_NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload full build
         if: success() && (github.event_name == 'pull_request' || (github.event_name != 'pull_request' && inputs.artifact_upload_mode == '上传全部'))
