@@ -265,21 +265,33 @@ EOF
     [[ -f "$ack_kernel_env" ]] || die "ACK Kleaf kernel_env missing: $ack_kernel_env"
     python3 - "$ack_kernel_env" "$ack_ccache_wrapper" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 path = Path(sys.argv[1])
 wrapper = sys.argv[2]
 text = path.read_text()
-needle = """          fi # KLEAF_SET_UP_TOOLCHAIN_CMD
-        # Increase parallelism"""
-replacement = f"""          fi # KLEAF_SET_UP_TOOLCHAIN_CMD
-        # Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's
-        # resolved clang paths so Kbuild resolves clang/clang++ through ccache.
-        export PATH={wrapper}:$PATH
-        # Increase parallelism"""
-if needle not in text:
-    raise SystemExit("Kleaf kernel_env toolchain layout changed; refusing unsafe ACK ccache injection")
-path.write_text(text.replace(needle, replacement, 1))
+
+# R51 may vary whitespace around the toolchain block, but the semantic anchor
+# itself is stable. Insert exactly once immediately after that line.
+pattern = re.compile(r"^(?P<indent>[ \t]*)fi # KLEAF_SET_UP_TOOLCHAIN_CMD[ \t]*$", re.MULTILINE)
+matches = list(pattern.finditer(text))
+if len(matches) != 1:
+    raise SystemExit(
+        f"expected exactly one KLEAF_SET_UP_TOOLCHAIN_CMD anchor, found {len(matches)}; "
+        "refusing unsafe ACK ccache injection"
+    )
+
+m = matches[0]
+indent = m.group("indent")
+insertion = (
+    "\n"
+    f"{indent}# Xiaomi ACK CI: compiler-content cache wrapper must come after Kleaf's\n"
+    f"{indent}# resolved clang paths so Kbuild resolves clang/clang++ through ccache.\n"
+    f"{indent}export PATH={wrapper}:$PATH"
+)
+text = text[:m.end()] + insertion + text[m.end():]
+path.write_text(text)
 PY
 
     grep -qF "export PATH=$ack_ccache_wrapper:\$PATH" "$ack_kernel_env" ||
