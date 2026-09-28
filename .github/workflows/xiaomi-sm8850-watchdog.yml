@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
   pull-requests: write
 
 concurrency:
@@ -123,7 +122,7 @@ jobs:
           printf 'Watchdog failures:\n'
           printf -- '  - %s\n' "${failures[@]}"
 
-      - name: Open or update recovery alert
+      - name: Create recovery PR and fail watchdog
         if: steps.verify.outputs.healthy == 'false'
         shell: bash
         env:
@@ -131,49 +130,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          title="[Xiaomi watchdog] SM8850 safeguard failure"
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          body="$(cat <<EOF
-          Xiaomi SM8850 safeguard verification failed.
-
-          $DETAILS
-
-          Workflow run: $run_url
-
-          Safety policy:
-          - do not force-push or reset dev
-          - do not delete or move $LKG_BRANCH
-          - restore through a normal PR/merge from $STABLE_BRANCH where appropriate
-          EOF
-          )"
-
-          issue_number="$(gh issue list             --repo "$REPO"             --state open             --search "$title in:title"             --json number,title             --jq '.[] | select(.title == "'"$title"'") | .number'             | head -n1)"
-
-          if [[ -n "$issue_number" ]]; then
-            gh issue comment "$issue_number" --repo "$REPO" --body "$body"
-          else
-            gh issue create --repo "$REPO" --title "$title" --body "$body"
-          fi
+          echo "::error title=Xiaomi SM8850 safeguard failure::$DETAILS"
 
           if gh api "repos/$REPO/branches/$STABLE_BRANCH" >/dev/null 2>&1; then
-            existing_pr="$(gh pr list               --repo "$REPO"               --base dev               --head "$STABLE_BRANCH"               --state open               --json url               --jq '.[0].url // empty')"
+            existing_pr="$(gh pr list \
+              --repo "$REPO" \
+              --base dev \
+              --head "$STABLE_BRANCH" \
+              --state open \
+              --json url \
+              --jq '.[0].url // empty')"
 
             if [[ -z "$existing_pr" ]]; then
-              gh pr create                 --repo "$REPO"                 --base dev                 --head "$STABLE_BRANCH"                 --title "recovery: restore Xiaomi SM8850 safeguards"                 --body "Created automatically by the Xiaomi watchdog after safeguard verification failed. Review and merge normally; do not force-update dev."                 || true
+              gh pr create \
+                --repo "$REPO" \
+                --base dev \
+                --head "$STABLE_BRANCH" \
+                --title "recovery: restore Xiaomi SM8850 safeguards" \
+                --body "Created automatically by the Xiaomi watchdog after safeguard verification failed. Review and merge normally; do not force-update dev." \
+                || true
+            else
+              echo "Recovery PR already exists: $existing_pr"
             fi
           fi
 
           exit 1
-
-      - name: Close resolved watchdog alert
-        if: steps.verify.outputs.healthy == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          title="[Xiaomi watchdog] SM8850 safeguard failure"
-          issue_number="$(gh issue list             --repo "$REPO"             --state open             --search "$title in:title"             --json number,title             --jq '.[] | select(.title == "'"$title"'") | .number'             | head -n1)"
-
-          if [[ -n "$issue_number" ]]; then
-            gh issue comment "$issue_number" --repo "$REPO"               --body "Safeguards are healthy again in run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
-            gh issue close "$issue_number" --repo "$REPO" --reason completed
-          fi
