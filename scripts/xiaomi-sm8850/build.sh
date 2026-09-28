@@ -121,16 +121,22 @@ path = Path(sys.argv[1])
 remove = sys.argv[2:]
 text = path.read_text()
 
+marker = "# Deprecated - Use `get_gki_modules_list` function instead."
+if marker not in text:
+    raise SystemExit("unable to locate end of common GKI module list")
+
+gki_list, rest = text.split(marker, 1)
+
 for module in remove:
     needle = f'    "{module}",\n'
-    count = text.count(needle)
+    count = gki_list.count(needle)
     if count != 1:
         raise SystemExit(
-            f"expected exactly one GKI module entry for {module}, found {count}"
+            f"expected exactly one common GKI output entry for {module}, found {count}"
         )
-    text = text.replace(needle, "", 1)
+    gki_list = gki_list.replace(needle, "", 1)
 
-path.write_text(text)
+path.write_text(gki_list + marker + rest)
 PY
 
       for module in "${ack_builtin_modules[@]}"; do
