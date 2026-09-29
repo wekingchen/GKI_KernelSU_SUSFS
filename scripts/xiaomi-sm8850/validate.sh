@@ -160,7 +160,7 @@ for required in (
     "trim_nonlisted_kmi = False",
 ):
     if required not in chunk:
-        raise SystemExit(f"Xiaomi compat A policy missing: {required}")
+        raise SystemExit(f"Xiaomi ACK compatibility policy missing: {required}")
 
 for forbidden in (
     "kmi_enforced = True",
@@ -170,7 +170,7 @@ for forbidden in (
     'protected_module_names_list = ":gki_aarch64_protected_module_names"',
 ):
     if forbidden in chunk:
-        raise SystemExit(f"Xiaomi compat A policy unexpectedly retains: {forbidden}")
+        raise SystemExit(f"Xiaomi ACK compatibility policy unexpectedly retains: {forbidden}")
 PY
 
     config_is_not_y "$FINAL" CONFIG_TRIM_UNUSED_KSYMS ||
@@ -184,7 +184,7 @@ PY
       die "ACK Xiaomi ACK compatibility unexpectedly retains a non-empty CONFIG_MODULE_SIG_PROTECT_LIST"
     fi
 
-    # Keep SCMVERSION unchanged in experiment A so only the KMI trimming /
+    # Keep SCMVERSION unchanged in the Xiaomi ACK compatibility policy so only the KMI trimming /
     # protected-module policy is under test.
     config_is_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
       die "ACK Xiaomi ACK compatibility unexpectedly disables CONFIG_MODULE_SCMVERSION"
