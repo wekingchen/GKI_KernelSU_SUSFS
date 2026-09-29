@@ -54,13 +54,31 @@ apply_patch_strict() {
     die "patch apply failed: $patch_file"
 }
 
+checkout_feature_ref() {
+  local repo="$1" ref="$2" dest="$3"
+  [[ ! -e "$dest" ]] || die "feature checkout already exists: $dest"
+  mkdir -p "$dest"
+  git -C "$dest" init -q
+  git -C "$dest" remote add origin "$repo"
+  git -C "$dest" fetch --depth=1 --no-tags origin "$ref"
+  git -C "$dest" checkout -q --detach FETCH_HEAD
+}
+
+zram_patch_ref="N/A"
 zram_patch_commit="N/A"
+nomount_ref="N/A"
 nomount_commit="N/A"
+droidspaces_ref="N/A"
 droidspaces_commit="N/A"
+ntsync_patch_ref="N/A"
+ntsync_patch_commit="N/A"
+bbg_ref="N/A"
+bbg_commit="N/A"
+rekernel_ref="N/A"
 rekernel_commit="N/A"
 
 if [[ "$USE_KPM" == patched* ]]; then
-  die "KPM patched mode is intentionally unsupported on the Xiaomi Gold lane"
+  die "KPM patched mode is intentionally unsupported on the Xiaomi SM8850 lane"
 fi
 if truthy "$USE_KPM"; then
   grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)'     "$KERNEL_ROOT/ReSukiSU/kernel" 2>/dev/null ||
@@ -70,21 +88,26 @@ if truthy "$USE_KPM"; then
 fi
 
 if truthy "$USE_NOMOUNT"; then
-  note "integrating latest NoMount dev"
+  nomount_ref="${XIAOMI_NOMOUNT_REF:-$NOMOUNT_DEFAULT_REF}"
+  note "integrating NoMount ref=$nomount_ref"
+  checkout_feature_ref "$NOMOUNT_REPO" "$nomount_ref" "$COMMON/NoMount"
+  nomount_commit="$(git -C "$COMMON/NoMount" rev-parse HEAD)"
   (
     cd "$COMMON"
-    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors       https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+    sh "$COMMON/NoMount/kernel/setup.sh" "$nomount_commit"
   )
+  [[ "$(git -C "$COMMON/NoMount" rev-parse HEAD)" == "$nomount_commit" ]] ||
+    die "NoMount checkout moved during setup"
   [[ -L "$COMMON/fs/nomount" ]] || die "NoMount integration did not create fs/nomount symlink"
-  [[ -d "$COMMON/NoMount/.git" ]] && nomount_commit="$(git -C "$COMMON/NoMount" rev-parse HEAD)"
   append_config "$FRAGMENT" "CONFIG_NOMOUNT=y"
-  note "NoMount integrated commit=$nomount_commit"
+  note "NoMount integrated ref=$nomount_ref commit=$nomount_commit"
 fi
 
 if [[ "$DROIDSPACES" != "off" ]]; then
   [[ "$DROIDSPACES" == "on" ]] || die "Xiaomi 6.12 supports DroidSpaces values: off/on"
-  note "integrating DroidSpaces 6.12 support"
-  git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git "$DEPS/Droidspaces-OSS"
+  droidspaces_ref="${XIAOMI_DROIDSPACES_REF:-$DROIDSPACES_DEFAULT_REF}"
+  note "integrating DroidSpaces 6.12 support ref=$droidspaces_ref"
+  checkout_feature_ref "$DROIDSPACES_REPO" "$droidspaces_ref" "$DEPS/Droidspaces-OSS"
   droidspaces_commit="$(git -C "$DEPS/Droidspaces-OSS" rev-parse HEAD)"
   patch_file="$DEPS/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
   apply_patch_strict "$patch_file"
@@ -95,6 +118,10 @@ if [[ "$DROIDSPACES" != "off" ]]; then
   if [[ -f "$COMMON/ipc/namespace.c" ]] && ! grep -qF 'EXPORT_SYMBOL(put_ipc_ns);' "$COMMON/ipc/namespace.c"; then
     sed -i '/^static struct ns_common \*ipcns_get(/i EXPORT_SYMBOL(put_ipc_ns);' "$COMMON/ipc/namespace.c"
   fi
+  grep -qF 'EXPORT_SYMBOL(init_ipc_ns);' "$COMMON/ipc/msgutil.c" ||
+    die "DroidSpaces init_ipc_ns export is missing after integration"
+  grep -qF 'EXPORT_SYMBOL(put_ipc_ns);' "$COMMON/ipc/namespace.c" ||
+    die "DroidSpaces put_ipc_ns export is missing after integration"
 
   for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
     append_config "$FRAGMENT" "$cfg=y"
@@ -107,28 +134,23 @@ fi
 
 if truthy "$DROIDSPACES_NTSYNC"; then
   [[ "$DROIDSPACES" == "on" ]] || die "NTSync requires DroidSpaces=on"
-  note "integrating DroidSpaces NTSync for android16-6.12"
+  ntsync_patch_ref="${XIAOMI_NTSYNC_PATCH_REF:-$NTSYNC_PATCH_DEFAULT_REF}"
+  note "integrating DroidSpaces NTSync for android16-6.12 ref=$ntsync_patch_ref"
 
-  base_patch="$DEPS/ntsync_base.patch"
-  compat_patch="$DEPS/ntsync_compat_android16-6.12.patch"
+  ntsync_dir="$DEPS/Droidspaces_Kernel_patch"
+  checkout_feature_ref "$NTSYNC_PATCH_REPO" "$ntsync_patch_ref" "$ntsync_dir"
+  ntsync_patch_commit="$(git -C "$ntsync_dir" rev-parse HEAD)"
+  base_patch="$ntsync_dir/NTsync/ntsync_base.patch"
+  compat_patch="$ntsync_dir/NTsync/ntsync_compat_android16-6.12.patch"
+  [[ -f "$base_patch" && -f "$compat_patch" ]] ||
+    die "NTSync patch files are missing at commit $ntsync_patch_commit"
 
-  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
-    https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch \
-    -o "$base_patch"
-  curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
-    https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_compat_android16-6.12.patch \
-    -o "$compat_patch"
-
-  # Android 16 / 6.12 already contains the NTSync driver and UAPI. The base
-  # patch is only for older trees that do not have those files yet.
   if [[ -f "$COMMON/drivers/misc/ntsync.c" && -f "$COMMON/include/uapi/linux/ntsync.h" ]]; then
     note "NTSync base driver already present in 6.12; skipping ntsync_base.patch"
   else
     apply_patch_strict "$base_patch"
   fi
 
-  # The Android 16 GKI tree carries NTSYNC behind depends on BROKEN. Apply the
-  # small compatibility patch only while that guard is present.
   if grep -A8 -E '^[[:space:]]*config[[:space:]]+NTSYNC$' "$COMMON/drivers/misc/Kconfig" | grep -q 'depends on BROKEN'; then
     apply_patch_strict "$compat_patch"
   else
@@ -136,17 +158,16 @@ if truthy "$DROIDSPACES_NTSYNC"; then
   fi
 
   append_config "$FRAGMENT" "CONFIG_NTSYNC=y"
-  note "NTSync integration complete"
+  note "NTSync integration complete ref=$ntsync_patch_ref commit=$ntsync_patch_commit"
 fi
 
 if truthy "$USE_ZRAM"; then
   note "integrating Gold-family Android 16 / 6.12 LZ4K/LZ4KD ZRAM backend"
 
-  CCTV_FEATURE_REPO="${XIAOMI_CCTV_FEATURE_REPO:-https://github.com/cctv18/oppo_oplus_realme_sm8850.git}"
-  CCTV_FEATURE_REF="${XIAOMI_CCTV_FEATURE_REF:-main}"
+  zram_patch_ref="${XIAOMI_ZRAM_FEATURE_REF:-$ZRAM_FEATURE_DEFAULT_REF}"
   CCTV_FEATURE_DIR="$DEPS/cctv18-sm8850"
 
-  git clone --depth 1 --branch "$CCTV_FEATURE_REF" "$CCTV_FEATURE_REPO" "$CCTV_FEATURE_DIR"
+  checkout_feature_ref "$ZRAM_FEATURE_REPO" "$zram_patch_ref" "$CCTV_FEATURE_DIR"
   zram_patch_commit="$(git -C "$CCTV_FEATURE_DIR" rev-parse HEAD)"
   zram_patch="$CCTV_FEATURE_DIR/other_patch/lz4kd.patch"
   [[ -f "$zram_patch" ]] || die "Gold-family 6.12 LZ4KD patch missing: $zram_patch"
@@ -164,12 +185,21 @@ if truthy "$USE_ZRAM"; then
 fi
 
 if truthy "$USE_BBG"; then
-  note "integrating latest Baseband Guard"
-  (cd "$KERNEL_ROOT" && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors     https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash)
+  bbg_ref="${XIAOMI_BBG_REF:-$BBG_DEFAULT_REF}"
+  note "integrating Baseband Guard ref=$bbg_ref"
+  checkout_feature_ref "$BBG_REPO" "$bbg_ref" "$KERNEL_ROOT/Baseband-guard"
+  bbg_commit="$(git -C "$KERNEL_ROOT/Baseband-guard" rev-parse HEAD)"
+  (
+    cd "$KERNEL_ROOT"
+    sh "$KERNEL_ROOT/Baseband-guard/setup.sh" "$bbg_commit"
+  )
+  [[ "$(git -C "$KERNEL_ROOT/Baseband-guard" rev-parse HEAD)" == "$bbg_commit" ]] ||
+    die "Baseband Guard checkout moved during setup"
   grep -RqsE '^[[:space:]]*config[[:space:]]+BBG([[:space:]]|$)' "$COMMON" ||
     die "BBG setup completed but CONFIG_BBG is not declared"
   append_config "$FRAGMENT" "CONFIG_BBG=y"
-  sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }'     "$COMMON/security/Kconfig"
+  sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' "$COMMON/security/Kconfig"
+  note "Baseband Guard integrated ref=$bbg_ref commit=$bbg_commit"
 fi
 
 if truthy "$USE_NETWORKING"; then
@@ -183,8 +213,9 @@ if truthy "$USE_NETWORKING"; then
 fi
 
 if truthy "$USE_REKERNEL"; then
-  note "integrating latest Re-Kernel as built-in driver"
-  git clone --depth 1 https://github.com/Sakion-Team/Re-Kernel.git "$DEPS/Re-Kernel"
+  rekernel_ref="${XIAOMI_REKERNEL_REF:-$REKERNEL_DEFAULT_REF}"
+  note "integrating Re-Kernel as built-in driver ref=$rekernel_ref"
+  checkout_feature_ref "$REKERNEL_REPO" "$rekernel_ref" "$DEPS/Re-Kernel"
   rekernel_commit="$(git -C "$DEPS/Re-Kernel" rev-parse HEAD)"
   rm -rf "$COMMON/drivers/rekernel"
   mkdir -p "$COMMON/drivers/rekernel"
@@ -206,12 +237,12 @@ PY
   fi
   grep -qF 'obj-$(CONFIG_REKERNEL) += rekernel/' "$COMMON/drivers/Makefile" ||
     echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> "$COMMON/drivers/Makefile"
-  sed -i 's|#include <../android/binder_internal.h>|#include "../android/binder_internal.h"|g'     "$COMMON/drivers/rekernel/rekernel_binder.c"
+  sed -i 's|#include <../android/binder_internal.h>|#include "../android/binder_internal.h"|g' "$COMMON/drivers/rekernel/rekernel_binder.c"
   grep -qF '#include <linux/seq_file.h>' "$COMMON/drivers/rekernel/rekernel_binder.c" ||
     sed -i '/#include <linux\/kprobes.h>/a #include <linux/seq_file.h>' "$COMMON/drivers/rekernel/rekernel_binder.c"
   append_config "$FRAGMENT" "CONFIG_REKERNEL=y"
   append_config "$FRAGMENT" "CONFIG_REKERNEL_NETWORK=y"
-  note "Re-Kernel integrated commit=$rekernel_commit"
+  note "Re-Kernel integrated ref=$rekernel_ref commit=$rekernel_commit"
 fi
 
 if truthy "$USE_CVE"; then
@@ -223,18 +254,26 @@ fi
 
 cat > "$PROVENANCE" <<EOF
 feature_use_zram=$USE_ZRAM
+feature_zram_patch_ref=$zram_patch_ref
 feature_zram_patch_commit=$zram_patch_commit
 feature_use_bbg=$USE_BBG
+feature_bbg_ref=$bbg_ref
+feature_bbg_commit=$bbg_commit
 feature_use_kpm=$USE_KPM
 feature_use_rekernel=$USE_REKERNEL
+feature_rekernel_ref=$rekernel_ref
 feature_rekernel_commit=$rekernel_commit
 feature_use_nomount=$USE_NOMOUNT
+feature_nomount_ref=$nomount_ref
 feature_nomount_commit=$nomount_commit
 feature_use_networking=$USE_NETWORKING
 feature_cve_2026_43499_patch=$USE_CVE
 feature_droidspaces=$DROIDSPACES
+feature_droidspaces_ref=$droidspaces_ref
 feature_droidspaces_commit=$droidspaces_commit
 feature_droidspaces_ntsync=$DROIDSPACES_NTSYNC
+feature_ntsync_patch_ref=$ntsync_patch_ref
+feature_ntsync_patch_commit=$ntsync_patch_commit
 EOF
 
 note "optional feature integration complete"

@@ -97,10 +97,15 @@ case "$SOURCE_PROFILE" in
     toolchain_cache="${XIAOMI_GOLD_TOOLCHAIN_CACHE:-$HOME/.cache/xiaomi-sm8850/gold-toolchain-$CLANG_VERSION}"
 
     toolchain_cache_valid() {
+      local marker="$toolchain_cache/.xiaomi-toolchain-digests"
       [[ -x "$toolchain_cache/clang19/bin/clang" ]] &&
       [[ -x "$toolchain_cache/rust/bin/rustc" ]] &&
       [[ -x "$toolchain_cache/rust/bin/bindgen" ]] &&
-      [[ -x "$toolchain_cache/build-tools/bin/pahole" ]]
+      [[ -x "$toolchain_cache/build-tools/bin/pahole" ]] &&
+      [[ -f "$marker" ]] &&
+      grep -qx "clang=$GOLD_CLANG_SHA256" "$marker" &&
+      grep -qx "rust=$GOLD_RUST_SHA256" "$marker" &&
+      grep -qx "build_tools=$GOLD_BUILD_TOOLS_SHA256" "$marker"
     }
 
     if toolchain_cache_valid; then
@@ -122,14 +127,23 @@ case "$SOURCE_PROFILE" in
       download_asset "$GOLD_RUST_ARCHIVE" "$toolchain_cache/rust.zip"
       download_asset "$GOLD_BUILD_TOOLS_ARCHIVE" "$toolchain_cache/build-tools.zip"
 
+      printf '%s  %s\n' "$GOLD_CLANG_SHA256" "$toolchain_cache/clang.zip" | sha256sum -c -
+      printf '%s  %s\n' "$GOLD_RUST_SHA256" "$toolchain_cache/rust.zip" | sha256sum -c -
+      printf '%s  %s\n' "$GOLD_BUILD_TOOLS_SHA256" "$toolchain_cache/build-tools.zip" | sha256sum -c -
+
       unzip -q "$toolchain_cache/clang.zip" -d "$toolchain_cache/clang19"
       unzip -q "$toolchain_cache/rust.zip" -d "$toolchain_cache/rust"
       # cctv18's build-tools.zip already contains a top-level build-tools/
       # directory. Extract it at TOOLROOT.
       unzip -q "$toolchain_cache/build-tools.zip" -d "$toolchain_cache"
       rm -f "$toolchain_cache/"*.zip
+      cat > "$toolchain_cache/.xiaomi-toolchain-digests" <<EOF
+clang=$GOLD_CLANG_SHA256
+rust=$GOLD_RUST_SHA256
+build_tools=$GOLD_BUILD_TOOLS_SHA256
+EOF
 
-      toolchain_cache_valid || die "downloaded Gold toolchain cache is incomplete"
+      toolchain_cache_valid || die "downloaded Gold toolchain cache is incomplete or unverified"
     fi
 
     ln -s "$toolchain_cache" "$KERNEL_ROOT/gold-toolchain"
@@ -153,7 +167,8 @@ case "$SOURCE_PROFILE" in
     SOURCE_COMMON_REF="refs/heads/$GOLD_COMMON_BRANCH"
     SOURCE_COMMON_COMMIT="$GOLD_COMMON_COMMIT"
     SOURCE_BUILD_MODE=make-image
-    SOURCE_KMI_MODE=modversions-gendwarfksyms
+    SOURCE_KMI_SOURCE_MODE="$GOLD_KMI_MODE"
+    SOURCE_KMI_MODE="$GOLD_KMI_MODE"
     SOURCE_MANIFEST_COMMIT=not-used
     ;;
 
@@ -163,6 +178,10 @@ case "$SOURCE_PROFILE" in
     note "source profile ack-r51: initializing pinned ACK build manifest"
     repo init --depth=1 -u "$ACK_MANIFEST_URL" -b "$ACK_MANIFEST_BRANCH" --repo-rev=stable
 
+    # Keep repo's manifest checkout on its normal branch so repo sync -c keeps
+    # its expected branch metadata. The configured commit is still a hard
+    # guardrail: if the upstream manifest branch moves, fail instead of silently
+    # building against a different support tree.
     actual_manifest="$(git -C .repo/manifests rev-parse HEAD)"
     [[ "$actual_manifest" == "$ACK_MANIFEST_COMMIT" ]] ||
       die "manifest branch drifted: expected $ACK_MANIFEST_COMMIT got $actual_manifest"
@@ -243,7 +262,8 @@ PY
     SOURCE_COMMON_REF="$ACK_COMMON_REF"
     SOURCE_COMMON_COMMIT="$ACK_COMMON_COMMIT"
     SOURCE_BUILD_MODE=kleaf-dist
-    SOURCE_KMI_MODE=kleaf-strict
+    SOURCE_KMI_SOURCE_MODE="$ACK_SOURCE_KMI_MODE"
+    SOURCE_KMI_MODE="$ACK_SOURCE_KMI_MODE"
     SOURCE_MANIFEST_COMMIT="$actual_manifest"
     ;;
 esac
@@ -251,6 +271,7 @@ esac
 cat > "$WORKDIR/source-provenance.env" <<EOF
 SOURCE_PROFILE=$SOURCE_PROFILE
 SOURCE_BUILD_MODE=$SOURCE_BUILD_MODE
+SOURCE_KMI_SOURCE_MODE=$SOURCE_KMI_SOURCE_MODE
 SOURCE_KMI_MODE=$SOURCE_KMI_MODE
 SOURCE_MANIFEST_COMMIT=$SOURCE_MANIFEST_COMMIT
 SOURCE_COMMON_REPO=$SOURCE_COMMON_REPO

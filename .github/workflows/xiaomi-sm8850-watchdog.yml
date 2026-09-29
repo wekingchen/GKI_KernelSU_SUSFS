@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: xiaomi-sm8850-watchdog
@@ -40,72 +39,83 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: dev
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Verify safeguards
         id: verify
         shell: bash
         run: |
           set -u
-
           failures=()
+          dev_recovery_needed=false
+          stable_ready=true
+          critical_files=(
+            ".github/workflows/xiaomi-sm8850-dispatch.yml"
+            ".github/workflows/kernel-xiaomi-sm8850.yml"
+            ".github/workflows/xiaomi-sm8850-watchdog.yml"
+            ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+            "docs/xiaomi-sm8850.md"
+            "scripts/xiaomi-sm8850/build-gold-make.sh"
+            "scripts/xiaomi-sm8850/build.sh"
+            "scripts/xiaomi-sm8850/integrate-features.sh"
+            "scripts/xiaomi-sm8850/integrate-resukisu.sh"
+            "scripts/xiaomi-sm8850/integrate-susfs.sh"
+            "scripts/xiaomi-sm8850/lib.sh"
+            "scripts/xiaomi-sm8850/package-anykernel3.sh"
+            "scripts/xiaomi-sm8850/prepare-source.sh"
+            "scripts/xiaomi-sm8850/validate.sh"
+          )
 
-          require_file() {
-            local path="$1"
-            [[ -f "$path" ]] || failures+=("missing file on dev: $path")
-          }
-
-          require_dir() {
-            local path="$1"
-            [[ -d "$path" ]] || failures+=("missing directory on dev: $path")
-          }
-
-          require_branch() {
-            local branch="$1"
-            gh api "repos/$REPO/branches/$branch" >/dev/null 2>&1 ||
-              failures+=("missing recovery branch: $branch")
-          }
-
-          require_ref_file() {
-            local branch="$1"
-            local path="$2"
-            gh api "repos/$REPO/contents/$path?ref=$branch" >/dev/null 2>&1 ||
-              failures+=("$branch is missing recovery file: $path")
-          }
-
-          require_file ".github/workflows/xiaomi-sm8850-dispatch.yml"
-          require_file ".github/workflows/kernel-xiaomi-sm8850.yml"
-          require_file ".github/workflows/xiaomi-sm8850-watchdog.yml"
-          require_file ".github/config/xiaomi-sm8850-android16-6.12.23.env"
-          require_dir  "scripts/xiaomi-sm8850"
-          require_file "docs/xiaomi-sm8850.md"
+          for path in "${critical_files[@]}"; do
+            if [[ ! -f "$path" ]]; then
+              failures+=("missing file on dev: $path")
+              dev_recovery_needed=true
+            fi
+          done
 
           if [[ -f ".github/workflows/xiaomi-sm8850-dispatch.yml" ]]; then
-            grep -Fq 'uses: ./.github/workflows/kernel-xiaomi-sm8850.yml'               ".github/workflows/xiaomi-sm8850-dispatch.yml" ||
+            grep -Fq 'uses: ./.github/workflows/kernel-xiaomi-sm8850.yml' ".github/workflows/xiaomi-sm8850-dispatch.yml" || {
               failures+=("dispatcher no longer calls the local Xiaomi workflow")
-
+              dev_recovery_needed=true
+            }
             if grep -Fq 'xiaomi-sm8850-pandora' ".github/workflows/xiaomi-sm8850-dispatch.yml"; then
               failures+=("dispatcher regressed to obsolete xiaomi-sm8850-pandora dependency")
+              dev_recovery_needed=true
             fi
           fi
 
-          require_branch "$STABLE_BRANCH"
-          require_branch "$LKG_BRANCH"
+          for script in scripts/xiaomi-sm8850/*.sh; do
+            [[ -f "$script" ]] || continue
+            if ! bash -n "$script"; then
+              failures+=("shell syntax failure on dev: $script")
+              dev_recovery_needed=true
+            fi
+          done
 
-          stable_sha="$(gh api "repos/$REPO/branches/$STABLE_BRANCH" --jq '.commit.sha' 2>/dev/null || true)"
-          lkg_sha="$(gh api "repos/$REPO/branches/$LKG_BRANCH" --jq '.commit.sha' 2>/dev/null || true)"
-
-          if [[ -n "$lkg_sha" && "$lkg_sha" != "$LKG_SHA" ]]; then
-            failures+=("LKG moved unexpectedly: expected $LKG_SHA, got $lkg_sha")
+          if ! gh api "repos/$REPO/branches/$STABLE_BRANCH" >/dev/null 2>&1; then
+            failures+=("missing recovery branch: $STABLE_BRANCH")
+            stable_ready=false
+          fi
+          if [[ "$stable_ready" == "true" ]]; then
+            for path in "${critical_files[@]}"; do
+              if ! gh api "repos/$REPO/contents/$path?ref=$STABLE_BRANCH" >/dev/null 2>&1; then
+                failures+=("$STABLE_BRANCH is missing recovery file: $path")
+                stable_ready=false
+              fi
+            done
           fi
 
-          if [[ -n "$stable_sha" ]]; then
-            require_ref_file "$STABLE_BRANCH" ".github/workflows/xiaomi-sm8850-dispatch.yml"
-            require_ref_file "$STABLE_BRANCH" ".github/workflows/kernel-xiaomi-sm8850.yml"
-            require_ref_file "$STABLE_BRANCH" ".github/config/xiaomi-sm8850-android16-6.12.23.env"
-            require_ref_file "$STABLE_BRANCH" "docs/xiaomi-sm8850.md"
+          if ! gh api "repos/$REPO/branches/$LKG_BRANCH" >/dev/null 2>&1; then
+            failures+=("missing recovery branch: $LKG_BRANCH")
+          else
+            lkg_sha="$(gh api "repos/$REPO/branches/$LKG_BRANCH" --jq '.commit.sha' 2>/dev/null || true)"
+            if [[ "$lkg_sha" != "$LKG_SHA" ]]; then
+              failures+=("LKG moved unexpectedly: expected $LKG_SHA, got $lkg_sha")
+            fi
           fi
 
+          echo "dev_recovery_needed=$dev_recovery_needed" >> "$GITHUB_OUTPUT"
+          echo "stable_ready=$stable_ready" >> "$GITHUB_OUTPUT"
           if ((${#failures[@]} == 0)); then
             echo "healthy=true" >> "$GITHUB_OUTPUT"
             echo "Xiaomi safeguards healthy."
@@ -118,40 +128,50 @@ jobs:
             printf -- '- %s\n' "${failures[@]}"
             echo "WATCHDOG_EOF"
           } >> "$GITHUB_OUTPUT"
-
           printf 'Watchdog failures:\n'
           printf -- '  - %s\n' "${failures[@]}"
 
-      - name: Create recovery PR and fail watchdog
+      - name: Prepare stable recovery patch
+        if: steps.verify.outputs.healthy == 'false' && steps.verify.outputs.dev_recovery_needed == 'true' && steps.verify.outputs.stable_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$STABLE_BRANCH:refs/remotes/origin/$STABLE_BRANCH"
+          mkdir -p recovery
+          critical_paths=(
+            ".github/workflows/xiaomi-sm8850-dispatch.yml"
+            ".github/workflows/kernel-xiaomi-sm8850.yml"
+            ".github/workflows/xiaomi-sm8850-watchdog.yml"
+            ".github/config/xiaomi-sm8850-android16-6.12.23.env"
+            "docs/xiaomi-sm8850.md"
+            "scripts/xiaomi-sm8850"
+          )
+          git diff --binary HEAD "refs/remotes/origin/$STABLE_BRANCH" -- "${critical_paths[@]}" > recovery/xiaomi-sm8850-stable.patch
+          cat > recovery/README.txt <<EOF
+          The watchdog detected damage to the Xiaomi SM8850 implementation on dev.
+
+          Recovery source:
+            $STABLE_BRANCH
+
+          The patch in this artifact transforms the Xiaomi-owned paths from the current
+          dev checkout back to the stable recovery branch. Review it before applying.
+          Do not force-push or reset the repository just to restore these files.
+          EOF
+
+      - name: Upload recovery material
+        if: steps.verify.outputs.healthy == 'false' && steps.verify.outputs.dev_recovery_needed == 'true' && steps.verify.outputs.stable_ready == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-sm8850-recovery-${{ github.run_id }}
+          path: recovery/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Fail watchdog
         if: steps.verify.outputs.healthy == 'false'
         shell: bash
         env:
           DETAILS: ${{ steps.verify.outputs.details }}
         run: |
-          set -euo pipefail
-
           echo "::error title=Xiaomi SM8850 safeguard failure::$DETAILS"
-
-          if gh api "repos/$REPO/branches/$STABLE_BRANCH" >/dev/null 2>&1; then
-            existing_pr="$(gh pr list \
-              --repo "$REPO" \
-              --base dev \
-              --head "$STABLE_BRANCH" \
-              --state open \
-              --json url \
-              --jq '.[0].url // empty')"
-
-            if [[ -z "$existing_pr" ]]; then
-              gh pr create \
-                --repo "$REPO" \
-                --base dev \
-                --head "$STABLE_BRANCH" \
-                --title "recovery: restore Xiaomi SM8850 safeguards" \
-                --body "Created automatically by the Xiaomi watchdog after safeguard verification failed. Review and merge normally; do not force-update dev." \
-                || true
-            else
-              echo "Recovery PR already exists: $existing_pr"
-            fi
-          fi
-
           exit 1
