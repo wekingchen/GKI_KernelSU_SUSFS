@@ -59,7 +59,7 @@ on:
       use_nomount:
         required: false
         type: boolean
-        default: false
+        default: true
       use_networking:
         required: false
         type: boolean
@@ -253,8 +253,8 @@ jobs:
               # Full regression runs only when feature integration or the
               # pinned Xiaomi build configuration changes. It intentionally
               # includes every supported optional feature except KPM.
-              # NoMount stays here for regression coverage even though the
-              # user-facing GUI default is OFF for Magic Mount users.
+              # NoMount is the current user-facing default and stays enabled
+              # here for full regression coverage.
               echo "XIAOMI_SUSFS_EXTRA_FEATURES=true" >> "$GITHUB_ENV"
               echo "XIAOMI_USE_ZRAM=true" >> "$GITHUB_ENV"
               echo "XIAOMI_USE_BBG=true" >> "$GITHUB_ENV"
