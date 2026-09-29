@@ -79,7 +79,7 @@ on:
         type: boolean
         default: true
       use_nomount:
-        description: "NoMount VFS 注入（当前推荐方案；已舍弃 Magic Mount，默认开启）"
+        description: "NoMount VFS 注入"
         required: true
         type: boolean
         default: true
