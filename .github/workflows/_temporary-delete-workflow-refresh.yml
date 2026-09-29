@@ -1,0 +1,39 @@
+name: Temporary delete workflow refresh branch
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/_temporary-delete-workflow-refresh.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branch:
+    if: github.repository_owner == 'wekingchen'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete completed workflow refresh branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          branch="xiaomi-workflow-refresh"
+          ref="repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}"
+
+          if gh api "$ref" >/dev/null 2>&1; then
+            echo "Deleting $branch"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+          else
+            echo "$branch already absent"
+          fi
+
+          if gh api "$ref" >/dev/null 2>&1; then
+            echo "::error::branch still exists after deletion: $branch"
+            exit 1
+          fi
+          echo "Confirmed absent: $branch"
