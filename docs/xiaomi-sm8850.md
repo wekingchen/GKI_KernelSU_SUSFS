@@ -52,51 +52,54 @@
 
 ## 源码方案
 
-小米工作流目前保留两套固定源码方案，但两者的验证等级并不相同。
+当前保留两套固定源码方案，二者都已经在小米 17 Pro（`pandora`）完成真机启动验证，但定位不同：
 
-> **重要：截至目前，本项目所有成功编译并用于小米 17 Pro（`pandora`）真机刷入、启动验证和运行时功能验证的内核，全部来自 `gold-cctv`。**
->
-> `ack-r51` 已完成与当前推荐功能组合一致的 CI 全功能编译验证，但在小米 17 Pro（`pandora`）首次真机刷入测试中停留于 Xiaomi HyperOS 启动画面，未能完成系统启动。因此它当前应描述为“CI 编译通过、pandora 真机启动失败”，不能作为日常或稳定内核使用；正式编译和真机使用继续以 `gold-cctv` 为稳定路径。
+- `gold-cctv`：默认日用路径。构建简单、已有更完整的真机运行时验证和缓存收益。
+- `ack-r51`：官方 ACK R51 对照路径。用于验证更接近 Google ACK 的源码/构建行为，并保留 Kleaf/Bazel 构建链。
 
-### `gold-cctv` — 默认推荐基线
-
-这一路径采用 DroidSpaces 小米 17 系列条目以及已知可启动 Gold 6.12.23 内核包所对应的公开源码家族：
+### `gold-cctv` — 默认日用基线
 
 - 仓库：`cctv18/android_gki_kernel_common`
 - 分支家族：`android16-6.12-2025-06`
 - 固定提交：`9e91eb74a201e8cee839c8db6d642ff9b8408388`
+- 构建方式：`make gki_defconfig` + `Image`
 
-这里将它定义为**与 Gold 构建体系兼容的公开源码线**，并不声称这个精确提交就是此前手机上测试过的某个 Gold ZIP 二进制的唯一源码来源。
+在 cctv18 这条 fork 历史中，该固定提交以官方 R51 common 提交 `5a0e85dd...` 为祖先，向前增加 18 个提交；这些提交混合了 Android/common 后续修复以及 cctv18 的构建/功能改动。源码里存在 ADIOS、TCP Brutal、Re-Kernel 等附加代码，并不代表最终成品默认启用它们；本项目仍以最终 `.config` 和独立功能集成为准。
 
-由于公开分支会继续前进，本工作流固定使用明确提交，而不是跟随移动中的分支最新提交。
+`gold-cctv` 继续作为默认值，主要因为它已经积累了更完整的 `pandora` 运行时验证，并且直接 make + ccache 路径的构建速度更适合日常使用。
 
-### `ack-r51` — 官方 ACK 对照基线（CI 全功能编译通过，pandora 真机启动失败）
-
-这一方案使用 Android 16 / Linux 6.12 官方 ACK 2025-06 后期修订版作为干净对照。它已经完成与推荐功能组合一致的完整 CI 编译、最终配置校验和 AnyKernel3 打包；随后在小米 17 Pro（`pandora`）进行了首次真机刷入测试，但设备停留于 Xiaomi HyperOS 启动画面，未能完成系统启动，因此当前仅保留为实验/对照路径：
+### `ack-r51` — 官方 ACK R51 对照基线
 
 - 标签：`android16-6.12-2025-06_r51`
-- 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- common 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
 - KMI 代数：5
 - Clang：`r536225`
+- 构建方式：Kleaf/Bazel `//common:kernel_aarch64_dist`
 
-从工作流设计上，两套方案使用同一套固定 ACK 工具链/构建支持快照，但采用不同的构建方式：
+ACK 源码在进入 Xiaomi 兼容层之前会先验证原始 `kernel_aarch64` 目标仍保持 stock strict KMI 配置；随后只对最终 Xiaomi 构建关闭 `kmi_enforced`、`kmi_symbol_list_strict_mode`、`trim_nonlisted_kmi`，并移除 base KMI symbol list / protected-module list，同时保留 `CONFIG_MODULE_SCMVERSION=y`。
 
-- `gold-cctv`：直接执行 `make gki_defconfig Image`，贴近公开 Gold/cctv18 构建体系，只生成启动所需内核 Image，避免 Kleaf 对无关 system-DLKM 模块集合的额外要求。
-- `ack-r51`：通过 Kleaf/Bazel 执行 `//common:kernel_aarch64_dist`，保留严格 KMI 校验，但不再人为强制 ThinLTO。原因是 R51 的 `CONFIG_RUST` 在 `DEBUG_INFO_BTF=y` 时要求非 LTO；强制 ThinLTO 会导致 Rust Binder 配置被静默关闭并使 `rust_binder.ko` 缺失。
+这样做的原因来自真机结果：最初 strict-policy ACK 构建能够通过 CI，但 `pandora` 无法完成启动；放宽 trimming / protected-module policy 后的 Xiaomi compatibility A 在 Run #7（Run ID `36511075743`，HEAD `17576f5465d55a17b9ec529e450b1a2bd0e3b79b`）成功刷入并正常启动。
 
-实际执行构建时，构建方式和最终 LTO 设置会写入产物中的 `build-metadata.txt`。目前已有实际产物和真机验证记录的均为 `gold-cctv`。
+因此 ACK 当前的准确描述是：**官方 R51 源码 + Xiaomi 专用 KMI 兼容策略**，而不是“完全按 Google strict GKI policy 输出的原样 R51”。
 
+构建产物会同时记录：
+
+- `source_kmi_source_mode`：源码进入 Xiaomi 层前的策略；ACK 为 `kleaf-strict`。
+- `source_kmi_mode`：最终实际构建策略；ACK 为 `kleaf-xiaomi-compat`。
+
+两条路径都可正常启动，但 ACK 目前获得的真机验证主要是启动/基础可用性；Gold 已有更多运行时功能验证，所以日常默认仍保持 `gold-cctv`。
 ## 当前自定义构建器
 
-小米专用路径已经完成最初的 A/B/C 兼容性阶梯验证，目前已经进入可自由选择功能的自定义构建阶段。
+小米专用路径已经完成最初的 A/B/C 兼容性阶梯验证，目前进入可自由选择功能的自定义构建阶段。
 
-小米 17 Pro（`pandora`）已完成的主要真机验证如下。**以下所有条目使用的内核源码均为 `gold-cctv`，没有任何一项来自 `ack-r51`：**
+Gold 路径在小米 17 Pro（`pandora`）上的主要历史里程碑如下：
 
 - A / 基础内核：#60 —— 成功启动，并通过短时间硬件及稳定性检查。
 - B / ReSukiSU：#62 —— 成功启动；Manager 显示版本代码 35184；Root 授权正常。
 - C / ReSukiSU + SUSFS：#63 —— 成功启动；SUSFS v2.3.0 可正常识别并工作。
 - 全功能候选：#76 —— 成功启动，首次开机后的基础检查未发现明显异常。
 - 当前自定义链路：后续自定义构建已完成缓存、DroidSpaces/NTSync、直接 AnyKernel3 ZIP、ReSukiSU Manager 等整套流程验证；最新已刷入版本在小米 17 Pro 上未发现异常。
+- ACK-R51 Xiaomi compatibility：Run #7 / `36511075743` 已完成真机刷入并正常启动，证明当前 ACK 兼容策略可以在 `pandora` 使用。
 
 #76 全功能候选在已经验证的 C 基础上，同时启用了除 KPM 之外当时通过独立 CI 验证的全部小米可选功能：
 
@@ -114,36 +117,35 @@ KPM 目前仍保持关闭。原因是当前此构建链使用的 ReSukiSU 主线
 
 ### 推荐的人工编译默认值
 
-用户无需修改 YAML。唯一人工入口 **Xiaomi 17 系列 - 自定义内核** 已设置为当前推荐的小米 17 Pro 配置：
+唯一人工入口 **Xiaomi 17 系列 - 自定义内核** 当前默认值为：
 
 - 设备：小米 17 Pro（`pandora`）
-- 源码：Gold/cctv18 Linux 6.12.23（当前唯一完成实际编译与真机验证的源码路径）
+- 源码：`gold-cctv`（默认日用；`ack-r51` 保留为官方 R51 对照）
 - Root：ReSukiSU + SUSFS
 - SUSFS 扩展：开启
 - ZRAM / LZ4K / LZ4KD：开启
 - Baseband Guard：开启
 - Re-Kernel：开启
+- NoMount VFS 注入：开启
 - 网络增强：开启
 - DroidSpaces：开启
 - NTSync：开启
-- CVE 修复链：开启
-- KPM：关闭，因为当前 ReSukiSU 主线没有声明 `CONFIG_KPM`
-- **NoMount：默认关闭。** 使用 Magic Mount 的 ReSukiSU 用户仅为了正常使用模块并不需要开启 NoMount；只有明确准备使用 NoMount VFS 注入 / Metamodule 路径时才建议启用。
-- 默认产物模式：仅直接发布 AnyKernel3 ZIP
+- CVE-2026-43499 / CVE-2026-53163 修复链：开启
+- KPM：关闭；当前 ReSukiSU 主线没有声明 `CONFIG_KPM`
+- 产物模式：仅上传 AnyKernel3 ZIP
 
-图形界面同时提供小米 17（`pudding`）和小米 17 Pro Max（`popsicle`），但这两个设备目前还没有获得与 `pandora` 同等级的真机验证。
+图形界面同时提供小米 17（`pudding`）和小米 17 Pro Max（`popsicle`），但这两个设备还没有获得与 `pandora` 相同等级的真机验证。
 
-PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍会启用 NoMount，以确保这一可选集成持续获得编译回归覆盖。
-
+PR 回归不再机械地每次跑 Full：文档/dispatcher/watchdog 修改不触发内核编译；Gold 专属脚本只回归 Gold；共享核心脚本会回归 Gold + ACK baseline；功能集成或固定构建配置变化时才对 Gold + ACK 跑 full 组合。
 ## 验证等级
 
-以下三种状态必须严格区分，不能混为一谈。`gold-cctv` 已达到 CI 集成验证、真机启动验证和多项运行时功能验证；`ack-r51` 已达到第 1 级 CI 集成验证，但第 2 级真机启动验证明确失败，因此也未进入第 3 级功能行为验证：
+以下三种状态必须严格区分，不能混为一谈。当前 `gold-cctv` 和 `ack-r51` 都已达到 CI 集成验证和 `pandora` 真机启动验证；Gold 另外完成了更多运行时功能验证，ACK 暂时不把“能启动”等同于“全部功能行为都已验证”：
 
 1. **CI 集成验证通过**：补丁和配置成功集成，内核成功编译，并通过最终自动校验。
 2. **真机启动验证通过**：生成的 AnyKernel3 可刷包能够在小米 17 Pro 上正常启动。
 3. **功能行为验证通过**：对应功能已经在真机上实际调用，并确认运行时行为符合预期。
 
-#74 已证明各个可选功能可以分别达到第 1 级；#75/#76 已证明组合后的全功能配置达到第 1 级；#76 达到第 2 级。
+#74 已证明各个可选功能可以分别达到第 1 级；#75/#76 已证明 Gold 全功能组合达到第 1 级，#76 达到第 2 级；ACK compatibility Run #7 也达到第 2 级。
 
 在 2026-09-28 对运行中的小米 17 Pro 进一步检查后，多项功能还完成了额外运行时验证：
 
@@ -161,13 +163,23 @@ PR 回归测试与用户默认配置故意不同：PR 的 `full` 组合回归仍
 
 这里故意采用保守标准：仅有内置符号存在，并不等于已经证明对应用户态协议或每一条 Hook 路径都实际执行过。
 
-## ACK-R51 真机启动失败记录
+## ACK-R51 兼容性验证记录
 
-2026-09-29，使用 ACK-R51 全功能 AnyKernel3 产物在小米 17 Pro（`pandora`）进行首次真机刷入测试。设备能够进入 Xiaomi HyperOS 启动画面，但未能继续完成系统启动，判定该 ACK-R51 产物真机启动失败。
+2026-09-29，第一版 ACK-R51 全功能 AnyKernel3 虽然 CI 通过，但在 `pandora` 上停留于 Xiaomi HyperOS 启动画面。这证明“官方 ACK + strict KMI 校验通过”并不能自动等价于小米 vendor/vendor_dlkm 启动兼容。
 
-这说明 ACK 自身的 strict KMI、配置校验和 CI 编译通过，并不能证明与小米原厂 vendor/vendor_dlkm 模块、设备私有内核改动和启动期依赖兼容。当前不将 ACK-R51 作为可日常使用或可推进 stable 的候选；后续若继续研究，应优先收集 pstore/ramoops 等启动失败日志，再针对实际失败点分析，而不是仅依赖 KMI/版本字符串推断兼容性。
+随后建立隔离的 Xiaomi compatibility A，只改变 ACK 的 KMI trimming / protected-module policy：
 
-### 2026-09-29 Release 覆盖事故
+- `kmi_enforced = False`
+- `kmi_symbol_list_strict_mode = False`
+- `trim_nonlisted_kmi = False`
+- 移除 `kmi_symbol_list = "gki/aarch64/symbols/base"`
+- 移除 `protected_module_names_list`
+- 保留 `CONFIG_MODULE_SCMVERSION=y`
+
+Run #7（Run ID `36511075743`，HEAD `17576f5465d55a17b9ec529e450b1a2bd0e3b79b`）完成编译、校验、AnyKernel3 打包，并由小米 17 Pro 真机刷入后正常启动。该兼容策略随后整理为正式实现并合入 `dev`；实验 workflow 和实验分支均已清理。
+
+现在 ACK 的定位是**可启动的官方 R51 对照路径**。它仍保留 Kleaf/Bazel、R51 source-default LTO 和 Rust Binder 配置，但最终 KMI policy 是已经通过小米真机验证的兼容策略。
+### 2026-09-29 Release 覆盖事故### 2026-09-29 Release 覆盖事故
 
 首次 ACK 真机失败后，曾尝试从历史 `xiaomi-custom-latest` Release 下载“Gold #3”回刷，但该包同样无法启动。随后核查确认，这并不能证明原始 Gold #3 失效：旧发布逻辑让所有源码配置共用同一个可变 `xiaomi-custom-latest` tag 和同一个 ZIP 文件名，并使用 `gh release upload --clobber` 覆盖资产。
 
@@ -195,62 +207,43 @@ Image 90540ed0f30e5f55a94c607b20bc765f6bd2337a4929413d702e2b597bc704c3
 
 在没有取得原始 Gold #3 ZIP 本体并核对哈希之前，当前没有证据表明 Gold #3 内核本身存在启动回归。此前 Gold #3 已有一次实际成功启动记录。
 
-## ACK-R51 CI 验证记录
+## ACK-R51 构建与校验状态
 
-2026-09-28，ACK-R51 对照路径完成一次全功能 CI 验证。
+ACK-R51 当前正式路径固定到：
 
-对应一次性验证运行：
-
-```text
-Xiaomi ACK-R51 一次性全功能验证 #4
-Run ID: 36399059661
-```
-
-结果为 `success`，并通过以下关键校验：
-
-- 设备：`pandora`
-- 变体：`resukisu-susfs`
-- 源码：`ack-r51`
-- common 提交：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- common：`5a0e85dd9db068df8f0cdff9be76fe4211bd8af9`
+- manifest：`a17736b7c5c2ce7435426183f1b376e85d59ba7e`
 - Android 分支：`android16-6.12`
-- 内核版本：`6.12.23`
-- KMI 代数：5
+- 内核：`6.12.23`
+- KMI：第 5 代
 - 页面大小：4K
+- Clang：`r536225`
+
+构建链会先确认 ACK source target 仍是 stock strict policy，再应用 Xiaomi compatibility，并在最终 Image 中校验：
+
 - `CONFIG_MODVERSIONS=y`
 - `CONFIG_GENDWARFKSYMS=y`
-- Kleaf 严格 KMI 校验通过
-- ReSukiSU 内建
-- SUSFS 与扩展功能开启
-- ZRAM / LZ4K / LZ4KD 开启
-- Baseband Guard 开启
-- Re-Kernel 开启
-- 网络增强开启
-- DroidSpaces 开启
-- NTSync 开启
-- CVE 修复链开启
-- NoMount 关闭
-- KPM 关闭
+- `CONFIG_TRIM_UNUSED_KSYMS` 未启用
+- `CONFIG_MODULE_SIG_PROTECT` 未启用
+- 不存在有效的 unused-KSYM whitelist / protected-module list
+- `CONFIG_MODULE_SCMVERSION=y`
+- 内核 release 不含 Kleaf `-maybe-dirty` 占位符
 
-最终版本字符串：
+ACK/Kleaf 另外保留两个已经验证必要的处理：
+
+1. 对被 Xiaomi feature fragment 改成 built-in 的 ZRAM/ZSMALLOC/NETFS 项，调整 Kleaf 预期模块输出，避免仍要求不存在的 `.ko`。
+2. 不强制 ThinLTO，保持 R51 的 `DEBUG_INFO_BTF + RUST + rust_binder` 配置成立。
+
+最终版本字符串为：
 
 ```text
 6.12.23-android16-5-4k
 ```
 
-此前 Kleaf 非 stamp 模式会自动加入 `-maybe-dirty` 占位符。当前 ACK 专用构建逻辑仅在 `kleaf-dist` 路径中移除这一占位符，并增加校验防止其重新出现；不会修改 `gold-cctv` 的版本字符串逻辑。
+当前结论：ACK-R51 已同时完成全功能 CI 和 `pandora` 真机启动验证，但 Gold 仍拥有更丰富的运行时行为验证，因此 workflow 默认源码暂不切换。
+## Root 与 SUSFS 版本追踪## Root 与 SUSFS 版本追踪
 
-ACK-R51 全功能编译过程中还修正了两个只属于 ACK/Kleaf 的兼容问题：
-
-1. Xiaomi boot-only 方案将 ZRAM、ZSMALLOC 和 NETFS 相关能力直接编入 Image，因而不再生成对应 `.ko`。ACK 专用逻辑会从 Kleaf 的预期 GKI 模块输出列表中移除这些已明确改为 built-in 的模块项。
-2. 不再强制 ThinLTO，以保持 R51 的 Rust Binder 官方配置可成立。
-
-这些兼容处理均位于 `ack-r51 / kleaf-dist` 分支，不修改 `gold-cctv / make-image` 的源码、构建目标、缓存、版本字符串或打包流程。
-
-**当前结论：ACK-R51 已完成 CI 全功能编译验证，但在小米 17 Pro（`pandora`）真机刷入后停留于 Xiaomi HyperOS 启动画面，未能完成启动；当前仅作为实验/排障对照，不作为推荐刷机路径。**
-
-## Root 与 SUSFS 版本追踪
-
-正常自定义构建会跟随指定上游分支获取 ReSukiSU / SUSFS，但每次都会把最终解析到的精确提交写入构建产物，方便复现。
+正常自定义构建会跟随配置中的上游 ref 获取 ReSukiSU、SUSFS 以及 NoMount、DroidSpaces、NTSync patch、ZRAM patch、Baseband Guard、Re-Kernel 等移动依赖；每次构建都会记录最终解析到的精确提交，方便追踪和复现。
 
 当前已经获得真机验证的基础版本：
 
@@ -314,14 +307,16 @@ Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
 - 用户请求开启的可选功能必须真实出现在最终配置中
 - 不允许存在补丁拒绝文件
 
-`gold-cctv` 路径通过已知兼容的直接 make 方式构建内核 Image，也是目前唯一完成真机启动和运行时验证的源码路径；`ack-r51` 虽已完成 Kleaf/Bazel 全功能 CI 编译验证，但在 `pandora` 真机刷入测试中启动失败。
+两套源码都要求最终 Image 通过同一组架构、版本、页面大小、ReSukiSU/SUSFS 和功能配置校验；ACK 另外校验“source strict / final Xiaomi-compatible”两阶段 KMI provenance。
 
-PR CI 会首先对小米脚本执行 `bash -n` 语法检查，然后根据改动范围选择回归等级。
+PR CI 会先执行全部 Xiaomi shell 脚本的 `bash -n`，然后按改动范围选择回归：
 
-当前主要回归配置：
-
-- `baseline`：已获得真机验证的 ReSukiSU + SUSFS 核心组合，关闭额外可选功能。
-- `full`：同时开启当前 CI 支持的全部小米可选功能，但 KPM 除外。
+- `baseline`：ReSukiSU + SUSFS 核心组合，额外可选功能关闭。
+- `full`：启用当前支持的全部小米可选功能，但 KPM 除外。
+- 共享核心或 ACK 相关脚本：Gold + ACK 双源码回归。
+- Gold 专属构建/打包脚本：只跑 Gold。
+- 功能集成或固定配置变化：Gold + ACK 双源码 Full。
+- 文档、dispatcher、watchdog：只做 preflight，不浪费完整内核编译。
 
 此前 #74 的十配置矩阵仍作为各个可选功能可以独立编译通过的历史证据。
 
@@ -330,7 +325,7 @@ PR CI 会首先对小米脚本执行 `bash -n` 语法检查，然后根据改动
 小米 Gold 构建路径使用三层安全缓存：
 
 - 固定 Gold common Git 对象仓库缓存
-- 固定 `r536225` 工具链缓存
+- 固定 `r536225` 工具链缓存（下载时校验 GitHub Release 发布资产 SHA256）
 - ccache 编译对象缓存
 
 common 源码缓存永远不会直接作为已经被修改过的工作树使用。每次构建都会从缓存对象重新创建干净 checkout，然后再应用 ReSukiSU、SUSFS 和各项可选功能。
@@ -347,7 +342,7 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 - Kleaf 持久 `--cache_dir`：能够恢复约 1 GiB 的旧 `OUT_DIR`，但 fresh runner 的源码重新同步后仍触发主内核重编，未得到有效加速。
 - ACK ccache wrapper：将 wrapper 强行置于 Kleaf toolchain 前方会改变 R51 的编译器可用性判定，导致 `CONFIG_RUST`、`CONFIG_ASHMEM_RUST` 和 `CONFIG_ANDROID_BINDER_IPC_RUST` 被移除，破坏官方 R51 配置语义，因此明确弃用。
 
-因此 ACK-R51 以**构建正确性、Rust Binder、strict KMI 和可复现性优先**；除非未来 Kleaf 官方提供适合临时 CI runner 的稳定缓存接口，否则不再为 ACK 强行注入跨 runner 编译缓存。此结论只适用于 `ack-r51 / kleaf-dist`，不会改变已经验证有效的 `gold-cctv` 缓存策略。
+因此 ACK-R51 继续以**构建正确性、Rust Binder、Xiaomi KMI 兼容策略和可追溯性优先**；除非未来 Kleaf 官方提供适合临时 CI runner 的稳定缓存接口，否则不再为 ACK 强行注入跨 runner 编译缓存。此结论只适用于 `ack-r51 / kleaf-dist`，不会改变已经验证有效的 `gold-cctv` 缓存策略。
 
 ## AnyKernel3 打包行为
 
@@ -365,7 +360,7 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 - 不打包或刷写 `dtbo`
 - 不打包或刷写 `vbmeta`
 
-人工编译默认使用“仅上传 AnyKernel3.zip”模式时，可刷 ZIP 会直接发布到固定 Release，而不是再套一层 GitHub Artifact ZIP。
+人工编译默认使用“仅上传 AnyKernel3.zip”模式时，可刷 ZIP 会发布到按 source profile + Run ID 唯一命名的 prerelease，同时保存一份不可变 Workflow Artifact；不同运行和不同源码不会再互相覆盖。
 
 ## ReSukiSU Manager
 
@@ -418,17 +413,11 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 ## 误点 Discard commits 的恢复
 
-仓库保留长期恢复分支 `xiaomi-sm8850-stable`。该分支不参与日常上游同步，用于保存已经确认可用的小米 17 系列实现。
+仓库保留 `xiaomi-sm8850-stable` 作为可移动恢复点，并保留永久 LKG `xiaomi-sm8850-lkg-20260928`。
 
-如果误操作导致默认分支 `dev` 被重置为上游状态：
+如果 `dev` 被 Sync/Discard 等操作破坏，不要把 stable 直接 force push 到 `dev`。正确做法是从当前 `dev` 新建恢复分支，把 Xiaomi 专用路径从 stable 恢复到这个新分支，审核 diff 后再通过普通 PR 合回 `dev`。这样不会抹掉 `dev` 上同时存在的其它上游提交。
 
-1. 不要继续执行强制同步。
-2. 不要删除恢复分支。
-3. 优先将 `xiaomi-sm8850-stable` 通过正常 Pull Request / merge 恢复到 `dev`。
-4. 如果此时上游已经存在新的提交，则正常合并两边改动并处理真实冲突。
-5. 禁止为了恢复而直接 force push 覆盖历史。
-
-恢复后应确认以下路径重新存在：
+需要恢复的 Xiaomi-owned 路径为：
 
 - `.github/workflows/xiaomi-sm8850-dispatch.yml`
 - `.github/workflows/kernel-xiaomi-sm8850.yml`
@@ -437,11 +426,9 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 - `scripts/xiaomi-sm8850/`
 - `docs/xiaomi-sm8850.md`
 
-然后运行一次 **Xiaomi 17 系列 - 自定义内核** 完成 CI 验证。
+恢复完成后运行 Xiaomi PR CI，再进行必要的真机确认。不要使用 force push、`reset --hard` 或删除 stable/LKG 来“简化”恢复。
 
 ## 稳定分支与恢复层级
-
-为了避免日常 `dev` 开发、上游同步或误点 **Discard commits** 影响已经验证过的小米方案，仓库采用三层恢复结构。
 
 ### 第一层：`dev`
 
@@ -449,82 +436,40 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 ### 第二层：`xiaomi-sm8850-stable`
 
-这是可移动的稳定恢复点。
-
-只有在对应版本满足以下条件后才推进：
-
-- CI 正常
-- 核心工作流结构正常
-- 修改不会破坏已确认稳定的内核方案
-- 涉及实际内核行为变化时，原则上应获得对应真机确认
-
-该分支不需要用户手动维护。
+这是可移动的稳定恢复点。只有在 CI 正常、核心工作流完整，并且涉及内核行为的改动已经获得相应验证后才推进。stable 可以落后于 dev；它的职责是提供已知可恢复的 Xiaomi 文件集合，而不是追踪每一个开发提交。
 
 ### 第三层：`xiaomi-sm8850-lkg-20260928`
 
-这是永久保留的**最后已知可用版本（LKG）**里程碑。
-
-它指向第一阶段完成合并、且对应核心实现已经在小米 17 Pro / `pandora` 上获得真机验证的提交：
+这是永久保留的最后已知可用里程碑，固定指向：
 
 ```text
 a6739500cf10f9d73453d6eb4f86bf17c6e722a4
 ```
 
-这个 LKG 分支不随 `dev` 或 `stable` 更新。
-
-正常情况下用户只使用 `dev`。不要对 `xiaomi-sm8850-stable` 或 LKG 分支执行 Sync fork、Discard commits、force push、reset 或删除操作。
-
-如果未来 `dev` 被误重置：
-
-- 首选从 `xiaomi-sm8850-stable` 恢复。
-- 如果 stable 本身也存在疑问，则使用 `xiaomi-sm8850-lkg-20260928` 作为最后兜底。
-- 恢复过程禁止 force push 覆盖已有历史。
+LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使用 LKG 作为最后兜底。
 
 ## 自动看门狗
 
-默认分支 `dev` 内置：
+`.github/workflows/xiaomi-sm8850-watchdog.yml` 每天运行，并在 Xiaomi-owned 文件变化时立即检查：
 
-```text
-.github/workflows/xiaomi-sm8850-watchdog.yml
-```
+- dev 上所有关键 workflow、配置、脚本和文档是否存在；
+- 所有 Xiaomi shell 脚本是否通过 `bash -n`；
+- dispatcher 是否仍调用本地 `kernel-xiaomi-sm8850.yml`；
+- 是否重新出现废弃的 `xiaomi-sm8850-pandora` 跨分支依赖；
+- `xiaomi-sm8850-stable` 是否存在并包含完整恢复文件；
+- LKG 分支是否存在且仍指向固定 SHA。
 
-它负责自动检查小米专用方案是否仍然完整。
+看门狗不再尝试用“stable 直接向 dev 开 PR”的方式恢复，因为 stable 通常是 dev 的祖先，这种 PR 并不能还原后来被删除的文件。若检测到 dev 的 Xiaomi 内容损坏且 stable 完整，看门狗会生成一个 `xiaomi-sm8850-stable.patch` Recovery Artifact；该补丁表示“当前 dev → stable Xiaomi 文件集合”的差异，供人工审核后在恢复分支上应用。
 
-当前检查内容包括：
-
-- 每天定时运行一次
-- 小米关键工作流、配置、脚本或本文档发生改动时立即运行
-- 校验小米关键文件和目录是否仍然存在
-- 校验 dispatcher 仍调用本地 `kernel-xiaomi-sm8850.yml`
-- 检查是否意外重新出现 `xiaomi-sm8850-pandora` 跨分支依赖
-- 校验 `xiaomi-sm8850-stable` 是否仍存在
-- 校验固定 LKG 分支是否仍存在
-- 校验 LKG 是否仍指向预期提交，没有被意外移动
-- 异常时让该 Actions 运行明确失败
-- 在条件允许时，从 stable 向 dev 创建普通恢复 PR
-- 不执行自动 merge
-- 不执行 force push
-- 不执行 reset
-- 不执行分支删除
-
-由于 GitHub 的定时工作流必须依赖默认分支中的 workflow 文件，如果整个 `dev` 被 **Discard commits** 重置成上游、连 watchdog 文件本身一起消失，那么同仓库 Action 无法继续检查自己。
-
-因此另保留一个低频外部兜底，只负责确认以下三项仍存在：
-
-- `xiaomi-sm8850-watchdog.yml`
-- `xiaomi-sm8850-stable`
-- `xiaomi-sm8850-lkg-20260928`
-
-日常完整检查由 GitHub Actions 完成，外部兜底只用于覆盖“看门狗本身被一起删除”的极端情况。
-
-## 维护原则
+看门狗本身只读仓库，不自动 merge、不 force push、不 reset、不删除分支。
+## 维护原则## 维护原则
 
 后续维护遵循以下原则：
 
 - 用户日常只操作 `dev` 和 **Xiaomi 17 系列 - 自定义内核**。
 - 不要求用户手动维护 stable 或 LKG。
 - 内核功能修改优先在 `dev` 完成并经过 CI。
-- 真机确认稳定后，再推进 `xiaomi-sm8850-stable`。
+- 真机确认稳定后，再按需推进 `xiaomi-sm8850-stable`；stable 不要求与 dev 实时同步。
 - 永久 LKG 不移动。
 - 上游同步使用正常 merge/Sync fork，不使用强制覆盖。
 - 小米专用逻辑继续限制在独立文件和目录中，避免污染上游通用 GKI 工作流。

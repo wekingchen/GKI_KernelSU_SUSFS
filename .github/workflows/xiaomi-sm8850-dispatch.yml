@@ -21,7 +21,7 @@ on:
           - "Xiaomi 17 Pro Max (popsicle)"
         default: "Xiaomi 17 Pro (pandora)"
       source_profile:
-        description: "内核源码/构建链（gold-cctv、ack-r51 均已在 pandora 真机启动验证）"
+        description: "内核源码/构建链（gold-cctv 默认日用；ack-r51 官方 R51 对照，均已通过 pandora 启动验证）"
         required: true
         type: choice
         options:

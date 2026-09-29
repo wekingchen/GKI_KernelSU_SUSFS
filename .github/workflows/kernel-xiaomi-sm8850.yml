@@ -6,6 +6,8 @@ on:
       - dev
     paths:
       - ".github/workflows/kernel-xiaomi-sm8850.yml"
+      - ".github/workflows/xiaomi-sm8850-dispatch.yml"
+      - ".github/workflows/xiaomi-sm8850-watchdog.yml"
       - ".github/config/xiaomi-sm8850-android16-6.12.23.env"
       - "scripts/xiaomi-sm8850/**"
       - "docs/xiaomi-sm8850.md"
@@ -77,7 +79,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && inputs.device || 'pandora' }}
+  group: xiaomi-sm8850-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name != 'pull_request' && inputs.device || 'pandora' }}-${{ github.event_name != 'pull_request' && inputs.source_profile || 'pr' }}
   cancel-in-progress: true
 
 jobs:
@@ -86,6 +88,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       pr_profile: ${{ steps.plan.outputs.profile }}
+      pr_sources: ${{ steps.plan.outputs.sources }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -102,7 +105,7 @@ jobs:
             bash -n "$script"
           done
 
-      - name: Select PR regression profile
+      - name: Select PR regression plan
         id: plan
         if: github.event_name == 'pull_request'
         shell: bash
@@ -112,9 +115,6 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # For an existing PR, classify only the newly pushed commit so old
-          # feature work does not force every later GUI/docs edit into Full.
-          # On initial PR creation/reopen, validate the complete PR delta.
           if [[ "$PR_ACTION" == "synchronize" ]]; then
             BASE_SHA=$(git rev-parse "$HEAD_SHA^")
           else
@@ -126,36 +126,58 @@ jobs:
           printf '  %s\n' "${changed[@]}"
 
           profile=none
+          dual_source=false
+          promote_baseline() {
+            [[ "$profile" == "full" ]] || profile=baseline
+          }
+
           for path in "${changed[@]}"; do
             case "$path" in
-              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh)
+              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh|scripts/xiaomi-sm8850/integrate-resukisu.sh|scripts/xiaomi-sm8850/integrate-susfs.sh)
                 profile=full
-                break
+                dual_source=true
                 ;;
-              .github/workflows/kernel-xiaomi-sm8850.yml|scripts/xiaomi-sm8850/*)
-                profile=baseline
+              .github/workflows/kernel-xiaomi-sm8850.yml|scripts/xiaomi-sm8850/build.sh|scripts/xiaomi-sm8850/prepare-source.sh|scripts/xiaomi-sm8850/validate.sh|scripts/xiaomi-sm8850/lib.sh)
+                promote_baseline
+                dual_source=true
+                ;;
+              scripts/xiaomi-sm8850/build-gold-make.sh|scripts/xiaomi-sm8850/package-anykernel3.sh)
+                promote_baseline
+                ;;
+              scripts/xiaomi-sm8850/*)
+                promote_baseline
+                dual_source=true
                 ;;
             esac
           done
 
+          if [[ "$dual_source" == "true" ]]; then
+            sources='["gold-cctv","ack-r51"]'
+          else
+            sources='["gold-cctv"]'
+          fi
           echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "sources=$sources" >> "$GITHUB_OUTPUT"
           echo "PR regression profile: $profile"
+          echo "PR regression sources: $sources"
+
 
   build:
     needs: preflight
     if: github.event_name != 'pull_request' || needs.preflight.outputs.pr_profile != 'none'
-    name: "${{ github.event_name != 'pull_request' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.profile }}"
+    name: "${{ github.event_name != 'pull_request' && inputs.device || 'Xiaomi 17 Pro (pandora)' }} / ${{ matrix.source }} / ${{ matrix.profile }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        source: ${{ fromJSON(github.event_name == 'pull_request' && needs.preflight.outputs.pr_sources || format('["{0}"]', inputs.source_profile)) }}
         profile: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', needs.preflight.outputs.pr_profile) || '["custom"]') }}
     env:
       XIAOMI_CI_PROFILE: ${{ matrix.profile }}
       XIAOMI_DEVICE: ${{ github.event_name != 'pull_request' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
-      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/custom
-      XIAOMI_SOURCE_PROFILE: ${{ github.event_name != 'pull_request' && inputs.source_profile || 'gold-cctv' }}
+      XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.source }}-${{ matrix.profile }}
+      XIAOMI_SOURCE_PROFILE: ${{ matrix.source }}
       XIAOMI_ROOT_MODE: ${{ github.event_name != 'pull_request' && inputs.root_mode || 'resukisu-susfs' }}
       XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name != 'pull_request' && inputs.susfs_extra_features || false }}
       XIAOMI_USE_KPM: ${{ github.event_name != 'pull_request' && inputs.use_kpm || 'disabled' }}
@@ -175,21 +197,21 @@ jobs:
           ref: ${{ inputs.implementation_ref || github.ref }}
 
       - name: Cache pinned Gold common source
-        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        if: matrix.source == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-sm8850/gold-common-9e91eb74a201e8cee839c8db6d642ff9b8408388.git
           key: xiaomi-sm8850-gold-common-9e91eb74a201-v1
 
       - name: Cache pinned Gold toolchain
-        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        if: matrix.source == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-sm8850/gold-toolchain-r536225
-          key: xiaomi-sm8850-gold-toolchain-r536225-v1
+          key: xiaomi-sm8850-gold-toolchain-r536225-v2
 
       - name: Cache Gold compiler objects
-        if: github.event_name == 'pull_request' || inputs.source_profile == 'gold-cctv'
+        if: matrix.source == 'gold-cctv'
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache-xiaomi-sm8850
@@ -306,13 +328,20 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             bc bison build-essential ccache cpio curl flex git jq             libdw-dev libelf-dev libssl-dev perl python3 python-is-python3             repo rsync tar unzip wget xz-utils zip zstd dwarves
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq \
+            libdw-dev libelf-dev libssl-dev perl python3 python-is-python3 \
+            repo rsync tar unzip wget xz-utils zip zstd dwarves
 
       - name: Build, validate and package
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/xiaomi-sm8850/build.sh             "$XIAOMI_DEVICE"             "$XIAOMI_VARIANT"             "$XIAOMI_WORKDIR"             "$XIAOMI_SOURCE_PROFILE"
+          bash scripts/xiaomi-sm8850/build.sh \
+            "$XIAOMI_DEVICE" \
+            "$XIAOMI_VARIANT" \
+            "$XIAOMI_WORKDIR" \
+            "$XIAOMI_SOURCE_PROFILE"
 
       - name: Publish build summary
         if: always()
@@ -404,7 +433,7 @@ jobs:
         if: success() && github.event_name != 'pull_request' && inputs.artifact_upload_mode == '仅上传 AnyKernel3.zip'
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ inputs.source_profile }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3-run-${{ github.run_id }}
+          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ env.XIAOMI_SOURCE_PROFILE }}-${{ env.XIAOMI_VARIANT }}-AnyKernel3-run-${{ github.run_id }}
           path: ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/*-AnyKernel3.zip
           if-no-files-found: error
           retention-days: 14
@@ -414,7 +443,7 @@ jobs:
         if: success() && (github.event_name == 'pull_request' || (github.event_name != 'pull_request' && inputs.artifact_upload_mode == '上传全部'))
         uses: actions/upload-artifact@v6
         with:
-          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ inputs.source_profile }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23-run-${{ github.run_id }}
+          name: Xiaomi-SM8850-${{ env.XIAOMI_DEVICE }}-${{ env.XIAOMI_SOURCE_PROFILE }}-${{ matrix.profile }}-${{ env.XIAOMI_VARIANT }}-6.12.23-run-${{ github.run_id }}
           path: |
             ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image
             ${{ env.XIAOMI_WORKDIR }}/output/${{ env.XIAOMI_DEVICE }}/${{ env.XIAOMI_VARIANT }}/Image.lz4

@@ -160,7 +160,7 @@ make -j"$(nproc)" \
   --set-str LOCALVERSION "$GOLD_KERNEL_LOCALVERSION"
 "$COMMON/scripts/config" --file "$KOUT/.config" --disable LOCALVERSION_AUTO
 
-# Apply only the diagnostic ReSukiSU/SUSFS fragment after gki_defconfig.
+# Apply the resolved ReSukiSU/SUSFS/feature fragment after gki_defconfig.
 # The Xiaomi lane currently emits bool/tristate y and explicit "not set" lines.
 if [[ -s "$FRAGMENT" ]]; then
   while IFS= read -r line; do

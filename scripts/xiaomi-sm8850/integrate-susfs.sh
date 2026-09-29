@@ -59,9 +59,9 @@ if find . -type f -name '*.rej' -print -quit | grep -q .; then
   die "SUSFS produced .rej files"
 fi
 
-# First-boot diagnostic profile: enable only core SUSFS path/mount/kstat.
-# ReSukiSU defaults most SUSFS subfeatures to y, so optional/experimental
-# features are explicitly disabled instead of relying on Kconfig defaults.
+# Core SUSFS path/mount/kstat support is always explicit. ReSukiSU defaults
+# many subfeatures to y, so the optional set is also written explicitly instead
+# of relying on moving Kconfig defaults.
 susfs_configs=(
   "CONFIG_KSU_SUSFS=y"
   "CONFIG_KSU_SUSFS_SUS_PATH=y"
@@ -73,9 +73,9 @@ for line in "${susfs_configs[@]}"; do
   append_config "$FRAGMENT" "$line"
 done
 
-# Keep the proven #63 core profile as the default. The extra switches mirror
-# the generic custom workflow but remain opt-in until they receive their own
-# pandora device validation.
+# The extra SUSFS switches are controlled by XIAOMI_SUSFS_EXTRA_FEATURES.
+# They are enabled by the current user-facing default and have been exercised
+# on pandora; disabling the switch still produces the smaller core profile.
 if [[ "${XIAOMI_SUSFS_EXTRA_FEATURES:-false}" == "true" ]]; then
   for line in     "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"     "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"     "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"     "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"     "CONFIG_KSU_SUSFS_SUS_MAP=y"; do
     append_config "$FRAGMENT" "$line"

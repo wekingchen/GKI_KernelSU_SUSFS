@@ -35,8 +35,8 @@ case "$VARIANT" in
     ;;
 esac
 
-# Optional feature layer mirrors the generic custom workflow while keeping the
-# proven Xiaomi Gold kernel source/toolchain/AnyKernel path unchanged.
+# Optional feature integration is shared by both source profiles; source-
+# specific build and compatibility policy stays isolated below.
 bash "$XIAOMI_SCRIPT_DIR/integrate-features.sh" "$KERNEL_ROOT" "$FRAGMENT" "$WORKDIR"
 
 # shellcheck disable=SC1090
@@ -128,15 +128,15 @@ if i < 0:
 chunk=s[i:i+7000]
 for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "trim_nonlisted_kmi = True"):
     if required not in chunk:
-        raise SystemExit(f"KMI guardrail disabled: {required}")
+        raise SystemExit(f"source KMI guardrail missing before Xiaomi compatibility patch: {required}")
 PY
 
     # Xiaomi ACK compatibility:
-    # The stock R51 kernel_aarch64 target is strict GKI/KMI. Gold #2, which is
-    # known to boot on pandora, does not trim unused exported symbols and does
-    # not enable the protected-module policy. Relax only the ACK target in this
-    # experiment branch so vendor/vendor_dlkm modules can see the broader symbol
-    # surface. Keep MODULE_SCMVERSION unchanged for this first experiment.
+    # The stock R51 kernel_aarch64 target is strict GKI/KMI. The initial strict
+    # build compiled cleanly but did not boot on pandora. The validated Xiaomi
+    # policy keeps the official R51 source/build engine while disabling KMI
+    # trimming and protected-module enforcement so vendor/vendor_dlkm modules
+    # retain the broader symbol surface. MODULE_SCMVERSION stays unchanged.
     python3 - common/BUILD.bazel <<'PY'
 from pathlib import Path
 
@@ -185,8 +185,22 @@ for required in (
 path.write_text(text[:start] + block + text[end:])
 PY
 
-    SOURCE_KMI_MODE="kleaf-xiaomi-compat"
-    note "ACK Xiaomi ACK compatibility: disabled strict KMI trimming/protected-module policy for kernel_aarch64"
+    SOURCE_KMI_MODE="$ACK_XIAOMI_KMI_MODE"
+    python3 - "$WORKDIR/source-provenance.env" "$SOURCE_KMI_MODE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+value = sys.argv[2]
+text = path.read_text()
+needle = "SOURCE_KMI_MODE="
+matches = [line for line in text.splitlines() if line.startswith(needle)]
+if len(matches) != 1:
+    raise SystemExit(f"expected exactly one SOURCE_KMI_MODE entry, found {len(matches)}")
+lines = [f"SOURCE_KMI_MODE={value}" if line.startswith(needle) else line for line in text.splitlines()]
+path.write_text("\n".join(lines) + "\n")
+PY
+    note "ACK Xiaomi compatibility: disabled KMI trimming/protected-module policy for kernel_aarch64"
 
     frag_flag=()
     if [[ -s "$FRAGMENT" ]]; then
@@ -277,11 +291,10 @@ PY
     # DEBUG_INFO_BTF + RUST + rust_binder=m, while CONFIG_RUST requires !LTO
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
     # then Kleaf still expects rust_binder.ko and fails at module collection.
-    # Keep the official R51 LTO/default behavior and retain strict KMI checks.
-    # Keep the proven R51 build engine and source-default LTO. Only the
-    # kernel_aarch64 KMI policy above is relaxed for this Xiaomi compatibility
-    # experiment; Gold is not involved.
-    note "building ACK Xiaomi ACK compatibility with //common:kernel_aarch64_dist + source-default LTO + relaxed KMI policy"
+    # Keep the official R51 build engine and source-default LTO. The only KMI
+    # policy deviation is the validated Xiaomi compatibility adjustment above;
+    # Gold source/build behavior is not involved.
+    note "building ACK Xiaomi compatibility with //common:kernel_aarch64_dist + source-default LTO + relaxed Xiaomi KMI policy"
     tools/bazel build \
       --config=fast \
       "${frag_flag[@]}" \
@@ -341,6 +354,7 @@ device_name=$(device_marketing_name "$DEVICE")
 variant=$VARIANT
 source_profile=$SOURCE_PROFILE
 source_build_mode=$SOURCE_BUILD_MODE
+source_kmi_source_mode=$SOURCE_KMI_SOURCE_MODE
 source_kmi_mode=$SOURCE_KMI_MODE
 android_version=$ANDROID_VERSION
 kernel_expected=$KERNEL_VERSION

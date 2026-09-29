@@ -60,7 +60,7 @@ case "$VARIANT" in
       done
     else
       for key in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
-        config_is_not_y "$FINAL" "$key" || die "Variant C unexpectedly enables optional first-boot feature $key"
+        config_is_not_y "$FINAL" "$key" || die "Variant C unexpectedly enables optional SUSFS feature $key"
       done
     fi
     ;;
@@ -130,6 +130,8 @@ case "$SOURCE_BUILD_MODE" in
       die "Gold make path unexpectedly enables CONFIG_LOCALVERSION_AUTO"
     config_is_not_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
       die "Gold make path unexpectedly enables CONFIG_MODULE_SCMVERSION"
+    [[ "$SOURCE_KMI_SOURCE_MODE" == "$GOLD_KMI_MODE" && "$SOURCE_KMI_MODE" == "$GOLD_KMI_MODE" ]] ||
+      die "Gold KMI provenance mismatch: source=$SOURCE_KMI_SOURCE_MODE final=$SOURCE_KMI_MODE"
     kmi_guardrail_report="make-image: MODVERSIONS+GENDWARFKSYMS; deterministic localversion; MODULE_SCMVERSION intentionally off"
     ;;
   kleaf-dist)
@@ -137,11 +139,15 @@ case "$SOURCE_BUILD_MODE" in
       die "kleaf-dist mode is only expected for ack-r51"
     [[ "$kernel_release" != *"maybe-dirty"* ]] ||
       die "ACK release still contains Kleaf maybe-dirty placeholder: $kernel_release"
+    [[ "$SOURCE_KMI_SOURCE_MODE" == "$ACK_SOURCE_KMI_MODE" ]] ||
+      die "ACK source KMI provenance mismatch: $SOURCE_KMI_SOURCE_MODE"
+    [[ "$SOURCE_KMI_MODE" == "$ACK_XIAOMI_KMI_MODE" ]] ||
+      die "ACK final KMI provenance mismatch: $SOURCE_KMI_MODE"
 
-    # Xiaomi ACK compatibility intentionally relaxes the GKI KMI
-    # policy to match the known-booting Gold symbol/module behavior. Validate
-    # both the Bazel target policy and the embedded final config so this cannot
-    # silently become a different experiment.
+    # Xiaomi ACK compatibility intentionally relaxes the source GKI KMI policy
+    # to the real-device-validated trimming/protected-module behavior. Validate
+    # both the Bazel target policy and the embedded final config so the policy
+    # cannot silently drift.
     python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
 from pathlib import Path
 import sys
@@ -174,20 +180,20 @@ for forbidden in (
 PY
 
     config_is_not_y "$FINAL" CONFIG_TRIM_UNUSED_KSYMS ||
-      die "ACK Xiaomi ACK compatibility unexpectedly enables CONFIG_TRIM_UNUSED_KSYMS"
+      die "ACK Xiaomi compatibility unexpectedly enables CONFIG_TRIM_UNUSED_KSYMS"
     config_is_not_y "$FINAL" CONFIG_MODULE_SIG_PROTECT ||
-      die "ACK Xiaomi ACK compatibility unexpectedly enables CONFIG_MODULE_SIG_PROTECT"
+      die "ACK Xiaomi compatibility unexpectedly enables CONFIG_MODULE_SIG_PROTECT"
     grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' "$FINAL" &&
-      die "ACK Xiaomi ACK compatibility unexpectedly retains CONFIG_UNUSED_KSYMS_WHITELIST"
+      die "ACK Xiaomi compatibility unexpectedly retains CONFIG_UNUSED_KSYMS_WHITELIST"
     module_sig_protect_list="$(sed -n 's/^CONFIG_MODULE_SIG_PROTECT_LIST=//p' "$FINAL")"
     if [[ -n "$module_sig_protect_list" && "$module_sig_protect_list" != '""' ]]; then
-      die "ACK Xiaomi ACK compatibility unexpectedly retains a non-empty CONFIG_MODULE_SIG_PROTECT_LIST"
+      die "ACK Xiaomi compatibility unexpectedly retains a non-empty CONFIG_MODULE_SIG_PROTECT_LIST"
     fi
 
-    # Keep SCMVERSION unchanged in the Xiaomi ACK compatibility policy so only the KMI trimming /
-    # protected-module policy is under test.
+    # Keep SCMVERSION unchanged; Xiaomi compatibility only changes the
+    # trimming/protected-module policy.
     config_is_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
-      die "ACK Xiaomi ACK compatibility unexpectedly disables CONFIG_MODULE_SCMVERSION"
+      die "ACK Xiaomi compatibility unexpectedly disables CONFIG_MODULE_SCMVERSION"
 
     kmi_guardrail_report="kleaf-xiaomi-compat: trimming/protected-module policy disabled; MODULE_SCMVERSION retained"
     ;;
@@ -207,6 +213,7 @@ fi
   echo "variant=$VARIANT"
   echo "source_profile=$SOURCE_PROFILE"
   echo "source_build_mode=$SOURCE_BUILD_MODE"
+  echo "source_kmi_source_mode=$SOURCE_KMI_SOURCE_MODE"
   echo "source_kmi_mode=$SOURCE_KMI_MODE"
   echo "source_common_repo=$SOURCE_COMMON_REPO"
   echo "source_common_ref=$SOURCE_COMMON_REF"
