@@ -1,0 +1,44 @@
+name: Temporary delete ACK test branches
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/_temporary-delete-test-branches.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  delete-test-branches:
+    if: github.repository_owner == 'wekingchen'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete completed ACK test branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          branches=(
+            "ack-r51-xiaomi-compat-a"
+            "ack-r51-xiaomi-compat-final"
+          )
+
+          for branch in "${branches[@]}"; do
+            ref="repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}"
+            if gh api "$ref" >/dev/null 2>&1; then
+              echo "Deleting $branch"
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            else
+              echo "$branch already absent"
+            fi
+
+            if gh api "$ref" >/dev/null 2>&1; then
+              echo "::error::branch still exists after deletion: $branch"
+              exit 1
+            fi
+            echo "Confirmed absent: $branch"
+          done
