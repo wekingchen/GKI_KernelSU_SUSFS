@@ -21,7 +21,7 @@ on:
           - "Xiaomi 17 Pro Max (popsicle)"
         default: "Xiaomi 17 Pro (pandora)"
       source_profile:
-        description: "内核源码/构建链（gold-cctv 已真机验证；ack-r51 在 pandora 真机启动失败，仅实验）"
+        description: "内核源码/构建链（gold-cctv、ack-r51 均已在 pandora 真机启动验证）"
         required: true
         type: choice
         options:
@@ -79,10 +79,10 @@ on:
         type: boolean
         default: true
       use_nomount:
-        description: "NoMount VFS 注入（Magic Mount 用户通常无需）"
+        description: "NoMount VFS 注入（当前推荐方案；已舍弃 Magic Mount，默认开启）"
         required: true
         type: boolean
-        default: false
+        default: true
       use_networking:
         description: "网络增强：BBR/IPSet/Qdisc/CIFS"
         required: true
