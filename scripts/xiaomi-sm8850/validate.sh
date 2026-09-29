@@ -137,21 +137,59 @@ case "$SOURCE_BUILD_MODE" in
       die "kleaf-dist mode is only expected for ack-r51"
     [[ "$kernel_release" != *"maybe-dirty"* ]] ||
       die "ACK release still contains Kleaf maybe-dirty placeholder: $kernel_release"
+
+    # Xiaomi ACK compatibility intentionally relaxes the GKI KMI
+    # policy to match the known-booting Gold symbol/module behavior. Validate
+    # both the Bazel target policy and the embedded final config so this cannot
+    # silently become a different experiment.
     python3 - "$KERNEL_ROOT/common/BUILD.bazel" <<'PY'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
-i=s.find('name = "kernel_aarch64"')
-if i < 0:
+start=s.find('common_kernel(\n    name = "kernel_aarch64",')
+if start < 0:
     raise SystemExit("kernel_aarch64 target missing")
-chunk=s[i:i+7000]
-for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "trim_nonlisted_kmi = True"):
+end=s.find("\n)\n", start)
+if end < 0:
+    raise SystemExit("kernel_aarch64 target end missing")
+chunk=s[start:end+3]
+
+for required in (
+    "kmi_enforced = False",
+    "kmi_symbol_list_strict_mode = False",
+    "trim_nonlisted_kmi = False",
+):
     if required not in chunk:
-        raise SystemExit(f"KMI guardrail missing after integration: {required}")
+        raise SystemExit(f"Xiaomi compat A policy missing: {required}")
+
+for forbidden in (
+    "kmi_enforced = True",
+    "kmi_symbol_list_strict_mode = True",
+    "trim_nonlisted_kmi = True",
+    'kmi_symbol_list = "gki/aarch64/symbols/base"',
+    'protected_module_names_list = ":gki_aarch64_protected_module_names"',
+):
+    if forbidden in chunk:
+        raise SystemExit(f"Xiaomi compat A policy unexpectedly retains: {forbidden}")
 PY
+
+    config_is_not_y "$FINAL" CONFIG_TRIM_UNUSED_KSYMS ||
+      die "ACK Xiaomi ACK compatibility unexpectedly enables CONFIG_TRIM_UNUSED_KSYMS"
+    config_is_not_y "$FINAL" CONFIG_MODULE_SIG_PROTECT ||
+      die "ACK Xiaomi ACK compatibility unexpectedly enables CONFIG_MODULE_SIG_PROTECT"
+    grep -q '^CONFIG_UNUSED_KSYMS_WHITELIST=' "$FINAL" &&
+      die "ACK Xiaomi ACK compatibility unexpectedly retains CONFIG_UNUSED_KSYMS_WHITELIST"
+    module_sig_protect_list="$(sed -n 's/^CONFIG_MODULE_SIG_PROTECT_LIST=//p' "$FINAL")"
+    if [[ -n "$module_sig_protect_list" && "$module_sig_protect_list" != '""' ]]; then
+      die "ACK Xiaomi ACK compatibility unexpectedly retains a non-empty CONFIG_MODULE_SIG_PROTECT_LIST"
+    fi
+
+    # Keep SCMVERSION unchanged in experiment A so only the KMI trimming /
+    # protected-module policy is under test.
     config_is_y "$FINAL" CONFIG_MODULE_SCMVERSION ||
-      die "ACK Kleaf control unexpectedly disables CONFIG_MODULE_SCMVERSION"
-    kmi_guardrail_report="kleaf-strict"
+      die "ACK Xiaomi ACK compatibility unexpectedly disables CONFIG_MODULE_SCMVERSION"
+
+    kmi_guardrail_report="kleaf-xiaomi-compat: trimming/protected-module policy disabled; MODULE_SCMVERSION retained"
     ;;
   *)
     die "unknown source build mode: $SOURCE_BUILD_MODE"
