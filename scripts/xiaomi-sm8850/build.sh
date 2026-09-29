@@ -131,6 +131,63 @@ for required in ("kmi_enforced = True", "kmi_symbol_list_strict_mode = True", "t
         raise SystemExit(f"KMI guardrail disabled: {required}")
 PY
 
+    # Xiaomi ACK compatibility:
+    # The stock R51 kernel_aarch64 target is strict GKI/KMI. Gold #2, which is
+    # known to boot on pandora, does not trim unused exported symbols and does
+    # not enable the protected-module policy. Relax only the ACK target in this
+    # experiment branch so vendor/vendor_dlkm modules can see the broader symbol
+    # surface. Keep MODULE_SCMVERSION unchanged for this first experiment.
+    python3 - common/BUILD.bazel <<'PY'
+from pathlib import Path
+
+path = Path("common/BUILD.bazel")
+text = path.read_text()
+start = text.find('common_kernel(\n    name = "kernel_aarch64",')
+if start < 0:
+    raise SystemExit("kernel_aarch64 common_kernel block missing")
+end = text.find("\n)\n", start)
+if end < 0:
+    raise SystemExit("kernel_aarch64 common_kernel block end missing")
+end += 3
+block = text[start:end]
+
+replacements = {
+    "    kmi_enforced = True,\n": "    kmi_enforced = False,\n",
+    "    kmi_symbol_list_strict_mode = True,\n": "    kmi_symbol_list_strict_mode = False,\n",
+    "    trim_nonlisted_kmi = True,\n": "    trim_nonlisted_kmi = False,\n",
+    '    kmi_symbol_list = "gki/aarch64/symbols/base",\n': "",
+    '    protected_module_names_list = ":gki_aarch64_protected_module_names",\n': "",
+}
+for old, new in replacements.items():
+    count = block.count(old)
+    if count != 1:
+        raise SystemExit(f"expected exactly one ACK compat target entry {old.strip()!r}, found {count}")
+    block = block.replace(old, new, 1)
+
+for forbidden in (
+    'kmi_enforced = True',
+    'kmi_symbol_list_strict_mode = True',
+    'trim_nonlisted_kmi = True',
+    'kmi_symbol_list = "gki/aarch64/symbols/base"',
+    'protected_module_names_list = ":gki_aarch64_protected_module_names"',
+):
+    if forbidden in block:
+        raise SystemExit(f"ACK compat patch incomplete: {forbidden}")
+
+for required in (
+    'kmi_enforced = False',
+    'kmi_symbol_list_strict_mode = False',
+    'trim_nonlisted_kmi = False',
+):
+    if required not in block:
+        raise SystemExit(f"ACK compat patch missing: {required}")
+
+path.write_text(text[:start] + block + text[end:])
+PY
+
+    SOURCE_KMI_MODE="kleaf-xiaomi-compat"
+    note "ACK Xiaomi ACK compatibility: disabled strict KMI trimming/protected-module policy for kernel_aarch64"
+
     frag_flag=()
     if [[ -s "$FRAGMENT" ]]; then
       note "defconfig fragment:"
@@ -221,9 +278,10 @@ PY
     # when BTF is enabled. Forcing --lto=thin silently disables CONFIG_RUST,
     # then Kleaf still expects rust_binder.ko and fails at module collection.
     # Keep the official R51 LTO/default behavior and retain strict KMI checks.
-    # Keep the proven R51 build behavior: --config=fast with source-default
-    # LTO and strict KMI. No ACK cache is persisted across GitHub runners.
-    note "building ACK control with //common:kernel_aarch64_dist + source-default LTO + strict KMI"
+    # Keep the proven R51 build engine and source-default LTO. Only the
+    # kernel_aarch64 KMI policy above is relaxed for this Xiaomi compatibility
+    # experiment; Gold is not involved.
+    note "building ACK Xiaomi ACK compatibility with //common:kernel_aarch64_dist + source-default LTO + relaxed KMI policy"
     tools/bazel build \
       --config=fast \
       "${frag_flag[@]}" \
@@ -238,8 +296,8 @@ PY
 
     build_target="//common:kernel_aarch64_dist"
     lto_mode="source-default (R51; ThinLTO not forced)"
-    kmi_enforced="true"
-    kmi_strict="true"
+    kmi_enforced="false (Xiaomi ACK compatibility)"
+    kmi_strict="false (Xiaomi ACK compatibility)"
     ;;
 
   *)
