@@ -33,17 +33,17 @@ on:
         required: true
         type: choice
         options:
-          - resukisu-susfs
-          - resukisu
+          - bakasu-susfs
+          - bakasu
           - none
-        default: resukisu-susfs
+        default: bakasu-susfs
       susfs_extra_features:
         description: "SUSFS 扩展（pandora 真机验证，推荐开启）"
         required: true
         type: boolean
         default: true
       use_kpm:
-        description: "KPM（当前 ReSukiSU 未声明 CONFIG_KPM，请保持 disabled）"
+        description: "KPM（当前 BakaSU 未声明 CONFIG_KPM，请保持 disabled）"
         required: true
         type: choice
         options:
@@ -128,9 +128,9 @@ jobs:
     secrets: inherit
 
   get-ksu-manager:
-    name: ReSukiSU Manager
+    name: BakaSU Manager
     if: ${{ inputs.root_mode != 'none' }}
     uses: ./.github/workflows/get-manager.yml
     with:
-      kernelsu_variant: ReSukiSU
+      kernelsu_variant: BakaSU
     secrets: inherit

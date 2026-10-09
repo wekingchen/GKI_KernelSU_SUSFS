@@ -29,10 +29,18 @@ validate_device() {
   esac
 }
 
+normalize_variant() {
+  case "$1" in
+    resukisu) echo "bakasu" ;;
+    resukisu-susfs) echo "bakasu-susfs" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 validate_variant() {
   case "$1" in
-    base|resukisu|resukisu-susfs) ;;
-    *) die "unsupported variant: $1 (allowed: base, resukisu, resukisu-susfs)" ;;
+    base|bakasu|bakasu-susfs|resukisu|resukisu-susfs) ;;
+    *) die "unsupported variant: $1 (allowed: base, bakasu, bakasu-susfs; legacy aliases: resukisu, resukisu-susfs)" ;;
   esac
 }
 

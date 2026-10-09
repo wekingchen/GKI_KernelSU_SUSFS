@@ -230,6 +230,16 @@ jobs:
               BUILD_ID=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].id")
               HEAD_SHA=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_sha")
               HEAD_BRANCH=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_branch")
+              RUN_EVENT=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].event")
+
+              # BakaSU PR workflows build refs/pull/<n>/merge, while the REST
+              # run payload exposes the PR head SHA. Computing the version from
+              # head_sha can therefore under-report the APK actually produced.
+              # Use only runs whose exposed SHA is the commit that was built.
+              if [ "${{ inputs.kernelsu_variant }}" == "BakaSU" ] && [ "$RUN_EVENT" == "pull_request" ]; then
+                echo "跳过 BakaSU PR 构建 $BUILD_ID ($HEAD_BRANCH): PR merge commit 与 head_sha 不一致，无法可靠匹配 Manager 版本"
+                continue
+              fi
 
               RUN_KSU_VERSION=$(calculate_run_ksu_version "$HEAD_SHA" || true)
               if ! [[ "$RUN_KSU_VERSION" =~ ^[0-9]+$ ]]; then
@@ -283,11 +293,29 @@ jobs:
             echo "仅保留 BakaSU arm64-v8a release 管理器..."
             find manager-artifacts -type f -name "*.apk" ! -name "*-arm64-v8a-release.apk" -delete
             find manager-artifacts -type f -name "*debug*.apk" -delete
-            if ! find manager-artifacts -type f -name "*-arm64-v8a-release.apk" | grep -q .; then
+
+            mapfile -t BAKASU_APKS < <(find manager-artifacts -type f -name "*-arm64-v8a-release.apk" -print)
+            if [ "${#BAKASU_APKS[@]}" -eq 0 ]; then
               echo "未找到 BakaSU arm64-v8a release 管理器。"
               exit 1
             fi
-            find manager-artifacts -type f -name "*.apk" -print
+
+            for APK in "${BAKASU_APKS[@]}"; do
+              APK_NAME=$(basename "$APK")
+              if [[ "$APK_NAME" =~ _([0-9]+)-arm64-v8a-release\.apk$ ]]; then
+                APK_KSU_VERSION="${BASH_REMATCH[1]}"
+              else
+                echo "::error::无法从 BakaSU Manager 文件名解析版本码: $APK_NAME"
+                exit 1
+              fi
+              if [ "$APK_KSU_VERSION" -gt "$TARGET_KSU_VERSION" ]; then
+                echo "::error::BakaSU Manager 版本 $APK_KSU_VERSION 高于内核版本 $TARGET_KSU_VERSION: $APK_NAME"
+                exit 1
+              fi
+              echo "BakaSU Manager 版本校验通过: $APK_NAME (KSU $APK_KSU_VERSION <= $TARGET_KSU_VERSION)"
+            done
+
+            printf '%s\n' "${BAKASU_APKS[@]}"
           fi
 
       - name: 添加 SUSFS 模块
