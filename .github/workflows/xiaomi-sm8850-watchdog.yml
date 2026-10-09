@@ -73,6 +73,11 @@ jobs:
             fi
           done
 
+          if [[ ! -f "scripts/xiaomi-sm8850/integrate-bakasu.sh" ]]; then
+            failures+=("missing BakaSU integration implementation on dev")
+            dev_recovery_needed=true
+          fi
+
           if [[ -f ".github/workflows/xiaomi-sm8850-dispatch.yml" ]]; then
             grep -Fq 'uses: ./.github/workflows/kernel-xiaomi-sm8850.yml' ".github/workflows/xiaomi-sm8850-dispatch.yml" || {
               failures+=("dispatcher no longer calls the local Xiaomi workflow")

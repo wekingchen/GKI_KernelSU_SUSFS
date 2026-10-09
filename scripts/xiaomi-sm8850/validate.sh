@@ -4,11 +4,12 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 DEVICE="${1:?usage: validate.sh <device> <variant> <workdir>}"
-VARIANT="${2:?usage: validate.sh <device> <variant> <workdir>}"
+VARIANT_INPUT="${2:?usage: validate.sh <device> <variant> <workdir>}"
 WORKDIR="${3:?usage: validate.sh <device> <variant> <workdir>}"
 
 validate_device "$DEVICE"
-validate_variant "$VARIANT"
+validate_variant "$VARIANT_INPUT"
+VARIANT="$(normalize_variant "$VARIANT_INPUT")"
 
 KERNEL_ROOT="$WORKDIR/kernel"
 OUT="$WORKDIR/output/$DEVICE/$VARIANT"
@@ -43,12 +44,12 @@ case "$VARIANT" in
   base)
     config_is_not_y "$FINAL" CONFIG_KSU || die "Variant A unexpectedly contains CONFIG_KSU=y"
     ;;
-  resukisu)
+  bakasu)
     config_is_y "$FINAL" CONFIG_KSU || die "Variant B missing CONFIG_KSU=y"
     config_is_y "$FINAL" CONFIG_KSU_TRACEPOINT_HOOK || die "Variant B missing tracepoint hook"
     config_is_not_y "$FINAL" CONFIG_KSU_SUSFS || die "Variant B unexpectedly enables SUSFS"
     ;;
-  resukisu-susfs)
+  bakasu-susfs)
     config_is_y "$FINAL" CONFIG_KSU || die "Variant C missing CONFIG_KSU=y"
     config_is_y "$FINAL" CONFIG_KSU_SUSFS || die "Variant C missing CONFIG_KSU_SUSFS=y"
     for key in CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_ENABLE_LOG; do
@@ -234,9 +235,9 @@ fi
   echo "kernel_release=$kernel_release"
   echo "kernel_string=$kernel_string"
   if [[ "$VARIANT" != base ]]; then
-    echo "resukisu_builtin=y"
+    echo "bakasu_builtin=y"
   fi
-  if [[ "$VARIANT" == resukisu-susfs ]]; then
+  if [[ "$VARIANT" == bakasu-susfs ]]; then
     echo "susfs=y"
     echo "susfs_extra_features=${XIAOMI_SUSFS_EXTRA_FEATURES:-false}"
   fi

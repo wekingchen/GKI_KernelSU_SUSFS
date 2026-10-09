@@ -8,7 +8,7 @@
 
 小米 17 系列构建目前采用“一个人工入口 + 一个内部构建工作流”的结构：
 
-- `.github/workflows/xiaomi-sm8850-dispatch.yml`：唯一人工编译入口，名称为 **Xiaomi 17 系列 - 自定义内核**。负责接收图形界面中的设备、Root、SUSFS、DroidSpaces、NTSync、ZRAM、BBG、Re-Kernel、NoMount、网络增强、CVE 修复等选项，并同时调用内核构建和 ReSukiSU Manager 获取流程。
+- `.github/workflows/xiaomi-sm8850-dispatch.yml`：唯一人工编译入口，名称为 **Xiaomi 17 系列 - 自定义内核**。负责接收图形界面中的设备、Root、SUSFS、DroidSpaces、NTSync、ZRAM、BBG、Re-Kernel、NoMount、网络增强、CVE 修复等选项，并同时调用内核构建和 BakaSU Manager 获取流程。
 - `.github/workflows/kernel-xiaomi-sm8850.yml`：内部实际构建工作流。负责源码准备、功能集成、缓存、编译、校验、AnyKernel3 打包以及 PR 回归测试；不再提供独立的 `workflow_dispatch` 人工入口，只通过 `workflow_call` 或 PR 事件运行。
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`：小米 SM8850 固定源码、工具链和关键版本配置。
 - `scripts/xiaomi-sm8850/`：小米专用源码准备、功能集成、构建、校验和打包脚本。
@@ -95,10 +95,10 @@ ACK 源码在进入 Xiaomi 兼容层之前会先验证原始 `kernel_aarch64` �
 Gold 路径在小米 17 Pro（`pandora`）上的主要历史里程碑如下：
 
 - A / 基础内核：#60 —— 成功启动，并通过短时间硬件及稳定性检查。
-- B / ReSukiSU：#62 —— 成功启动；Manager 显示版本代码 35184；Root 授权正常。
-- C / ReSukiSU + SUSFS：#63 —— 成功启动；SUSFS v2.3.0 可正常识别并工作。
+- B / BakaSU：#62 —— 成功启动；Manager 显示版本代码 35184；Root 授权正常。
+- C / BakaSU + SUSFS：#63 —— 成功启动；SUSFS v2.3.0 可正常识别并工作。
 - 全功能候选：#76 —— 成功启动，首次开机后的基础检查未发现明显异常。
-- 当前自定义链路：后续自定义构建已完成缓存、DroidSpaces/NTSync、直接 AnyKernel3 ZIP、ReSukiSU Manager 等整套流程验证；最新已刷入版本在小米 17 Pro 上未发现异常。
+- 当前自定义链路：后续自定义构建已完成缓存、DroidSpaces/NTSync、直接 AnyKernel3 ZIP、BakaSU Manager 等整套流程验证；最新已刷入版本在小米 17 Pro 上未发现异常。
 - ACK-R51 Xiaomi compatibility：Run #7 / `36511075743` 已完成真机刷入并正常启动，证明当前 ACK 兼容策略可以在 `pandora` 使用。
 
 #76 全功能候选在已经验证的 C 基础上，同时启用了除 KPM 之外当时通过独立 CI 验证的全部小米可选功能：
@@ -113,7 +113,7 @@ Gold 路径在小米 17 Pro（`pandora`）上的主要历史里程碑如下：
 - NTSync
 - CVE-2026-43499 / CVE-2026-53163 修复链
 
-KPM 目前仍保持关闭。原因是当前此构建链使用的 ReSukiSU 主线没有声明 `CONFIG_KPM`。小米集成脚本会直接拒绝不受支持的 KPM 请求，而不是在实际未启用的情况下伪装成已开启。
+KPM 目前仍保持关闭。原因是当前此构建链使用的 BakaSU 主线没有声明 `CONFIG_KPM`。小米集成脚本会直接拒绝不受支持的 KPM 请求，而不是在实际未启用的情况下伪装成已开启。
 
 ### 推荐的人工编译默认值
 
@@ -121,7 +121,7 @@ KPM 目前仍保持关闭。原因是当前此构建链使用的 ReSukiSU 主线
 
 - 设备：小米 17 Pro（`pandora`）
 - 源码：`gold-cctv`（默认日用；`ack-r51` 保留为官方 R51 对照）
-- Root：ReSukiSU + SUSFS
+- Root：BakaSU + SUSFS
 - SUSFS 扩展：开启
 - ZRAM / LZ4K / LZ4KD：开启
 - Baseband Guard：开启
@@ -131,7 +131,7 @@ KPM 目前仍保持关闭。原因是当前此构建链使用的 ReSukiSU 主线
 - DroidSpaces：开启
 - NTSync：开启
 - CVE-2026-43499 / CVE-2026-53163 修复链：开启
-- KPM：关闭；当前 ReSukiSU 主线没有声明 `CONFIG_KPM`
+- KPM：关闭；当前 BakaSU 主线没有声明 `CONFIG_KPM`
 - 产物模式：仅上传 AnyKernel3 ZIP
 
 图形界面同时提供小米 17（`pudding`）和小米 17 Pro Max（`popsicle`），但这两个设备还没有获得与 `pandora` 相同等级的真机验证。
@@ -179,7 +179,7 @@ PR 回归不再机械地每次跑 Full：文档/dispatcher/watchdog 修改不触
 Run #7（Run ID `36511075743`，HEAD `17576f5465d55a17b9ec529e450b1a2bd0e3b79b`）完成编译、校验、AnyKernel3 打包，并由小米 17 Pro 真机刷入后正常启动。该兼容策略随后整理为正式实现并合入 `dev`；实验 workflow 和实验分支均已清理。
 
 现在 ACK 的定位是**可启动的官方 R51 对照路径**。它仍保留 Kleaf/Bazel、R51 source-default LTO 和 Rust Binder 配置，但最终 KMI policy 是已经通过小米真机验证的兼容策略。
-### 2026-09-29 Release 覆盖事故### 2026-09-29 Release 覆盖事故
+### 2026-09-29 Release 覆盖事故
 
 首次 ACK 真机失败后，曾尝试从历史 `xiaomi-custom-latest` Release 下载“Gold #3”回刷，但该包同样无法启动。随后核查确认，这并不能证明原始 Gold #3 失效：旧发布逻辑让所有源码配置共用同一个可变 `xiaomi-custom-latest` tag 和同一个 ZIP 文件名，并使用 `gh release upload --clobber` 覆盖资产。
 
@@ -241,17 +241,19 @@ ACK/Kleaf 另外保留两个已经验证必要的处理：
 ```
 
 当前结论：ACK-R51 已同时完成全功能 CI 和 `pandora` 真机启动验证，但 Gold 仍拥有更丰富的运行时行为验证，因此 workflow 默认源码暂不切换。
-## Root 与 SUSFS 版本追踪## Root 与 SUSFS 版本追踪
+## Root 与 SUSFS 版本追踪
 
-正常自定义构建会跟随配置中的上游 ref 获取 ReSukiSU、SUSFS 以及 NoMount、DroidSpaces、NTSync patch、ZRAM patch、Baseband Guard、Re-Kernel 等移动依赖；每次构建都会记录最终解析到的精确提交，方便追踪和复现。
+2026-10-04 起，上游 ReSukiSU 已迁移并更名为 **BakaSU**，正式仓库为 `Baka-SU/BakaSU`。小米专用构建链使用新仓库名和新 Manager 名称；旧的 `resukisu` / `resukisu-susfs` 参数仅作为兼容别名继续接受，新产物统一使用 `bakasu` / `bakasu-susfs`。
+
+正常自定义构建会跟随配置中的上游 ref 获取 BakaSU、SUSFS 以及 NoMount、DroidSpaces、NTSync patch、ZRAM patch、Baseband Guard、Re-Kernel 等移动依赖；每次构建都会记录最终解析到的精确提交，方便追踪和复现。
 
 当前已经获得真机验证的基础版本：
 
-- ReSukiSU：`fa8311f632a215b5381ec644627c6198d1e8a13e`，标签 `v4.2.0-rc3`，版本代码 `35184`
+- BakaSU：`fa8311f632a215b5381ec644627c6198d1e8a13e`，标签 `v4.2.0-rc3`，版本代码 `35184`（真机验证时项目仍名 ReSukiSU；该提交仍位于当前 BakaSU 仓库历史中）
 - SUSFS `gki-android16-6.12`：`b213c54126fb243595ce7876e91d84d6e0861fec`，版本 `v2.3.0`
 - AnyKernel3：`dca9dc370838d919d56c1f59ec78b27a14a72c68`
 
-ReSukiSU 以内置方式编译，使用 `CONFIG_KSU=y`，不采用 LKM 模式。
+BakaSU 以内置方式编译，使用 `CONFIG_KSU=y`，不采用 LKM 模式。
 
 SUSFS 补丁采用快速失败策略：
 
@@ -286,7 +288,7 @@ adce911ce19573f148ada2c066f2b52b93a97bdf
 Image
 49c26004039b0230ff207c7183483685ff9556a106c31d95866eb609b7f23277
 
-Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
+Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip  （历史产物文件名，生成于更名前）
 998535cb5f0946460011a1398fff5e933300b29f3ab680e1ded33ec78b6004fa
 ```
 
@@ -303,15 +305,15 @@ Xiaomi17Series-pandora-Android16-6.12.23-resukisu-susfs-AnyKernel3.zip
 - `CONFIG_GENDWARFKSYMS=y`
 - 可重复、确定性的本地版本字符串，不能意外多出结尾 `+`
 - Gold 路径必须精确匹配固定源码提交
-- 启用 ReSukiSU / SUSFS 时必须记录最终解析到的来源提交
+- 启用 BakaSU / SUSFS 时必须记录最终解析到的来源提交
 - 用户请求开启的可选功能必须真实出现在最终配置中
 - 不允许存在补丁拒绝文件
 
-两套源码都要求最终 Image 通过同一组架构、版本、页面大小、ReSukiSU/SUSFS 和功能配置校验；ACK 另外校验“source strict / final Xiaomi-compatible”两阶段 KMI provenance。
+两套源码都要求最终 Image 通过同一组架构、版本、页面大小、BakaSU/SUSFS 和功能配置校验；ACK 另外校验“source strict / final Xiaomi-compatible”两阶段 KMI provenance。
 
 PR CI 会先执行全部 Xiaomi shell 脚本的 `bash -n`，然后按改动范围选择回归：
 
-- `baseline`：ReSukiSU + SUSFS 核心组合，额外可选功能关闭。
+- `baseline`：BakaSU + SUSFS 核心组合，额外可选功能关闭。
 - `full`：启用当前支持的全部小米可选功能，但 KPM 除外。
 - 共享核心或 ACK 相关脚本：Gold + ACK 双源码回归。
 - Gold 专属构建/打包脚本：只跑 Gold。
@@ -328,7 +330,7 @@ PR CI 会先执行全部 Xiaomi shell 脚本的 `bash -n`，然后按改动范�
 - 固定 `r536225` 工具链缓存（下载时校验 GitHub Release 发布资产 SHA256）
 - ccache 编译对象缓存
 
-common 源码缓存永远不会直接作为已经被修改过的工作树使用。每次构建都会从缓存对象重新创建干净 checkout，然后再应用 ReSukiSU、SUSFS 和各项可选功能。
+common 源码缓存永远不会直接作为已经被修改过的工作树使用。每次构建都会从缓存对象重新创建干净 checkout，然后再应用 BakaSU、SUSFS 和各项可选功能。
 
 内核 `out/` 目录故意不做缓存。
 
@@ -362,13 +364,13 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 人工编译默认使用“仅上传 AnyKernel3.zip”模式时，可刷 ZIP 会发布到按 source profile + Run ID 唯一命名的 prerelease，同时保存一份不可变 Workflow Artifact；不同运行和不同源码不会再互相覆盖。
 
-## ReSukiSU Manager
+## BakaSU Manager
 
 人工入口 **Xiaomi 17 系列 - 自定义内核** 在 Root 模式不为 `none` 时，会并行调用共享的 `get-manager.yml`：
 
-- 自动识别当前 ReSukiSU 版本代码
-- 查找与内核版本代码最匹配的 ReSukiSU Manager 构建
-- ReSukiSU 模式只保留 ARM64 release APK
+- 自动识别当前 BakaSU 版本代码
+- 查找与内核版本代码最匹配的 BakaSU Manager 构建
+- BakaSU 模式只保留 ARM64 release APK
 - 同时获取 SUSFS 模块产物
 
 这一 Manager 获取任务与小米内核构建逻辑分离，因此不会影响内核缓存和编译流程。
@@ -462,7 +464,7 @@ LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使�
 看门狗不再尝试用“stable 直接向 dev 开 PR”的方式恢复，因为 stable 通常是 dev 的祖先，这种 PR 并不能还原后来被删除的文件。若检测到 dev 的 Xiaomi 内容损坏且 stable 完整，看门狗会生成一个 `xiaomi-sm8850-stable.patch` Recovery Artifact；该补丁表示“当前 dev → stable Xiaomi 文件集合”的差异，供人工审核后在恢复分支上应用。
 
 看门狗本身只读仓库，不自动 merge、不 force push、不 reset、不删除分支。
-## 维护原则## 维护原则
+## 维护原则
 
 后续维护遵循以下原则：
 

@@ -29,7 +29,7 @@ on:
       root_mode:
         required: false
         type: string
-        default: resukisu-susfs
+        default: bakasu-susfs
       susfs_extra_features:
         required: false
         type: boolean
@@ -133,7 +133,7 @@ jobs:
 
           for path in "${changed[@]}"; do
             case "$path" in
-              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh|scripts/xiaomi-sm8850/integrate-resukisu.sh|scripts/xiaomi-sm8850/integrate-susfs.sh)
+              .github/config/xiaomi-sm8850-android16-6.12.23.env|scripts/xiaomi-sm8850/integrate-features.sh|scripts/xiaomi-sm8850/integrate-bakasu.sh|scripts/xiaomi-sm8850/integrate-resukisu.sh|scripts/xiaomi-sm8850/integrate-susfs.sh)
                 profile=full
                 dual_source=true
                 ;;
@@ -178,7 +178,7 @@ jobs:
       XIAOMI_DEVICE: ${{ github.event_name != 'pull_request' && (inputs.device == 'Xiaomi 17 Pro (pandora)' && 'pandora' || inputs.device == 'Xiaomi 17 (pudding)' && 'pudding' || inputs.device == 'Xiaomi 17 Pro Max (popsicle)' && 'popsicle' || 'invalid') || 'pandora' }}
       XIAOMI_WORKDIR: ${{ github.workspace }}/xiaomi-sm8850-work/${{ matrix.source }}-${{ matrix.profile }}
       XIAOMI_SOURCE_PROFILE: ${{ matrix.source }}
-      XIAOMI_ROOT_MODE: ${{ github.event_name != 'pull_request' && inputs.root_mode || 'resukisu-susfs' }}
+      XIAOMI_ROOT_MODE: ${{ github.event_name != 'pull_request' && inputs.root_mode || 'bakasu-susfs' }}
       XIAOMI_SUSFS_EXTRA_FEATURES: ${{ github.event_name != 'pull_request' && inputs.susfs_extra_features || false }}
       XIAOMI_USE_KPM: ${{ github.event_name != 'pull_request' && inputs.use_kpm || 'disabled' }}
       XIAOMI_DROIDSPACES: ${{ github.event_name != 'pull_request' && inputs.droidspaces || 'off' }}
@@ -304,16 +304,16 @@ jobs:
           esac
           case "$XIAOMI_ROOT_MODE" in
             none) VARIANT=base ;;
-            resukisu) VARIANT=resukisu ;;
-            resukisu-susfs) VARIANT=resukisu-susfs ;;
+            bakasu|resukisu) VARIANT=bakasu ;;
+            bakasu-susfs|resukisu-susfs) VARIANT=bakasu-susfs ;;
             *) echo "::error::invalid root_mode: $XIAOMI_ROOT_MODE"; exit 1 ;;
           esac
           if [[ "$XIAOMI_DROIDSPACES_NTSYNC" == "true" && "$XIAOMI_DROIDSPACES" != "on" ]]; then
             echo "::error::DroidSpaces NTSync requires droidspaces=on"
             exit 1
           fi
-          if [[ "$XIAOMI_SUSFS_EXTRA_FEATURES" == "true" && "$VARIANT" != "resukisu-susfs" ]]; then
-            echo "::error::SUSFS extra features require root_mode=resukisu-susfs"
+          if [[ "$XIAOMI_SUSFS_EXTRA_FEATURES" == "true" && "$VARIANT" != "bakasu-susfs" ]]; then
+            echo "::error::SUSFS extra features require root_mode=bakasu-susfs"
             exit 1
           fi
           echo "XIAOMI_VARIANT=$VARIANT" >> "$GITHUB_ENV"

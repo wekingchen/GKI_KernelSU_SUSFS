@@ -3,11 +3,12 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 DEVICE="${1:?usage: package-anykernel3.sh <device> <variant> <workdir>}"
-VARIANT="${2:?usage: package-anykernel3.sh <device> <variant> <workdir>}"
+VARIANT_INPUT="${2:?usage: package-anykernel3.sh <device> <variant> <workdir>}"
 WORKDIR="${3:?usage: package-anykernel3.sh <device> <variant> <workdir>}"
 
 validate_device "$DEVICE"
-validate_variant "$VARIANT"
+validate_variant "$VARIANT_INPUT"
+VARIANT="$(normalize_variant "$VARIANT_INPUT")"
 
 OUT="$WORKDIR/output/$DEVICE/$VARIANT"
 IMAGE="$OUT/Image"

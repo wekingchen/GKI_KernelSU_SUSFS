@@ -4,12 +4,13 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 DEVICE="${1:?usage: build.sh <device> <variant> <workdir> [source-profile]}"
-VARIANT="${2:?usage: build.sh <device> <variant> <workdir> [source-profile]}"
+VARIANT_INPUT="${2:?usage: build.sh <device> <variant> <workdir> [source-profile]}"
 WORKDIR="${3:?usage: build.sh <device> <variant> <workdir> [source-profile]}"
 SOURCE_PROFILE="${4:-$DEFAULT_SOURCE_PROFILE}"
 
 validate_device "$DEVICE"
-validate_variant "$VARIANT"
+validate_variant "$VARIANT_INPUT"
+VARIANT="$(normalize_variant "$VARIANT_INPUT")"
 validate_source_profile "$SOURCE_PROFILE"
 
 OUT="$WORKDIR/output/$DEVICE/$VARIANT"
@@ -24,13 +25,13 @@ case "$VARIANT" in
   base)
     note "Variant A: source=$SOURCE_PROFILE; no root integration"
     ;;
-  resukisu)
-    note "Variant B: source=$SOURCE_PROFILE + ReSukiSU built-in (tracepoint)"
-    bash "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" tracepoint "$FRAGMENT"
+  bakasu)
+    note "Variant B: source=$SOURCE_PROFILE + BakaSU built-in (tracepoint)"
+    bash "$XIAOMI_SCRIPT_DIR/integrate-bakasu.sh" "$KERNEL_ROOT" tracepoint "$FRAGMENT"
     ;;
-  resukisu-susfs)
-    note "Variant C: source=$SOURCE_PROFILE + ReSukiSU built-in + SUSFS"
-    bash "$XIAOMI_SCRIPT_DIR/integrate-resukisu.sh" "$KERNEL_ROOT" susfs "$FRAGMENT"
+  bakasu-susfs)
+    note "Variant C: source=$SOURCE_PROFILE + BakaSU built-in + SUSFS"
+    bash "$XIAOMI_SCRIPT_DIR/integrate-bakasu.sh" "$KERNEL_ROOT" susfs "$FRAGMENT"
     bash "$XIAOMI_SCRIPT_DIR/integrate-susfs.sh" "$KERNEL_ROOT" "$FRAGMENT"
     ;;
 esac
@@ -60,24 +61,24 @@ case "$SOURCE_BUILD_MODE" in
   kleaf-dist)
     cd "$KERNEL_ROOT"
 
-    # ReSukiSU derives version metadata from its .git directory. A normal
+    # BakaSU derives version metadata from its .git directory. A normal
     # Kleaf sandbox intentionally exposes only declared source inputs, so .git
     # metadata is absent and upstream Kbuild aborts. Resolve the pinned metadata
     # before entering Bazel and replace only the Git-probing block with
     # deterministic values. This ACK-only compatibility layer keeps the action
     # hermetic/cacheable; the Gold make path remains untouched.
-    if [[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]]; then
-      ksu_kbuild="$KERNEL_ROOT/ReSukiSU/kernel/Kbuild"
-      [[ -f "$ksu_kbuild" ]] || die "ReSukiSU Kbuild missing: $ksu_kbuild"
+    if [[ -d "$KERNEL_ROOT/BakaSU/.git" ]]; then
+      ksu_kbuild="$KERNEL_ROOT/BakaSU/kernel/Kbuild"
+      [[ -f "$ksu_kbuild" ]] || die "BakaSU Kbuild missing: $ksu_kbuild"
 
-      ksu_local_version="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-list --count HEAD)"
+      ksu_local_version="$(git -C "$KERNEL_ROOT/BakaSU" rev-list --count HEAD)"
       ksu_version="$((30000 + ksu_local_version + 700))"
-      ksu_tag="$(git -C "$KERNEL_ROOT/ReSukiSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
-      ksu_commit="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse --short=8 HEAD)"
-      ksu_branch="$(git -C "$KERNEL_ROOT/ReSukiSU" branch --show-current 2>/dev/null || true)"
+      ksu_tag="$(git -C "$KERNEL_ROOT/BakaSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
+      ksu_commit="$(git -C "$KERNEL_ROOT/BakaSU" rev-parse --short=8 HEAD)"
+      ksu_branch="$(git -C "$KERNEL_ROOT/BakaSU" branch --show-current 2>/dev/null || true)"
       [[ -n "$ksu_branch" ]] || ksu_branch="detached"
 
-      note "freezing ReSukiSU metadata for ACK sandbox: version=$ksu_version tag=$ksu_tag commit=$ksu_commit branch=$ksu_branch"
+      note "freezing BakaSU metadata for ACK sandbox: version=$ksu_version tag=$ksu_tag commit=$ksu_commit branch=$ksu_branch"
 
       python3 - "$ksu_kbuild" "$ksu_local_version" "$ksu_version" "$ksu_tag" "$ksu_commit" "$ksu_branch" <<'PY'
 from pathlib import Path
@@ -91,7 +92,7 @@ start = text.find("LOCAL_GIT_EXISTS :=")
 end_marker = "KSU_BRANCH_NAME := $(shell cd $(KSU_SRC); $(GIT_BIN) branch --show-current 2>/dev/null || echo \"unknown\")"
 end = text.find(end_marker, start)
 if start < 0 or end < 0:
-    raise SystemExit("ReSukiSU Git metadata block layout changed; refusing unsafe ACK patch")
+    raise SystemExit("BakaSU Git metadata block layout changed; refusing unsafe ACK patch")
 end += len(end_marker)
 
 replacement = f"""# ACK/Kleaf sandbox: metadata resolved before Bazel; do not require .git.
@@ -110,7 +111,7 @@ path.write_text(text)
 PY
 
       grep -q "^KSU_VERSION := $ksu_version$" "$ksu_kbuild" ||
-        die "failed to freeze ReSukiSU ACK metadata"
+        die "failed to freeze BakaSU ACK metadata"
     fi
 
     clang_bin="$KERNEL_ROOT/prebuilts/clang/host/linux-x86/clang-$CLANG_VERSION/bin/clang"
@@ -329,18 +330,18 @@ mv -f "$OUT/final.config.embedded" "$OUT/final.config"
 kernel_string="$(strings -a "$IMAGE" | grep -m1 '^Linux version ' || true)"
 [[ -n "$kernel_string" ]] || die "Linux version string not found in Image"
 
-resukisu_ref="${XIAOMI_RESUKISU_REF:-$RESUKISU_DEFAULT_REF}"
-resukisu_actual="N/A"
-resukisu_tag="N/A"
-resukisu_version_code="N/A"
+bakasu_ref="${XIAOMI_BAKASU_REF:-${XIAOMI_RESUKISU_REF:-$BAKASU_DEFAULT_REF}}"
+bakasu_actual="N/A"
+bakasu_tag="N/A"
+bakasu_version_code="N/A"
 susfs_ref="${XIAOMI_SUSFS_REF:-$SUSFS_DEFAULT_REF}"
 susfs_actual="N/A"
 susfs_version="N/A"
-if [[ -d "$KERNEL_ROOT/ReSukiSU/.git" ]]; then
-  resukisu_actual="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-parse HEAD)"
-  resukisu_tag="$(git -C "$KERNEL_ROOT/ReSukiSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
-  resukisu_commit_count="$(git -C "$KERNEL_ROOT/ReSukiSU" rev-list --count HEAD)"
-  resukisu_version_code="$((30000 + resukisu_commit_count + 700))"
+if [[ -d "$KERNEL_ROOT/BakaSU/.git" ]]; then
+  bakasu_actual="$(git -C "$KERNEL_ROOT/BakaSU" rev-parse HEAD)"
+  bakasu_tag="$(git -C "$KERNEL_ROOT/BakaSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
+  bakasu_commit_count="$(git -C "$KERNEL_ROOT/BakaSU" rev-list --count HEAD)"
+  bakasu_version_code="$((30000 + bakasu_commit_count + 700))"
 fi
 if [[ -d "$KERNEL_ROOT/SUSFS/.git" ]]; then
   susfs_actual="$(git -C "$KERNEL_ROOT/SUSFS" rev-parse HEAD)"
@@ -366,11 +367,11 @@ source_common_commit=$SOURCE_COMMON_COMMIT
 kmi_generation=$KMI_GENERATION
 clang_revision=$CLANG_VERSION
 clang_version=$clang_line
-resukisu_requested_ref=$resukisu_ref
-resukisu_commit=$resukisu_actual
-resukisu_tag=$resukisu_tag
-resukisu_version_code=$resukisu_version_code
-resukisu_last_known_good_commit=$RESUKISU_LAST_KNOWN_GOOD_COMMIT
+bakasu_requested_ref=$bakasu_ref
+bakasu_commit=$bakasu_actual
+bakasu_tag=$bakasu_tag
+bakasu_version_code=$bakasu_version_code
+bakasu_last_known_good_commit=$BAKASU_LAST_KNOWN_GOOD_COMMIT
 susfs_requested_ref=$susfs_ref
 susfs_commit=$susfs_actual
 susfs_version=$susfs_version
