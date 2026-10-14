@@ -334,6 +334,8 @@ bakasu_ref="${XIAOMI_BAKASU_REF:-${XIAOMI_RESUKISU_REF:-$BAKASU_DEFAULT_REF}}"
 bakasu_actual="N/A"
 bakasu_tag="N/A"
 bakasu_version_code="N/A"
+bakasu_upstream_main_commit="N/A"
+bakasu_susfs_fallback_active=false
 susfs_ref="${XIAOMI_SUSFS_REF:-$SUSFS_DEFAULT_REF}"
 susfs_actual="N/A"
 susfs_version="N/A"
@@ -342,6 +344,12 @@ if [[ -d "$KERNEL_ROOT/BakaSU/.git" ]]; then
   bakasu_tag="$(git -C "$KERNEL_ROOT/BakaSU" describe --abbrev=0 --tags 2>/dev/null || echo v4.1.0)"
   bakasu_commit_count="$(git -C "$KERNEL_ROOT/BakaSU" rev-list --count HEAD)"
   bakasu_version_code="$((30000 + bakasu_commit_count + 700))"
+  bakasu_upstream_main_commit="$(git -C "$KERNEL_ROOT/BakaSU" rev-parse refs/remotes/origin/main 2>/dev/null || echo N/A)"
+  if [[ "$bakasu_ref" == "main" && "$VARIANT" == "bakasu-susfs" &&
+        "$bakasu_actual" == "$BAKASU_SUSFS_FALLBACK_COMMIT" &&
+        "$bakasu_upstream_main_commit" != "$bakasu_actual" ]]; then
+    bakasu_susfs_fallback_active=true
+  fi
 fi
 if [[ -d "$KERNEL_ROOT/SUSFS/.git" ]]; then
   susfs_actual="$(git -C "$KERNEL_ROOT/SUSFS" rev-parse HEAD)"
@@ -372,6 +380,10 @@ bakasu_commit=$bakasu_actual
 bakasu_tag=$bakasu_tag
 bakasu_version_code=$bakasu_version_code
 bakasu_last_known_good_commit=$BAKASU_LAST_KNOWN_GOOD_COMMIT
+bakasu_upstream_main_commit=$bakasu_upstream_main_commit
+bakasu_susfs_fallback_active=$bakasu_susfs_fallback_active
+bakasu_susfs_suspend_commit=$BAKASU_SUSFS_SUSPEND_COMMIT
+bakasu_susfs_fallback_commit=$BAKASU_SUSFS_FALLBACK_COMMIT
 susfs_requested_ref=$susfs_ref
 susfs_commit=$susfs_actual
 susfs_version=$susfs_version

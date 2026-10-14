@@ -29,10 +29,33 @@ if ! git -C BakaSU checkout "$requested_ref"; then
 fi
 
 actual="$(git -C BakaSU rev-parse HEAD)"
+upstream_main="N/A"
+fallback_active=false
+fallback_from="N/A"
+
 if [[ "$requested_ref" == "main" ]]; then
   upstream_main="$(git -C BakaSU rev-parse refs/remotes/origin/main)"
   [[ "$actual" == "$upstream_main" ]] ||
     die "BakaSU main drifted during checkout: HEAD=$actual origin/main=$upstream_main"
+fi
+
+# BakaSU may deliberately suspend SUSFS integration while waiting for a
+# matching SUSFS update. Respect that guardrail instead of deleting the
+# upstream $(error ...) and forcing a potentially detectable build. When the
+# normal bakasu-susfs profile tracks main and the hard stop is present, use the
+# exact pre-suspension commit. Once upstream removes the stop, main is used
+# again automatically.
+if [[ "$HOOK_MODE" == "susfs" && "$requested_ref" == "main" ]]; then
+  susfs_guard="BakaSU/kernel/tools/susfs_compat.mk"
+  if [[ -f "$susfs_guard" ]] && grep -Fq '$(error Please wait susfs update.)' "$susfs_guard"; then
+    fallback_from="$actual"
+    note "BakaSU main currently suspends SUSFS builds at $fallback_from; falling back to $BAKASU_SUSFS_FALLBACK_COMMIT"
+    git -C BakaSU checkout --detach "$BAKASU_SUSFS_FALLBACK_COMMIT"
+    actual="$(git -C BakaSU rev-parse HEAD)"
+    [[ "$actual" == "$BAKASU_SUSFS_FALLBACK_COMMIT" ]] ||
+      die "BakaSU SUSFS fallback failed: expected $BAKASU_SUSFS_FALLBACK_COMMIT got $actual"
+    fallback_active=true
+  fi
 fi
 
 commit_count="$(git -C BakaSU rev-list --count HEAD)"
@@ -44,7 +67,7 @@ branch_name="$(git -C BakaSU branch --show-current 2>/dev/null || true)"
 [[ -f BakaSU/kernel/Kconfig && -f BakaSU/kernel/Makefile ]] ||
   die "BakaSU kernel integration files missing"
 
-note "BakaSU resolved: ref=$requested_ref branch=$branch_name commit=$actual tag=$tag_name version_code=$version_code"
+note "BakaSU resolved: ref=$requested_ref branch=$branch_name commit=$actual tag=$tag_name version_code=$version_code fallback=$fallback_active upstream_main=$upstream_main fallback_from=$fallback_from"
 
 ln -s "$(realpath --relative-to=common/drivers BakaSU/kernel)" common/drivers/kernelsu
 grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile ||

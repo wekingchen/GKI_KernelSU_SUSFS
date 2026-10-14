@@ -247,6 +247,8 @@ ACK/Kleaf 另外保留两个已经验证必要的处理：
 
 正常自定义构建会跟随配置中的上游 ref 获取 BakaSU、SUSFS 以及 NoMount、DroidSpaces、NTSync patch、ZRAM patch、Baseband Guard、Re-Kernel 等移动依赖；每次构建都会记录最终解析到的精确提交，方便追踪和复现。
 
+2026-10-10 起，BakaSU 上游通过提交 `48fa4bb7ec8bddb8ea932a8c9be0877f89a1fa73` 主动暂停了 SUSFS 构建，原因是 SUSFS 尚未同步最新 KernelSU/BakaSU 变更，强行继续可能导致 `selinux_hide` 检测异常。小米构建链不会删除这个上游保护。对默认 `bakasu-susfs + main` 组合，如果检测到该硬停止标记，会临时回退到它的直接父提交 `5b76b884c75f729a220bb317aa4a4fc78f0e0e9c`（BakaSU 35222）；一旦上游移除硬停止，构建会自动恢复追踪 BakaSU `main`。显式指定其它 BakaSU ref 时不会偷偷回退。
+
 当前已经获得真机验证的基础版本：
 
 - BakaSU：`fa8311f632a215b5381ec644627c6198d1e8a13e`，标签 `v4.2.0-rc3`，版本代码 `35184`（真机验证时项目仍名 ReSukiSU；该提交仍位于当前 BakaSU 仓库历史中）
