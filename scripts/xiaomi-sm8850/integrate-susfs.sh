@@ -49,15 +49,38 @@ cp -f "$SUSFS_DIR"/kernel_patches/fs/* "$KERNEL_ROOT/common/fs/"
 cp -f "$SUSFS_DIR"/kernel_patches/include/linux/* "$KERNEL_ROOT/common/include/linux/"
 
 cd "$KERNEL_ROOT/common"
-note "dry-running SUSFS kernel patch"
-patch --dry-run -p1 --forward < "$patch_file"
-note "applying SUSFS kernel patch (failure is fatal)"
-patch -p1 --forward --no-backup-if-mismatch < "$patch_file"
+compat_tool="$XIAOMI_SCRIPT_DIR/susfs-compat-6.12.23.py"
+integration_mode_file="$KERNEL_ROOT/.xiaomi-susfs-integration-mode"
+rm -f "$integration_mode_file"
+
+note "dry-running upstream SUSFS kernel patch"
+if patch --dry-run -p1 --forward < "$patch_file"; then
+  note "applying upstream SUSFS kernel patch (failure is fatal)"
+  patch -p1 --forward --no-backup-if-mismatch < "$patch_file"
+  printf '%s\n' "upstream-native" > "$integration_mode_file"
+else
+  note "upstream SUSFS patch does not cleanly apply to Linux 6.12.23; trying the narrow Xiaomi compatibility layer"
+  [[ -f "$compat_tool" ]] || die "missing SUSFS compatibility helper: $compat_tool"
+  filtered_patch="$SUSFS_DIR/50_add_susfs_in_gki-android16-6.12-xiaomi-6.12.23.patch"
+
+  python3 "$compat_tool" filter-patch "$patch_file" "$filtered_patch"
+  note "dry-running filtered upstream SUSFS patch"
+  patch --dry-run -p1 --forward < "$filtered_patch" ||
+    die "SUSFS has drifted beyond the known Xiaomi 6.12.23 compatibility gap"
+
+  note "applying filtered upstream SUSFS patch"
+  patch -p1 --forward --no-backup-if-mismatch < "$filtered_patch"
+  python3 "$compat_tool" patch-source "$KERNEL_ROOT/common"
+fi
 
 if find . -type f -name '*.rej' -print -quit | grep -q .; then
   find . -type f -name '*.rej' -print >&2
   die "SUSFS produced .rej files"
 fi
+
+integration_mode="$(cat "$integration_mode_file" 2>/dev/null || true)"
+[[ -n "$integration_mode" ]] || die "SUSFS integration mode was not recorded"
+note "SUSFS integration mode: $integration_mode"
 
 # Core SUSFS path/mount/kstat support is always explicit. ReSukiSU defaults
 # many subfeatures to y, so the optional set is also written explicitly instead
@@ -86,4 +109,4 @@ else
   done
 fi
 
-note "SUSFS integrated strictly: ref=$requested_ref commit=$actual version=$susfs_version"
+note "SUSFS integrated strictly: ref=$requested_ref commit=$actual version=$susfs_version mode=$integration_mode"
