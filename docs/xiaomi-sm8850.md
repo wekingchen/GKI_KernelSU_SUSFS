@@ -477,3 +477,26 @@ LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使�
 - 永久 LKG 不移动。
 - 上游同步使用正常 merge/Sync fork，不使用强制覆盖。
 - 小米专用逻辑继续限制在独立文件和目录中，避免污染上游通用 GKI 工作流。
+
+## DroidSpaces 容器资源限制与 Macvlan（2026-10）
+
+选择 `DroidSpaces=on` 时，Xiaomi 的 Gold / ACK-R51 两套内核统一要求以下功能实际编译进 **Image**，而不只是写入构建 fragment：
+
+- `CONFIG_MACVLAN=y`：提供 Linux macvlan 虚拟接口，用于容器 `--net=macvlan`；本项目的 AnyKernel3 不额外安装内核模块，因此必须用内建 `y`，不能依赖 `macvlan.ko`。
+- `CONFIG_CGROUPS=y`、`CONFIG_CGROUP_SCHED=y`、`CONFIG_FAIR_GROUP_SCHED=y`、`CONFIG_CFS_BANDWIDTH=y`：使 CPU controller 的 CFS bandwidth 限额具备内核前置条件，服务于 `--cpus`。
+- `CONFIG_CGROUP_PIDS=y`：进程数控制器，对应 `--pids-limit`。
+- `CONFIG_NET_NS=y`：容器网络命名空间前置条件。
+
+`integrate-features.sh` 在 DroidSpaces 开启时写入以上配置；`validate.sh` 从 **实际生成的 Image 嵌入配置** 检查它们全部为 `y`。如果内核 Kconfig 因依赖或上游变更静默取消某项，则构建直接失败，不会发布误报支持的固件。DroidSpaces 关闭时保持既有配置行为。此处不新增用户界面选择项。
+
+**运行时注意：** 编译启用 `CONFIG_CFS_BANDWIDTH=y` 不等同于 Android 已开放 CPU cgroup。如果 `/proc/cmdline` 包含 `cgroup_disable=cpu`，或者 Android init 未挂载/开放对应的 cgroup controller，Docker 的 `--cpus` 仍可能失效；`--pids-limit` 也需要 pids controller 在实际 cgroup 层级中可用。升级内核后应检查：
+
+```sh
+su -c 'cat /proc/cmdline'
+su -c 'cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null'
+su -c 'mount | grep cgroup'
+```
+
+Macvlan 还受**物理上联接口**限制：多数 Android 手机以 Wi‑Fi STA 模式联网时，接入点/无线驱动可能不接受该接口发出的额外源 MAC，即使 `CONFIG_MACVLAN=y`、内核支持创建虚拟网卡，也未必能直接通过 Wi‑Fi 收发容器流量。这种情况可改用 bridge/NAT 或经支持的以太网适配器；属于运行时网络约束，不应靠放宽内核验证掩盖。
+
+升级后再运行 DroidSpaces 的诊断，分别核实 `MACVLAN`、`CFS_BANDWIDTH`、`CGROUP_PIDS` 以及运行时权限/挂载。此功能变更需要新的 AnyKernel3 构建和真机验证，不能视为以前刷机成功的内核已具备。

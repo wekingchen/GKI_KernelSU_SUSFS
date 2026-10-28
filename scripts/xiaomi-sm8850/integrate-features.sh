@@ -126,6 +126,18 @@ if [[ "$DROIDSPACES" != "off" ]]; then
   for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
     append_config "$FRAGMENT" "$cfg=y"
   done
+
+  # DroidSpaces Docker compatibility: bridge/veth already come from GKI.
+  # Require macvlan built into Image because AnyKernel3 does not deliver .ko
+  # modules. CFS bandwidth needs both CPU controller and FAIR_GROUP_SCHED;
+  # the pids controller is needed for Docker's --pids-limit.
+  # The running Android cmdline/cgroup mounts still determine availability.
+  for cfg in CONFIG_CGROUPS CONFIG_CGROUP_SCHED CONFIG_FAIR_GROUP_SCHED \
+      CONFIG_CFS_BANDWIDTH CONFIG_CGROUP_PIDS CONFIG_NET_NS \
+      CONFIG_MACVLAN; do
+    append_config "$FRAGMENT" "$cfg=y"
+  done
+  note "DroidSpaces Docker prerequisites requested: MACVLAN built-in, CPU CFS bandwidth, pids cgroup"
   for cfg in CONFIG_NETFILTER_XT_MATCH_ADDRTYPE CONFIG_NETFILTER_XT_TARGET_LOG     CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_IP_SET CONFIG_IP_SET_HASH_IP     CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET CONFIG_NETFILTER_XT_TARGET_REJECT     CONFIG_IP_NF_TARGET_REJECT; do
     enable_if_defined "$cfg"
   done

@@ -92,8 +92,10 @@ if truthy_feature "${XIAOMI_USE_NOMOUNT:-false}"; then
   config_is_y "$FINAL" CONFIG_NOMOUNT || die "NoMount requested but CONFIG_NOMOUNT=y is missing"
 fi
 if [[ "${XIAOMI_DROIDSPACES:-off}" != "off" ]]; then
-  for key in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
-    config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key"
+  for key in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS \
+             CONFIG_CGROUPS CONFIG_CGROUP_SCHED CONFIG_FAIR_GROUP_SCHED CONFIG_CFS_BANDWIDTH CONFIG_CGROUP_PIDS \
+             CONFIG_NET_NS CONFIG_MACVLAN; do
+    config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key=y"
   done
 fi
 if truthy_feature "${XIAOMI_DROIDSPACES_NTSYNC:-false}"; then
