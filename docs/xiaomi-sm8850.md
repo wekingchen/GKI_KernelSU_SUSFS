@@ -255,11 +255,13 @@ ACK/Kleaf 另外保留两个已经验证必要的处理：
 
 BakaSU 以内置方式编译，使用 `CONFIG_KSU=y`，不采用 LKM 模式。
 
-SUSFS 补丁采用快速失败策略：
+SUSFS 补丁仍采用快速失败策略：
 
-- 先进行 dry-run 检查；
-- 补丁应用失败立即中止；
-- 出现任何 `.rej` 文件都直接判定构建失败。
+- 首先对上游 `gki-android16-6.12` 原始补丁执行完整 dry-run；如果可以直接应用，则使用 `upstream-native` 模式，不运行任何本地兼容代码。
+- 2026-10 下旬起，SUSFS 6.12 主补丁已按较新的 Android 16 / 6.12 common 重排，在 Linux 6.12.23 上固定冲突于 `fs/exec.c` 和 `fs/proc/task_mmu.c`。为避免长期等待上游，本仓库仅针对这 4 个已经确认的 hunk 提供 `xiaomi-6.12.23-susfs-r1` 临时兼容层。
+- 兼容模式不会使用 `patch ... || true` 带着 reject 继续编译：脚本只过滤已知的 4 个旧上下文 hunk，其余上游补丁仍必须完整 dry-run；随后按 6.12.23 的真实代码结构补齐相同语义，并继续要求 `.rej = 0`。
+- 如果以后上游原始补丁重新能够完整 dry-run，兼容层会自动跳过；如果失败范围发生变化而不再是已知兼容缺口，则构建立即中止，等待重新审计。
+- 最终使用的模式会写入 `build-metadata.txt` 的 `susfs_integration_mode`，用于区分 `upstream-native` 与临时 Xiaomi 兼容模式。
 
 ## #76 全功能候选版本来源
 

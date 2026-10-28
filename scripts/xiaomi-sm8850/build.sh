@@ -378,6 +378,7 @@ susfs_version=$susfs_version
 susfs_last_known_good_commit=$SUSFS_LAST_KNOWN_GOOD_COMMIT
 susfs_previous_pinned_commit=$SUSFS_PREVIOUS_PINNED_COMMIT
 susfs_extra_features=${XIAOMI_SUSFS_EXTRA_FEATURES:-false}
+susfs_integration_mode=$(if [[ -f "$KERNEL_ROOT/.xiaomi-susfs-integration-mode" ]]; then cat "$KERNEL_ROOT/.xiaomi-susfs-integration-mode"; elif [[ "$VARIANT" == "bakasu-susfs" ]]; then echo "unknown"; else echo "N/A"; fi)
 kernel_string=$kernel_string
 build_target=$build_target
 lto=$lto_mode
