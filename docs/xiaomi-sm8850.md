@@ -477,3 +477,23 @@ LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使�
 - 永久 LKG 不移动。
 - 上游同步使用正常 merge/Sync fork，不使用强制覆盖。
 - 小米专用逻辑继续限制在独立文件和目录中，避免污染上游通用 GKI 工作流。
+
+## DroidSpaces 容器资源与 Macvlan 支持（2026-10）
+
+DroidSpaces=on 时，Xiaomi 构建自动要求在最终 `Image` 中启用 `CONFIG_MACVLAN=y`、`CONFIG_CGROUP_PIDS=y` 和 `CONFIG_CFS_BANDWIDTH=y`，同时确保 `CGROUPS`、`CGROUP_SCHED`、`FAIR_GROUP_SCHED`、`NET`、`NET_NS`、`NETDEVICES` 等依赖启用。原始 Android 16 GKI 6.12.23 已启用 `CONFIG_CFS_BANDWIDTH=y`，因此此次主要新增 MACVLAN 和 PIDs controller，明确约束其他依赖。直接内建到 Image（`=y`），适用于当前只替换内核的 AnyKernel3 路径；不依赖额外打包/刷入 `macvlan.ko`。
+
+`scripts/xiaomi-sm8850/validate.sh` 将从最终 Image 提取的 `final.config` 逐项校验；若 Kconfig 依赖导致符号被关闭，构建必须失败而非发布不完整包。Gold 与 ACK 共用此规则，不改变用户勾选 DroidSpaces=off 时的其他编译策略。
+
+**设备运行时检查不能被内核编译替代。** 刷入后在设备 root shell 中核实：
+
+```sh
+zcat /proc/config.gz | grep -E '^CONFIG_(MACVLAN|CGROUP_PIDS|CFS_BANDWIDTH)='
+cat /proc/cmdline
+cat /proc/bootconfig 2>/dev/null | grep -E 'cgroup_disable|cgroup_no_v1' || true
+cat /proc/cgroups | grep -E '(^#|cpu|pids)'
+cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || true
+```
+
+如果 `/proc/cmdline` / `/proc/bootconfig` 包含 `cgroup_disable=cpu` 或 `cgroup_disable=pids`，或者 CPU/PIDs controller 未实际启用与挂载，DroidSpaces 的 `--cpus` / `--pids-limit` 仍可能检查失败；这种情况属于启动参数、Android init/cgroup 权限或容器运行时问题，不能声称单靠编译修好。不要为了检查结果直接改动 Xiaomi/vendor boot 启动参数，应先单独确认 Android 对相关 controller 的使用情况。
+
+MACVLAN 内核支持也不保证直接在 `wlan0` 上正常联网：大多数手机 Wi-Fi 客户端链路不接受多个源 MAC 地址，真实可用性还取决于下层网卡/驱动、网络环境和 CAP_NET_ADMIN。若无有线/可支持多 MAC 的下层接口，优先考虑 DroidSpaces 默认 bridge/veth/NAT 网络。
