@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .github/config/pandora-os4-stock-input.env >> "$GITHUB_ENV"
+          grep -E '^[A-Z0-9_]+=' .github/config/pandora-os4-stock-input.env >> "$GITHUB_ENV"
 
       - name: "确保 stock-input prerelease 存在"
         shell: bash
