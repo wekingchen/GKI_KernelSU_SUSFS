@@ -64,7 +64,14 @@ jobs:
             echo "::error::GKI tag commit drift: $resolved"
             exit 1
           fi
-          git -C common checkout -q --detach "$resolved"
+          git -C common checkout -q --force --detach "$resolved"
+          # Git object-cache restore may include the index but no worktree.
+          # Always reconstruct the exact pinned checkout, even on a cache hit.
+          git -C common reset --hard "$resolved" >/dev/null
+          [[ -f common/Makefile && -f common/build.config.constants ]] || {
+            echo "::error::R62 cached repository has no valid checked-out source tree"
+            exit 1
+          }
           version="$(awk '/^VERSION = /{a=$3} /^PATCHLEVEL = /{b=$3} /^SUBLEVEL = /{c=$3} END{print a "." b "." c}' common/Makefile)"
           branch="$(sed -n 's/^BRANCH=//p' common/build.config.constants)"
           kmi="$(sed -n 's/^KMI_GENERATION=//p' common/build.config.constants)"
