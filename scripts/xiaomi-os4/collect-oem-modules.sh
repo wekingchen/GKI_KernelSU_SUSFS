@@ -36,9 +36,10 @@ for path in /vendor_dlkm/lib/modules /system_dlkm/lib/modules /odm_dlkm/lib/modu
 done
 [ "$#" -gt 0 ] || { echo "找不到厂商模块目录，已停止"; exit 1; }
 
-# 避免因手机目录软链接导致漏掉 .ko；tar -h 会追踪模块目录的链接。
-echo "只读打包这些模块目录（不包含 /data 或个人文件）..."
-tar -c -h -z -f "$ARCH" -C / "$@"
+# 不使用 tar -h：只归档明确指定的系统模块目录，不跟随内部软链接访问其它目录。
+# 如果归档中的 .ko 只是软链接，离线审计会判为证据不足，不会声称兼容。
+echo "只读打包系统模块目录（不跟随任意软链接）..."
+tar -c -z -f "$ARCH" -C / "$@"
 [ -s "$ARCH" ] || { echo "没有成功生成模块包"; exit 1; }
 echo "包大小：$(du -h "$ARCH" | head -n 1)" | tee -a "$INFO"
 sha256sum "$ARCH" >> "$INFO"
