@@ -76,3 +76,34 @@
 SUSFS 失败位置：`fs/proc/task_mmu.c` 第 5、6 个 hunk，与 R62 源码上下文不一致；其余部分存在位置偏移。必须做**源码层专门适配并重新进行全量 dry-run/编译**，不能忽略这两个 hunk、强制 `patch --force`、也不能用旧 6.12.23 的兼容结果代替。预检的补丁 dry-run 本身不会写入源码，因此不会掩盖失败。
 
 **注意：** `DroidSpaces kABI` 补丁 dry-run 通过只表示可以应用，后续的配置、符号 ABI、模块加载和运行时尚未验证。BakaSU/NoMount 的 6.12.69 兼容也尚未得到验证。上述 Run #1 **没有生成 Image 或刷机 ZIP**，对 OS4 内核可启动性没有证明作用。
+
+## R62 全量源码兼容验证（2026-10-29）
+
+### SUSFS：已通过全量源码补丁应用，尚未编译
+
+[OS4 CI 第 8 次 / Run 40833459272](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40833459272) 以 Google R62 `e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5` 及 SUSFS `519c86c5d8ad3832ff4a2e1a81dc1b81076f1693` 为源，检查了 `scripts/xiaomi-os4/susfs-task-mmu-compat.py`：
+
+- 上游原始补丁仍有 `fs/proc/task_mmu.c` 两处旧 `show_smaps_rollup()` hunk 冲突，**未擅自忽略该功能**；
+- 兼容脚本只移除完全匹配的两个旧 hunk，在 R62 新循环结构中重新插入 SUS_MAP 过滤逻辑，涵盖普通 VMA 遍历与 mmap_lock 争用恢复流程；
+- 完整 filtered patch 的 dry-run、真正应用、`task_mmu.c` 的限定格式检查均 **PASS**；若上游补丁变更或锚点不匹配，脚本会主动失败；
+- 上游原始 SUSFS 补丁另含 `fs/stat.c` 的空格/Tab 混用、`mm/memory.c` 的尾随空格。全树格式检查将其单独记录为 warning，而非把已有的上游格式错误错误归因于移植代码；
+- 以上只证明源代码可合并，**不证明能用 GCC/Clang 编译、通过厂商 ABI 或真机启动**。
+
+### BakaSU Built-in 与 NoMount：源码接入已通过
+
+[OS4 CI 第 10 次 / Run 40833736266](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40833736266) 在完成上面的 SUSFS R62 应用后，**继续使用同一份临时 R62 树**进行实际接入检查：
+
+| 组件 | 对应提交 | 验证结果 |
+| --- | --- | --- |
+| BakaSU main | `d5e9e025b8b49155f8014684d64c91742b465f65` | `drivers/kernelsu` 链接、驱动 Makefile/Kconfig 接入、SUSFS/tracepoint 选项存在，PASS |
+| NoMount dev | `9c69668eefdc524c6155f7925cc7649200c6d737` | 执行 NoMount 官方 setup，`fs/nomount` 链接及 fs/Makefile/Kconfig 接入，PASS |
+| SUSFS | `519c86c5d8ad3832ff4a2e1a81dc1b81076f1693` | 同一临时源码树已完成 filtered patch 和 R62 兼容改动，PASS |
+
+CI 报告明确包含 `R62_BAKASU_NOMOUNT_KERNEL_COMPILE=NOT_RUN`。**这些都是源码集成结果，不能宣传为 Built-in 内核已经编译成功。**
+
+### 下一阶段仍然缺少的验证
+
+1. 建立 OS4 独立的源码/工具链缓存和非刷机用的最小 `Image` 编译路径；不能直接复用 OS3 的 `android16-5` 策略。
+2. 尽可能导出 `Module.symvers` / `vmlinux` 并与原厂 `vendor_dlkm`、`system_dlkm` 预编译模块比对。
+3. 完整构建 BakaSU + SUSFS + NoMount + DroidSpaces，而非仅成功插入文件和 Kconfig。
+4. 获取 **OS4.0.5.0.XBLCNXM** 精确匹配的原厂 `boot.img`；确认回刷与 LKM 冲突处理后，再讨论 AnyKernel3 和真机验证。
