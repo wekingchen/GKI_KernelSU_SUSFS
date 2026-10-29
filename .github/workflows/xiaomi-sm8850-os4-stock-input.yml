@@ -77,8 +77,13 @@ jobs:
           set -euo pipefail
           ZIP="$OS4_STOCK_INPUT_ZIP"
           unzip -l "$ZIP"
-          BOOT_MEMBER="$(unzip -Z1 "$ZIP" | awk 'tolower($0) ~ /(^|\/)boot\.img$/ {print; exit}')"
-          test -n "$BOOT_MEMBER" || { echo "::error::xm.zip 内没有 boot.img"; exit 1; }
+          mapfile -t BOOT_MEMBERS < <(unzip -Z1 "$ZIP" | awk 'tolower($0) ~ /(^|\/)boot(_[^\/]*)?\.img$/ {print}')
+          [[ "${#BOOT_MEMBERS[@]}" -eq 1 ]] || {
+            echo "::error::xm.zip 中必须且只能有一个 boot*.img，当前找到 ${#BOOT_MEMBERS[@]} 个。"
+            printf '%s\n' "${BOOT_MEMBERS[@]}" || true
+            exit 1
+          }
+          BOOT_MEMBER="${BOOT_MEMBERS[0]}"
           unzip -p "$ZIP" "$BOOT_MEMBER" > "${{ runner.temp }}/stock/boot.img"
           printf '%s  %s\n' "$OS4_STOCK_BOOT_SHA256" "${{ runner.temp }}/stock/boot.img" | sha256sum -c -
           echo "stock_boot_member=$BOOT_MEMBER"
