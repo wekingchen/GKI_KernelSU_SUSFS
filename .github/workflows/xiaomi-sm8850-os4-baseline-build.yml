@@ -132,6 +132,7 @@ jobs:
           path: |
             ${{ runner.temp }}/xiaomi-os4-build/results/Image
             ${{ runner.temp }}/xiaomi-os4-build/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-build/results/vmlinux.symvers
             ${{ runner.temp }}/xiaomi-os4-build/results/vmlinux.zst
             ${{ runner.temp }}/xiaomi-os4-build/results/final.config
             ${{ runner.temp }}/xiaomi-os4-build/results/build-metadata.txt
@@ -145,9 +146,21 @@ jobs:
         run: |
           OUT="$RUNNER_TEMP/xiaomi-os4-build/results"
           mkdir -p "$RUNNER_TEMP/xiaomi-os4-log"
-          for file in config-build.log kernel-build.log; do
+          for file in config-build.log kernel-build.log modules-build.log; do
             if [[ -s "$OUT/$file" ]]; then tail -n 160 "$OUT/$file" > "$RUNNER_TEMP/xiaomi-os4-log/$file"; fi
           done
+
+      - name: "保存中途已成功生成的非刷机 Image 与 vmlinux 导出符号"
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-partial-Image-only
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-build/results/Image
+            ${{ runner.temp }}/xiaomi-os4-build/results/vmlinux.symvers
+            ${{ runner.temp }}/xiaomi-os4-build/results/final.config
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: "上传失败日志"
         if: failure()
