@@ -93,6 +93,38 @@ jobs:
             fi
           done
 
+          python3 - "$O/a-nm.txt" "$A/Image" "$B/Image" "$O/diff-nearest-symbols.txt" <<'PY'
+          from pathlib import Path
+          import bisect, sys
+          nm_path, a_path, b_path, out_path = sys.argv[1:]
+          syms=[]
+          for line in Path(nm_path).read_text(errors="replace").splitlines():
+              parts=line.split(maxsplit=2)
+              if len(parts)==3:
+                  try: addr=int(parts[0],16)
+                  except ValueError: continue
+                  syms.append((addr,parts[2]))
+          syms.sort()
+          names={name:addr for addr,name in syms}
+          base=names.get("_text", names.get("_stext"))
+          a=Path(a_path).read_bytes(); b=Path(b_path).read_bytes()
+          idx=[i for i in range(min(len(a),len(b))) if a[i]!=b[i]]
+          starts=[]
+          if idx:
+              starts=[idx[0]]
+              for prev,cur in zip(idx,idx[1:]):
+                  if cur!=prev+1: starts.append(cur)
+          with open(out_path,"w") as f:
+              f.write(f"TEXT_BASE={base:#x}\n" if base is not None else "TEXT_BASE=UNKNOWN\n")
+              for off in starts[:80]:
+                  if base is None: f.write(f"OFFSET={off}\n"); continue
+                  target=base+off
+                  pos=bisect.bisect_right(syms,(target,chr(0x10ffff)))-1
+                  if pos>=0:
+                      addr,name=syms[pos]
+                      f.write(f"OFFSET={off} VA={target:#x} PREV_SYMBOL={name} SYMBOL_VA={addr:#x} DELTA={target-addr}\n")
+          PY
+
           python3 - "$A/Image" "$B/Image" "$O/image-byte-diff.txt" <<'PY'
           from pathlib import Path
           import sys
@@ -132,7 +164,12 @@ jobs:
 
           cat "$O/summary.txt"
           cat "$O/image-byte-diff.txt"
+          cat "$O/diff-nearest-symbols.txt" || true
           cat "$O/section-hashes.txt" || true
+
+          # Keep the uploaded audit small; uncompressed vmlinux files were only
+          # temporary comparison inputs and are intentionally not retained.
+          rm -f "$O/a-vmlinux" "$O/b-vmlinux" "$O/a-nm.txt" "$O/b-nm.txt"
 
       - name: "上传差异审计报告"
         uses: actions/upload-artifact@v6
