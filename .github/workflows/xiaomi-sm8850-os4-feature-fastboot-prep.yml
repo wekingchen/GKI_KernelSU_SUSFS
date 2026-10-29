@@ -1,0 +1,135 @@
+name: "小米17 Pro OS4 / R62 功能内核临时启动准备包（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-prep.yml"
+      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-feature-fastboot-prep
+  cancel-in-progress: true
+
+jobs:
+  prep:
+    name: "校验 #4 功能 Image，并打包本地临时 boot repack 工具"
+    if: github.ref == 'refs/heads/os4/pandora-6.12.69-adaptation-20261029'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "检查 repack 工具语法"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          ! grep -Eq 'fastboot[[:space:]]+flash|flashall|erase[[:space:]]+boot' scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          echo "repack helper syntax/safety scan: PASS"
+
+      - name: "下载已通过编译与 ABI 门禁的功能构建 #4"
+        uses: actions/download-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI
+          run-id: 40896020115
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/feature4
+
+      - name: "严格核对 #4 Image / Kconfig / ABI"
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ runner.temp }}/feature4"
+          test -s "$SRC/Image"
+          test -s "$SRC/Module.symvers"
+          test -s "$SRC/final.config"
+          test -s "$SRC/build-metadata.txt"
+          test -s "$SRC/abi-diff.txt"
+
+          printf '%s  %s\n'             'f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c'             "$SRC/Image" | sha256sum -c -
+          printf '%s  %s\n'             '69dc25f5e78bb1b03332c0a8cf0169e239e1efbd51c04a7469aea95430f89b2f'             "$SRC/Module.symvers" | sha256sum -c -
+
+          grep -qx 'CONFIG_KSU=y' "$SRC/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS=y' "$SRC/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS_SUS_MAP=y' "$SRC/final.config"
+          grep -qx 'CONFIG_NOMOUNT=y' "$SRC/final.config"
+          grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$SRC/final.config"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$SRC/final.config"
+
+          grep -qx 'BASE_VMLINUX_EXPORTS=18725' "$SRC/abi-diff.txt"
+          grep -qx 'MATCHED_SYMBOL_NAMES=18725' "$SRC/abi-diff.txt"
+          grep -Eq '^NEW_EXPORTS=(0)?$' "$SRC/abi-diff.txt"
+          grep -Eq '^MISSING_EXPORTS=(0)?$' "$SRC/abi-diff.txt"
+          grep -Eq '^CRC_CONFLICTS=(0)?$' "$SRC/abi-diff.txt"
+
+          grep -qx 'KERNEL_RELEASE=6.12.69-android16-6-os4r62-features-4k' "$SRC/build-metadata.txt"
+          grep -qx 'FLASHABLE=NO' "$SRC/build-metadata.txt"
+          echo "Feature #4 static gate: PASS"
+
+      - name: "生成本地临时 boot 准备包"
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ runner.temp }}/feature4"
+          OUT="${{ runner.temp }}/fastboot-prep"
+          mkdir -p "$OUT"
+          cp "$SRC/Image" "$OUT/Image"
+          cp scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py "$OUT/"
+          cat > "$OUT/README.txt" <<'EOF'
+          小米17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          R62 BakaSU + SUSFS + NoMount 临时启动准备包
+
+          重要：
+          1. 这不是 boot.img，也不是 AnyKernel3，也不能 fastboot flash。
+          2. 必须使用此前已在本机成功 fastboot boot 的：
+             pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.img
+             作为模板。
+          3. repack 工具会强制验证模板内核 SHA256：
+             f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8
+          4. 本包功能 Image SHA256：
+             f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c
+          5. 输出只允许用于 fastboot boot，严禁 fastboot flash。
+
+          Windows / Python 3：
+            python repack-tested-fastboot-boot-v4.py ^
+              pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.img ^
+              Image ^
+              pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img
+
+          生成后先记录脚本输出的 output_sha256，再执行任何手机测试。
+          EOF
+          (
+            cd "$OUT"
+            sha256sum Image repack-tested-fastboot-boot-v4.py README.txt > checksums.txt
+          )
+          echo "FLASHABLE=NO" > "$OUT/SAFETY.txt"
+          echo "USE=fastboot boot ONLY" >> "$OUT/SAFETY.txt"
+
+      - name: "上传功能内核临时启动准备包（不包含 boot.img）"
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-fastboot-prep
+          path: ${{ runner.temp }}/fastboot-prep/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: "记录结论"
+        run: |
+          {
+            echo "## R62 功能内核临时启动准备"
+            echo
+            echo "#4 功能 Image 与 ABI 门禁已重新核验。"
+            echo
+            echo "**本工作流没有生成 boot.img；没有执行 fastboot；不能用于持久刷写。**"
+            echo
+            echo "下一步只允许从用户本机已经实测成功的 #7 FASTBOOT-BOOT-ONLY 模板进行本地 repack。"
+          } >> "$GITHUB_STEP_SUMMARY"
