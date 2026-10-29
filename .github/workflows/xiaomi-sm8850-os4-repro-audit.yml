@@ -1,0 +1,157 @@
+name: "小米17 Pro OS4 / R62 可重复构建差异审计（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-repro-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    name: "比较确定性功能构建 #7 / #8"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "下载功能构建 #7"
+        uses: actions/download-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI
+          run-id: 40904388074
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r7
+
+      - name: "下载功能构建 #8"
+        uses: actions/download-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI
+          run-id: 40905468402
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r8
+
+      - name: "安装二进制审计工具"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends binutils zstd
+
+      - name: "逐层比较"
+        shell: bash
+        run: |
+          set -euo pipefail
+          A="${{ runner.temp }}/r7"
+          B="${{ runner.temp }}/r8"
+          O="${{ runner.temp }}/repro"
+          mkdir -p "$O/a-sections" "$O/b-sections"
+
+          sha256sum "$A/Image" "$B/Image" "$A/Module.symvers" "$B/Module.symvers" > "$O/sha256.txt"
+
+          {
+            echo "FINAL_CONFIG_IDENTICAL=$(cmp -s "$A/final.config" "$B/final.config" && echo YES || echo NO)"
+            echo "MODULE_SYMVERS_IDENTICAL=$(cmp -s "$A/Module.symvers" "$B/Module.symvers" && echo YES || echo NO)"
+            echo "IMAGE_IDENTICAL=$(cmp -s "$A/Image" "$B/Image" && echo YES || echo NO)"
+          } | tee "$O/summary.txt"
+
+          zstd -q -d -f "$A/vmlinux.zst" -o "$O/a-vmlinux"
+          zstd -q -d -f "$B/vmlinux.zst" -o "$O/b-vmlinux"
+          echo "VMLINUX_IDENTICAL=$(cmp -s "$O/a-vmlinux" "$O/b-vmlinux" && echo YES || echo NO)" >> "$O/summary.txt"
+
+          nm -n --defined-only "$O/a-vmlinux" > "$O/a-nm.txt"
+          nm -n --defined-only "$O/b-vmlinux" > "$O/b-nm.txt"
+          if cmp -s "$O/a-nm.txt" "$O/b-nm.txt"; then
+            echo "DEFINED_SYMBOL_ADDRESSES_IDENTICAL=YES" >> "$O/summary.txt"
+          else
+            echo "DEFINED_SYMBOL_ADDRESSES_IDENTICAL=NO" >> "$O/summary.txt"
+            diff -u "$O/a-nm.txt" "$O/b-nm.txt" | head -n 240 > "$O/nm-diff-head.txt" || true
+          fi
+
+          readelf -SW "$O/a-vmlinux" > "$O/a-sections.txt"
+          readelf -SW "$O/b-vmlinux" > "$O/b-sections.txt"
+          diff -u "$O/a-sections.txt" "$O/b-sections.txt" > "$O/section-layout.diff" || true
+          readelf -n "$O/a-vmlinux" > "$O/a-notes.txt" || true
+          readelf -n "$O/b-vmlinux" > "$O/b-notes.txt" || true
+          diff -u "$O/a-notes.txt" "$O/b-notes.txt" > "$O/notes.diff" || true
+
+          # Hash selected sections that can explain a changed Image without
+          # treating debug-only metadata as runtime code drift.
+          for sec in .text .rodata .data .init.text .init.data .bss .BTF .BTF_ids .comment; do
+            safe="$(printf '%s' "$sec" | tr -cd 'A-Za-z0-9_')"
+            objcopy --dump-section "$sec=$O/a-sections/$safe.bin" "$O/a-vmlinux" 2>/dev/null || true
+            objcopy --dump-section "$sec=$O/b-sections/$safe.bin" "$O/b-vmlinux" 2>/dev/null || true
+            if [[ -f "$O/a-sections/$safe.bin" || -f "$O/b-sections/$safe.bin" ]]; then
+              {
+                echo "[$sec]"
+                [[ -f "$O/a-sections/$safe.bin" ]] && sha256sum "$O/a-sections/$safe.bin" || echo "A missing"
+                [[ -f "$O/b-sections/$safe.bin" ]] && sha256sum "$O/b-sections/$safe.bin" || echo "B missing"
+              } >> "$O/section-hashes.txt"
+            fi
+          done
+
+          python3 - "$A/Image" "$B/Image" "$O/image-byte-diff.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          a=Path(sys.argv[1]).read_bytes()
+          b=Path(sys.argv[2]).read_bytes()
+          n=min(len(a),len(b))
+          idx=[i for i in range(n) if a[i]!=b[i]]
+          with open(sys.argv[3],"w") as f:
+              f.write(f"A_SIZE={len(a)}\nB_SIZE={len(b)}\n")
+              f.write(f"DIFF_BYTES_COMMON_RANGE={len(idx)}\n")
+              f.write(f"FIRST_DIFF={idx[0] if idx else -1}\n")
+              f.write(f"LAST_DIFF={idx[-1] if idx else -1}\n")
+              f.write(f"SIZE_DELTA={len(b)-len(a)}\n")
+              if idx:
+                  runs=[]
+                  start=prev=idx[0]
+                  for x in idx[1:]:
+                      if x==prev+1:
+                          prev=x
+                      else:
+                          runs.append((start,prev))
+                          start=prev=x
+                      if len(runs)>=40: break
+                  if len(runs)<40: runs.append((start,prev))
+                  for s,e in runs[:40]:
+                      f.write(f"DIFF_RUN={s}-{e} ({e-s+1})\n")
+          PY
+
+          {
+            echo
+            echo "A metadata:"
+            cat "$A/build-metadata.txt"
+            echo
+            echo "B metadata:"
+            cat "$B/build-metadata.txt"
+          } >> "$O/summary.txt"
+
+          cat "$O/summary.txt"
+          cat "$O/image-byte-diff.txt"
+          cat "$O/section-hashes.txt" || true
+
+      - name: "上传差异审计报告"
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-reproducibility-audit
+          path: ${{ runner.temp }}/repro/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: "摘要"
+        if: always()
+        run: |
+          {
+            echo "## R62 功能内核可重复构建审计"
+            if [[ -f "${{ runner.temp }}/repro/summary.txt" ]]; then
+              echo '~~~text'
+              cat "${{ runner.temp }}/repro/summary.txt"
+              echo '~~~'
+            fi
+            echo
+            echo "此工作流只比较 CI 产物，不生成或修改任何可刷镜像。"
+          } >> "$GITHUB_STEP_SUMMARY"
