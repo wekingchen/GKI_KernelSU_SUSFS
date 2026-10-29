@@ -129,6 +129,17 @@ fi
 elapsed="$(( $(date +%s) - start ))"
 [[ -s "$OUT/Module.symvers" ]] || { echo "::error::Module.symvers still missing after modules build"; exit 1; }
 cp "$OUT/Module.symvers" "$RESULT/Module.symvers"
+RUST_BINDER="$OUT/drivers/android/binder/rust_binder.ko"
+[[ -s "$RUST_BINDER" ]] || { echo "::error::R62 rust_binder.ko missing after modules build"; exit 1; }
+cp "$RUST_BINDER" "$RESULT/rust_binder-R62.ko"
+{
+  echo "sha256=$(sha256sum "$RUST_BINDER" | cut -d ' ' -f1)"
+  echo "module=$(basename "$RUST_BINDER")"
+  echo "kernelrelease=$(make --no-print-directory -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 kernelrelease)"
+  echo "undefined-symbols=$(llvm-nm -u "$RUST_BINDER" | wc -l)"
+  echo "version-ext-names=$(llvm-readelf -S "$RUST_BINDER" | grep -c '__version_ext_names' || true)"
+  echo "version-ext-crcs=$(llvm-readelf -S "$RUST_BINDER" | grep -c '__version_ext_crcs' || true)"
+} > "$RESULT/rust-binder-R62-metadata.txt"
 zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
 {
   echo "STOCK_RELEASE=$OS4_STOCK_KERNEL_RELEASE"
