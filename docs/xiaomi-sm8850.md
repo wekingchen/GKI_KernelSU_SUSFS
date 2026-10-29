@@ -478,13 +478,20 @@ LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使�
 - 上游同步使用正常 merge/Sync fork，不使用强制覆盖。
 - 小米专用逻辑继续限制在独立文件和目录中，避免污染上游通用 GKI 工作流。
 
-## DroidSpaces 容器资源与 Macvlan 支持（2026-10）
+## DroidSpaces 容器资源与 Macvlan 支持（2026-10-29 真机验证）
 
-DroidSpaces=on 时，Xiaomi 构建自动要求在最终 `Image` 中启用 `CONFIG_MACVLAN=y`、`CONFIG_CGROUP_PIDS=y` 和 `CONFIG_CFS_BANDWIDTH=y`，同时确保 `CGROUPS`、`CGROUP_SCHED`、`FAIR_GROUP_SCHED`、`NET`、`NET_NS`、`NETDEVICES` 等依赖启用。原始 Android 16 GKI 6.12.23 已启用 `CONFIG_CFS_BANDWIDTH=y`，因此此次主要新增 MACVLAN 和 PIDs controller，明确约束其他依赖。直接内建到 Image（`=y`），适用于当前只替换内核的 AnyKernel3 路径；不依赖额外打包/刷入 `macvlan.ko`。
+**真机事实优先：**
+- Xiaomi 17 Pro `pandora` 原厂 `boot_OS3.0.319.0.WBLCNXM.img` 已由用户通过 Fastboot 成功恢复，是紧急救援镜像。
+- Gold 自定义 [#23](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40723031053) 真机可开机，BakaSU/SUSFS/NoMount 工作正常；DroidSpaces 仅缺 `CONFIG_MACVLAN` 与 `CONFIG_CGROUP_PIDS`，CPU 配额检查已通过。
+- Gold 自定义 [#24](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40763138993)（同时启用 `CONFIG_MACVLAN=y` 与 `CONFIG_CGROUP_PIDS=y`）真机反复重启。**不能将该版本标记为可开机基线。**
+- Gold #23 + **仅** `CONFIG_MACVLAN=y`： [Macvlan-only](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40813876986) 真机正常开机、BakaSU/SUSFS/NoMount 正常，DroidSpaces Macvlan 检查由失败变为通过。对应 Artifact `12872345152`，这是当前**新增功能已真机验证通过**的候选。
+- Gold #23 + **仅** `CONFIG_CGROUP_PIDS=y`： [PIDs-only](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40813894945) 虽然 CI 成功，**尚未实刷，不得视为可开机**。
 
-`scripts/xiaomi-sm8850/validate.sh` 将从最终 Image 提取的 `final.config` 逐项校验；若 Kconfig 依赖导致符号被关闭，构建必须失败而非发布不完整包。Gold 与 ACK 共用此规则，不改变用户勾选 DroidSpaces=off 时的其他编译策略。
+**实际内核镜像证据：** 直接从 #23 与 #24 的原始 AnyKernel3 `Image` 解出内嵌 Kconfig。两者仅存在 `CONFIG_MACVLAN`、`CONFIG_CGROUP_PIDS` 及伴随的关闭 `CONFIG_MACVTAP` 配置差异；其余 AnyKernel3 安装文件内容一致。Macvlan-only 的内嵌 Kconfig 与 #23 相比仅新增 `CONFIG_MACVLAN=y`（及其关闭的 `MACVTAP` 选项）；并未开启 PIDs Controller。**因此 PIDs Controller 是强烈的启动回归嫌疑项，但尚缺 pstore/ramoops 等证据确认根因。**
 
-**设备运行时检查不能被内核编译替代。** 刷入后在设备 root shell 中核实：
+**当前策略：** DroidSpaces=on 时只将已经过真机测试的 `CONFIG_MACVLAN=y` 加入内核，并检查最终 `Image` 中确实生效；保留 #23 原有的其他选项，不再新增强制 `CONFIG_CGROUP_PIDS=y` 或 CPU scheduler/cgroup 配置。CPU 配额已通过；`--pids-limit` 在进一步确认兼容性之前继续视为不支持。**后续若要恢复 PIDs 必须使用独立实验分支，不得直接开启到稳定构建中。**
+
+启动后检查示例：
 
 ```sh
 zcat /proc/config.gz | grep -E '^CONFIG_(MACVLAN|CGROUP_PIDS|CFS_BANDWIDTH)='
@@ -494,6 +501,4 @@ cat /proc/cgroups | grep -E '(^#|cpu|pids)'
 cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || true
 ```
 
-如果 `/proc/cmdline` / `/proc/bootconfig` 包含 `cgroup_disable=cpu` 或 `cgroup_disable=pids`，或者 CPU/PIDs controller 未实际启用与挂载，DroidSpaces 的 `--cpus` / `--pids-limit` 仍可能检查失败；这种情况属于启动参数、Android init/cgroup 权限或容器运行时问题，不能声称单靠编译修好。不要为了检查结果直接改动 Xiaomi/vendor boot 启动参数，应先单独确认 Android 对相关 controller 的使用情况。
-
-MACVLAN 内核支持也不保证直接在 `wlan0` 上正常联网：大多数手机 Wi-Fi 客户端链路不接受多个源 MAC 地址，真实可用性还取决于下层网卡/驱动、网络环境和 CAP_NET_ADMIN。若无有线/可支持多 MAC 的下层接口，优先考虑 DroidSpaces 默认 bridge/veth/NAT 网络。
+如果原厂启动参数或 Android init 未启用相关 controller，即使内核配置打开，运行时也可能无法使用。MACVLAN 虽然检查已通过，仍不保证手机 Wi-Fi 客户端模式支持多个源 MAC 地址，实际网络能力与驱动、网络环境、权限相关。
