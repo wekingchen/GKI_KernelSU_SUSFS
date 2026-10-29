@@ -20,6 +20,9 @@ PROVENANCE="$WORKDIR/source-provenance.env"
 
 [[ -s "$IMAGE" ]] || die "Image missing"
 [[ -s "$FINAL" ]] || die "final.config missing"
+# Must protect the exact final Image configuration for both Gold and ACK,
+# even if an upstream defconfig changes without a local feature request.
+bash "$XIAOMI_SCRIPT_DIR/guard-gki-abi.sh" "$FINAL"
 [[ -s "$PROVENANCE" ]] || die "source provenance missing"
 # shellcheck disable=SC1090
 source "$PROVENANCE"

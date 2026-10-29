@@ -502,3 +502,27 @@ cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || true
 ```
 
 如果原厂启动参数或 Android init 未启用相关 controller，即使内核配置打开，运行时也可能无法使用。MACVLAN 虽然检查已通过，仍不保证手机 Wi-Fi 客户端模式支持多个源 MAC 地址，实际网络能力与驱动、网络环境、权限相关。
+
+## Xiaomi GKI PIDs Controller ABI 安全门禁（2026-10-29）
+
+### 已确认的真机事实
+
+- #23 的 `CONFIG_CGROUP_PIDS` 未启用，Gold-cctv 可正常开机；DroidSpaces CPU limit 已通过。
+- #24 在 `CONFIG_MACVLAN=y` 和 `CONFIG_CGROUP_PIDS=y` 同时开启后，真机进入 MI Logo/黑屏启动循环。
+- 只增加 `CONFIG_MACVLAN=y` 的 [Macvlan-only](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40813876986) 已实刷正常，BakaSU/SUSFS/NoMount 正常，DroidSpaces Macvlan 检查通过。
+- 单独启用 PIDs 的内核只通过 CI，**没有实刷**。启动循环与 PIDs 的直接因果关系目前是强嫌疑，而非有 panic 日志证明的最终结论。
+
+### 为何默认禁止强制打开 CONFIG_CGROUP_PIDS
+
+固定 Gold 6.12.23 源码的 `include/linux/cgroup_subsys.h` 把 `SUBSYS(pids)` 放在 `#if IS_ENABLED(CONFIG_CGROUP_PIDS)` 下；`include/linux/cgroup-defs.h` 再将展开的 `CGROUP_SUBSYS_COUNT` 用于 `struct cgroup` 与 `struct css_set` 内的多个数组。启用 PIDs 可能改变结构体尺寸、成员偏移以及由此派生的 GKI 模块 ABI，导致与已有原厂 `vendor_boot`、`vendor_dlkm`、`system_dlkm` 模块不兼容。DroidSpaces 官方文档也明确警告 GKI 上强制开启 PIDs/CPU Controller 可能使预编译厂商模块拒绝加载并导致 bootloop。参考：https://www.droidspaces.org/docs/kernel-configuration.html
+
+当前目标仅替换 `Image` 的 AnyKernel3，不准备重新构建并替换全部小米闭源预编译模块。**不能通过关闭 `CONFIG_MODVERSIONS` 或强制加载模块绕过 ABI 检查。**
+
+### 新增构建安全门禁
+
+- `scripts/xiaomi-sm8850/guard-gki-abi.sh <resolved-kernel-config>`：拒绝 `CONFIG_CGROUP_PIDS=y`（以及异常的 `=m`），并打印拒绝原因。
+- Gold：`gki_defconfig` + 配置 fragment + `olddefconfig` 后，在大规模编译 Image **之前**执行检查；避免浪费编译时间，也避免发布高风险包。
+- ACK：完成 Image 后，从内嵌 IKCONFIG 提取的 `final.config` 进入 `validate.sh` 时执行同一检查。**ACK-R51 仍未真机证明能开机**，此检查不改变它的可用性结论。
+- `preflight` 跑 `test-gki-abi-guard.sh`：验证启用 PIDs 会失败、仅 Macvlan 与 CPU 带宽已启用的已知安全配置可通过、缺失配置会失败。
+- 本门禁不禁用 `CONFIG_CFS_BANDWIDTH`：该选项在 #23 已经启用并通过真机 CPU limit 检查，属于当前已确认可用的原有配置。
+- 不提供公开“强制忽略门禁”开关；今后若存在完整匹配的厂商模块源码及经过验证的 ABI 修复，应单独建隔离实验分支，经针对性 KMI/CRC 审核后再讨论。

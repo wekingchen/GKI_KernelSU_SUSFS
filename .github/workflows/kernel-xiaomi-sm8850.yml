@@ -104,6 +104,7 @@ jobs:
             echo "bash -n $script"
             bash -n "$script"
           done
+          bash scripts/xiaomi-sm8850/test-gki-abi-guard.sh
 
       - name: Select PR regression plan
         id: plan
