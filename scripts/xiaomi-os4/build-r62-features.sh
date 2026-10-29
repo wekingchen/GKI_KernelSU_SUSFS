@@ -37,9 +37,9 @@ make_ver="$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} /^SUBLEVEL = /{s=$3}
 
 # The first feature build uses only commits that passed the source/Kconfig preflight.
 # Stop if upstream history cannot supply the exact object; never substitute branch HEAD.
-SUSFS_SHA=519c86c5d8ad3832ff4a2e1a81dc1b81076f1693
-BAKASU_SHA=d5e9e025b8b49155f8014684d64c91742b465f65
-NOMOUNT_SHA=9c69668eefdc524c6155f7925cc7649200c6d737
+SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
+BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
+NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
 checkout_locked() {
   local url="$1" ref="$2" sha="$3" dir="$4"
   git init -q "$dir"
