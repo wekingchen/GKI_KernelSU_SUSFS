@@ -91,6 +91,13 @@ class TestOemModuleAbi(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(report["errors_count"], 1)
 
+    def test_symlink_module_never_silently_skipped(self):
+        original = self.modules / "vendor.ko"
+        self.classic(0x12345678)
+        (self.modules / "vendor-link.ko").symlink_to(original)
+        with self.assertRaisesRegex(ValueError, "软链接"):
+            abi.audit(self.symvers, self.modules)
+
     def test_compressed_modules_never_silently_skipped(self):
         self.classic(0x12345678)
         (self.modules / "hidden.ko.zst").write_bytes(b"placeholder")
