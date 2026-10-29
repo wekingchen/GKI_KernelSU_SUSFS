@@ -336,6 +336,9 @@ jobs:
             echo "::error::unexpected BakaSU tracepoint hook in SUSFS inline mode"
             exit 1
           }
+          # Actions upload-artifact excludes hidden .config by default.
+          # Publish an ordinary file for reproducibility and KMI review.
+          cp -f kconfig-out/.config resolved-os4-gki.config
           {
             echo 'R62_BAKASU_SUSFS_NOMOUNT_KCONFIG=PASS'
             echo 'R62_KERNEL_IMAGE_BUILD=NOT_RUN'
@@ -348,7 +351,7 @@ jobs:
         with:
           name: xiaomi-pandora-os4-integrated-kconfig-audit
           path: |
-            ${{ runner.temp }}/os4/kconfig-out/.config
+            ${{ runner.temp }}/os4/resolved-os4-gki.config
             ${{ runner.temp }}/os4/kconfig-defconfig.log
             ${{ runner.temp }}/os4/kconfig-olddefconfig.log
           if-no-files-found: warn
