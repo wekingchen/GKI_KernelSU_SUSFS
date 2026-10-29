@@ -69,7 +69,7 @@ class TestOemModuleAbi(unittest.TestCase):
         self.assertEqual(report["verdict"], "CRC_CONFLICT_DETECTED")
 
     def test_candidate_other_module_crc_mismatch(self):
-        self.symvers.write_text("0x12345678\\ttest_export\\tmm/zsmalloc\\tEXPORT_SYMBOL\\t\\n")
+        self.symvers.write_text(" ".join(("0x12345678", "test_export", "mm/zsmalloc", "EXPORT_SYMBOL")) + chr(10))
         self.classic(0x12345679)
         report, code = abi.audit(self.symvers, self.modules)
         self.assertEqual(code, 1)
@@ -79,7 +79,7 @@ class TestOemModuleAbi(unittest.TestCase):
         self.assertFalse(report["safe_to_flash"])
 
     def test_candidate_other_module_crc_matching(self):
-        self.symvers.write_text("0x12345678\\ttest_export\\tmm/zsmalloc\\tEXPORT_SYMBOL\\t\\n")
+        self.symvers.write_text(" ".join(("0x12345678", "test_export", "mm/zsmalloc", "EXPORT_SYMBOL")) + chr(10))
         self.classic(0x12345678)
         report, code = abi.audit(self.symvers, self.modules)
         self.assertEqual(report["candidate_other_module_crc_matched"], 1)
