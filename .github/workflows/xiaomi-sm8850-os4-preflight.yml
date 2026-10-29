@@ -215,6 +215,86 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: "检查 BakaSU Built-in 与 NoMount 的 R62 源码集成（不编译）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/xiaomi-sm8850-os4-6.12.69.env
+          cd "$RUNNER_TEMP/os4"
+          test -s source-audit.txt
+          grep -qx 'R62_SUSFS_FULL_TREE_APPLY=PASS' source-audit.txt
+          git clone -q --depth=1 --branch "$OS4_BAKASU_REF" "$OS4_BAKASU_REPO" BakaSU
+          bakasu_commit="$(git -C BakaSU rev-parse HEAD)"
+          [[ -f BakaSU/kernel/Kconfig && -f BakaSU/kernel/Makefile ]] || {
+            echo "::error::BakaSU kernel source integration files missing"
+            exit 1
+          }
+          grep -Fq 'config KSU_SUSFS' BakaSU/kernel/Kconfig || {
+            echo "::error::BakaSU SUSFS hook is missing"
+            exit 1
+          }
+          grep -Fq 'config KSU_TRACEPOINT_HOOK' BakaSU/kernel/Kconfig || {
+            echo "::error::BakaSU tracepoint hook is missing"
+            exit 1
+          }
+          [[ ! -e common/drivers/kernelsu ]] || {
+            echo "::error::kernel source unexpectedly already integrates kernelsu"
+            exit 1
+          }
+          ln -s "$(realpath --relative-to=common/drivers BakaSU/kernel)" common/drivers/kernelsu
+          grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile ||
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> common/drivers/Makefile
+          python3 - common/drivers/Kconfig <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          s = path.read_text()
+          needle = '\nendmenu'
+          pos = s.rfind(needle)
+          if pos < 0 or 'source "drivers/kernelsu/Kconfig"' in s:
+              raise SystemExit('unexpected R62 drivers/Kconfig structure')
+          path.write_text(s[:pos] + '\nsource "drivers/kernelsu/Kconfig"\n' + s[pos:])
+          PY
+          [[ -L common/drivers/kernelsu ]] || exit 1
+          grep -Fq 'source "drivers/kernelsu/Kconfig"' common/drivers/Kconfig
+
+          git clone -q --depth=1 --branch "$OS4_NOMOUNT_REF" "$OS4_NOMOUNT_REPO" common/NoMount
+          nomount_commit="$(git -C common/NoMount rev-parse HEAD)"
+          [[ -f common/NoMount/kernel/setup.sh ]] || {
+            echo "::error::NoMount setup.sh is missing"
+            exit 1
+          }
+          (cd common && sh NoMount/kernel/setup.sh "$nomount_commit") > nomount-os4-setup.log 2>&1 || {
+            cat nomount-os4-setup.log
+            echo "::error::NoMount setup failed against R62"
+            exit 1
+          }
+          [[ -L common/fs/nomount ]] && [[ -f common/fs/nomount/Kconfig ]] || {
+            echo "::error::NoMount R62 filesystem integration missing"
+            exit 1
+          }
+          grep -Fq 'source "fs/nomount/Kconfig"' common/fs/Kconfig
+          grep -Fq 'obj-$(CONFIG_NOMOUNT) += nomount/' common/fs/Makefile
+          git -C common diff --check -- drivers/Kconfig drivers/Makefile fs/Kconfig fs/Makefile
+          {
+            echo "BAKASU_COMMIT=$bakasu_commit"
+            echo "NOMOUNT_COMMIT=$nomount_commit"
+            echo "R62_BAKASU_BUILTIN_SOURCE_LINK=PASS"
+            echo "R62_BAKASU_SUSFS_KCONFIG=PASS"
+            echo "R62_NOMOUNT_SETUP_SOURCE_ONLY=PASS"
+            echo "R62_BAKASU_NOMOUNT_KERNEL_COMPILE=NOT_RUN"
+          } >> source-audit.txt
+          echo "BakaSU Built-in and NoMount source integration PASS (not compiled)."
+
+      - name: "保存 BakaSU/NoMount 接入测试报告"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-pandora-os4-bakasu-nomount-source-audit
+          path: ${{ runner.temp }}/os4/nomount-os4-setup.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: "发布源码审查结论"
         if: always()
         shell: bash
