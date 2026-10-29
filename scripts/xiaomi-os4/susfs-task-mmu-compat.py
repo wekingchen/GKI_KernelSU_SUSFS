@@ -93,7 +93,7 @@ def port_source(target: Path) -> None:
         "\tvma_start = vma->vm_start;\n"
         "\tdo {\n"
         "#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n"
-        "\t\tif (!vma->vm_file || !SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\n"
+        "\t\tif (!(vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))))\n"
         "#endif\n"
         "\t\t\tsmap_gather_stats(vma, &mss, 0);\n"
         "\t\tlast_vma_end = vma->vm_end;\n"
