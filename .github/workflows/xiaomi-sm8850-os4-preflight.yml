@@ -128,6 +128,32 @@ jobs:
           fi
           echo "No Image, AnyKernel3 or flashable payload was built."
 
+      - name: "提取 R62 SUSFS 补丁冲突源码快照（不做修改）"
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/os4"
+          if [[ -f common/fs/proc/task_mmu.c && -f susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch ]]; then
+            mkdir -p diagnostic
+            cp -f common/fs/proc/task_mmu.c diagnostic/task_mmu-R62-original.c
+            cp -f susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch diagnostic/susfs-6.12-upstream.patch
+            git -C common rev-parse HEAD > diagnostic/common-commit.txt
+            git -C susfs rev-parse HEAD > diagnostic/susfs-commit.txt
+            echo "已保存完整原始 task_mmu.c 和上游 SUSFS 补丁，供精确移植；未修改源码"
+          else
+            echo "::warning::缺少 R62 或 SUSFS 补丁，无法生成源码诊断快照"
+          fi
+
+      - name: "保存源码快照（只用于适配，不可刷机）"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-pandora-os4-susfs-source-context
+          path: ${{ runner.temp }}/os4/diagnostic/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: "发布只读审查结论"
         if: always()
         shell: bash
