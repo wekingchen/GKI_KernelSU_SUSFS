@@ -57,9 +57,9 @@ jobs:
           mkdir -p "${{ runner.temp }}/stock"
           if ! gh release download "$OS4_STOCK_INPUT_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern "$OS4_STOCK_INPUT_ASSET" \
+            --pattern "$OS4_STOCK_INPUT_ASSET_PATTERN" \
             --dir "${{ runner.temp }}/stock"; then
-            echo "::error::Release $OS4_STOCK_INPUT_RELEASE_TAG 中还没有 $OS4_STOCK_INPUT_ASSET。只需上传整包 xm.zip，不需要手工提取 boot.img。"
+            echo "::error::Release $OS4_STOCK_INPUT_RELEASE_TAG 中还没有 $OS4_STOCK_INPUT_ASSET_PATTERN。只需上传整包 xm.zip，不需要手工提取 boot.img。"
             exit 1
           fi
           mapfile -t STOCK_ZIPS < <(find "${{ runner.temp }}/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
