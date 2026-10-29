@@ -236,8 +236,34 @@ echo "[OS4] Building R62 Image with BakaSU + SUSFS + NoMount (not flashable)"
 start="$(date +%s)"
 if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 \
   CC="$CLANG_CC" HOSTCC="$CLANG_CC" -j"$BUILD_JOBS" Image > "$RESULT/kernel-build.log" 2>&1; then
-  echo "::error::R62 baseline Image failed; last 120 lines:"
-  tail -n 120 "$RESULT/kernel-build.log"
+  echo "::error::R62 feature Image failed"
+  # Parallel make can keep printing successful CC lines after the first compiler
+  # error, pushing the real diagnostic out of a simple tail. Extract concise
+  # error contexts from the complete local log without uploading that huge log.
+  python3 - "$RESULT/kernel-build.log" "$RESULT/kernel-error-context.txt" <<'PY'
+from pathlib import Path
+import re, sys
+src=Path(sys.argv[1]).read_text(errors="replace").splitlines()
+pat=re.compile(r"(fatal error:|(^|\s)error:|undefined reference|ld\.lld: error|No rule to make target|No such file or directory)", re.I)
+hits=[i for i,line in enumerate(src) if pat.search(line)]
+out=[]
+seen=set()
+for i in hits[:30]:
+    a=max(0,i-4); b=min(len(src),i+6)
+    key=(a,b)
+    if key in seen: continue
+    seen.add(key)
+    out.append(f"--- error context around line {i+1} ---")
+    out.extend(src[a:b])
+if not hits:
+    out.append("No compiler diagnostic matched; final 180 lines follow.")
+    out.extend(src[-180:])
+Path(sys.argv[2]).write_text("\n".join(out)+"\n")
+PY
+  cat "$RESULT/kernel-error-context.txt"
+  echo "::group::最后 80 行（仅辅助判断 make 退出路径）"
+  tail -n 80 "$RESULT/kernel-build.log"
+  echo "::endgroup::"
   exit 1
 fi
 image_elapsed="$(( $(date +%s) - start ))"
