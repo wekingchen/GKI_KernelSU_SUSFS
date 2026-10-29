@@ -223,6 +223,14 @@ jobs:
           grep -Fq 'Skip hidden VMA after mmap_lock contention' common/fs/proc/task_mmu.c
           grep -Fq 'if (!(vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))))' common/fs/proc/task_mmu.c
           git -C common diff -- fs/proc/task_mmu.c > susfs-R62-task-mmu-port.diff
+          if grep -Fq 'ksu_handle_init_module' common/kernel/module/main.c 2>/dev/null &&
+             grep -Fq 'ksu_handle_finit_module' common/kernel/module/main.c 2>/dev/null; then
+            echo 'R62_KSU_INSMOD_HOOK_SOURCE=PRESENT' >> source-audit.txt
+            echo 'R62_BAKASU_BUILTIN_KERNELSU_BLACKLIST_PATH=AVAILABLE' >> source-audit.txt
+          else
+            echo 'R62_KSU_INSMOD_HOOK_SOURCE=ABSENT' >> source-audit.txt
+            echo 'R62_BAKASU_BUILTIN_KERNELSU_BLACKLIST_PATH=NOT_PROVEN' >> source-audit.txt
+          fi
           {
             echo 'R62_SUSFS_FILTERED_PATCH=PASS'
             echo 'R62_SUSFS_FULL_TREE_APPLY=PASS'
