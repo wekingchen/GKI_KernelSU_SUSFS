@@ -1,0 +1,134 @@
+name: "小米17 Pro OS4 / 导入 xm.zip 并固化 boot-v4 模板"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-stock-input.yml"
+      - ".github/config/pandora-os4-stock-input.env"
+      - "scripts/xiaomi-os4/make-tested-boot-v4-fixture.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-stock-input
+  cancel-in-progress: true
+
+jobs:
+  import-xm:
+    name: "固定 Release xm.zip → 校验 stock boot → 生成版本 fixture"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: os4/pandora-6.12.69-adaptation-20261029
+
+      - name: "载入版本配置"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/config/pandora-os4-stock-input.env >> "$GITHUB_ENV"
+
+      - name: "确保 stock-input prerelease 存在"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$OS4_STOCK_INPUT_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$OS4_STOCK_INPUT_RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "pandora OS4 stock input · 上传 xm.zip 到这里" \
+              --notes "仅用于 OS4 模板输入。上传与当前配置 build 完全对应的 xm.zip；Action 会自行提取 boot.img。不要上传自定义内核 boot。" \
+              --prerelease
+          fi
+
+      - name: "下载 xm.zip；不存在则明确停止"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/stock"
+          if ! gh release download "$OS4_STOCK_INPUT_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$OS4_STOCK_INPUT_ASSET" \
+            --dir "${{ runner.temp }}/stock"; then
+            echo "::error::Release $OS4_STOCK_INPUT_RELEASE_TAG 中还没有 $OS4_STOCK_INPUT_ASSET。只需上传整包 xm.zip，不需要手工提取 boot.img。"
+            exit 1
+          fi
+          test -s "${{ runner.temp }}/stock/$OS4_STOCK_INPUT_ASSET"
+
+      - name: "从 xm.zip 提取并核对 stock boot"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="${{ runner.temp }}/stock/$OS4_STOCK_INPUT_ASSET"
+          unzip -l "$ZIP"
+          BOOT_MEMBER="$(unzip -Z1 "$ZIP" | awk 'tolower($0) ~ /(^|\/)boot\.img$/ {print; exit}')"
+          test -n "$BOOT_MEMBER" || { echo "::error::xm.zip 内没有 boot.img"; exit 1; }
+          unzip -p "$ZIP" "$BOOT_MEMBER" > "${{ runner.temp }}/stock/boot.img"
+          printf '%s  %s\n' "$OS4_STOCK_BOOT_SHA256" "${{ runner.temp }}/stock/boot.img" | sha256sum -c -
+          echo "stock_boot_member=$BOOT_MEMBER"
+          echo "stock_boot_verified=YES"
+
+      - name: "下载已真机通过的 R62 #7 Image"
+        uses: actions/download-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-baseline-Image-ABI
+          run-id: 40853513946
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline7
+
+      - name: "用 xm.zip stock boot 重建 #7，必须匹配真机成功 SHA"
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$OS4_TESTED_BASELINE_IMAGE_SHA256" "${{ runner.temp }}/baseline7/Image" | sha256sum -c -
+          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-boot.py \
+            "${{ runner.temp }}/stock/boot.img" \
+            "${{ runner.temp }}/baseline7/Image" \
+            "${{ runner.temp }}/tested-r62-boot.img"
+          printf '%s  %s\n' "$OS4_TESTED_BASELINE_BOOT_SHA256" "${{ runner.temp }}/tested-r62-boot.img" | sha256sum -c -
+
+      - name: "生成紧凑 fixture"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/make-tested-boot-v4-fixture.py \
+            "${{ runner.temp }}/tested-r62-boot.img" \
+            ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+          test -s .github/config/pandora-os4-r62-tested-boot-v4-fixture.json
+
+      - name: "提交 fixture 到当前 OS4 分支"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/config/pandora-os4-r62-tested-boot-v4-fixture.json; then
+            echo "fixture already identical; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/config/pandora-os4-r62-tested-boot-v4-fixture.json
+          git commit -m "config(os4): import verified $OS4_STOCK_INPUT_BUILD boot-v4 fixture from xm.zip"
+          git push origin HEAD:os4/pandora-6.12.69-adaptation-20261029
+
+      - name: "摘要"
+        run: |
+          {
+            echo "## OS4 stock input"
+            echo
+            echo "Build: $OS4_STOCK_INPUT_BUILD"
+            echo
+            echo "✅ xm.zip 中 boot.img 已匹配预期 stock SHA"
+            echo "✅ 已重建并逐字节匹配真机成功 R62 #7 临时 boot"
+            echo "✅ boot-v4 fixture 已固化"
+            echo
+            echo "以后同一固件无需再次提供 xm.zip。"
+          } >> "$GITHUB_STEP_SUMMARY"
