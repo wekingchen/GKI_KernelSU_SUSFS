@@ -227,9 +227,11 @@ jobs:
              grep -Fq 'ksu_handle_finit_module' common/kernel/module/main.c 2>/dev/null; then
             echo 'R62_KSU_INSMOD_HOOK_SOURCE=PRESENT' >> source-audit.txt
             echo 'R62_BAKASU_BUILTIN_KERNELSU_BLACKLIST_PATH=AVAILABLE' >> source-audit.txt
+            echo "::notice::R62_KSU_INSMOD_HOOK_SOURCE=PRESENT; Built-in BakaSU can activate the kernelsu module blacklist path"
           else
             echo 'R62_KSU_INSMOD_HOOK_SOURCE=ABSENT' >> source-audit.txt
             echo 'R62_BAKASU_BUILTIN_KERNELSU_BLACKLIST_PATH=NOT_PROVEN' >> source-audit.txt
+            echo "::warning::R62_KSU_INSMOD_HOOK_SOURCE=ABSENT; do not rely on Built-in BakaSU module blacklist for current LKM init_boot"
           fi
           {
             echo 'R62_SUSFS_FILTERED_PATCH=PASS'
