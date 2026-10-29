@@ -45,7 +45,7 @@ kernel=a.baseline_image.read_bytes()
 
 if len(header) != PAGE or header[:8] != b"ANDROID!":
     raise SystemExit("ERROR: invalid fixture header")
-if struct.unpack_from("<I",header,40)[0] != 4 or struct.unpack_from("<I",header,36)[0] != 1584:
+if struct.unpack_from("<I",header,40)[0] != 4 or struct.unpack_from("<I",header,20)[0] != 1584:
     raise SystemExit("ERROR: fixture is not Android boot v4")
 if sha(kernel) != EXPECTED_BASELINE_KERNEL_SHA256:
     raise SystemExit("ERROR: baseline Image hash mismatch")
