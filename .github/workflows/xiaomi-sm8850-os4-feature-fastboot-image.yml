@@ -1,0 +1,270 @@
+name: "小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-image.yml"
+      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
+      - "tests/test_xiaomi_os4_repack_fastboot_boot.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-feature-fastboot-image
+  cancel-in-progress: true
+
+env:
+  TEMPLATE_RELEASE_TAG: os4-pandora-r62-tested-template
+  TEMPLATE_ZIP: pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.zip
+  TEMPLATE_IMG: pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.img
+  TEMPLATE_IMG_SHA256: 3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0
+  FEATURE_RUN_ID: "40896020115"
+  FEATURE_ARTIFACT: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI
+  FEATURE_IMAGE_SHA256: f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c
+  OUTPUT_IMG: pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img
+  TEST_RELEASE_TAG: os4-pandora-r62-bakasu-susfs-nomount-fastboot-test
+
+jobs:
+  build-fastboot-image:
+    name: "从已真机验证模板自动生成完整 FASTBOOT-BOOT-ONLY.img"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "检查 repack 工具与单元测试"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          python3 -m unittest discover -s tests -p test_xiaomi_os4_repack_fastboot_boot.py -v
+
+      - name: "确保已验证模板 Release 存在"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TEMPLATE_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            cat > /tmp/template-release-notes.txt <<'EOF'
+          # Xiaomi 17 Pro OS4 已验证临时 boot 模板
+
+          此 Release 只用于保存已经在 pandora / OS4.0.5.0.XBLCNXM 真机上成功执行过
+          `fastboot boot` 的固定 baseline 模板。
+
+          只接受文件：
+          `pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.zip`
+
+          ZIP 内的 IMG 必须满足：
+          SHA256 = `3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0`
+
+          这是 CI 输入模板，不是新的功能内核发布。
+          EOF
+            gh release create "$TEMPLATE_RELEASE_TAG"               --repo "$GITHUB_REPOSITORY"               --title "pandora OS4 R62 已验证 fastboot boot 模板"               --notes-file /tmp/template-release-notes.txt               --prerelease
+          fi
+
+      - name: "下载并严格验证已真机启动的模板"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/template"
+          cd "$RUNNER_TEMP/template"
+
+          if ! gh release download "$TEMPLATE_RELEASE_TAG"               --repo "$GITHUB_REPOSITORY"               --pattern "$TEMPLATE_ZIP"               --dir .; then
+            echo "::error::已自动创建模板 Release，但其中还没有 $TEMPLATE_ZIP"
+            echo "::error::把上一轮已经成功 fastboot boot 的同名 ZIP 上传到该 Release 后，重新运行本工作流即可。"
+            exit 1
+          fi
+
+          test -s "$TEMPLATE_ZIP"
+          unzip -q "$TEMPLATE_ZIP"
+          test -s "$TEMPLATE_IMG"
+          printf '%s  %s\n' "$TEMPLATE_IMG_SHA256" "$TEMPLATE_IMG" | sha256sum -c -
+          echo "已验证模板整图 SHA256：$TEMPLATE_IMG_SHA256"
+
+      - name: "下载已通过编译与 ABI 门禁的功能 Image"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.FEATURE_ARTIFACT }}
+          run-id: ${{ env.FEATURE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/feature
+
+      - name: "再次验证功能内核静态门禁"
+        shell: bash
+        run: |
+          set -euo pipefail
+          F="$RUNNER_TEMP/feature"
+          test -s "$F/Image"
+          test -s "$F/final.config"
+          test -s "$F/Module.symvers"
+          test -s "$F/abi-diff.txt"
+
+          printf '%s  %s\n' "$FEATURE_IMAGE_SHA256" "$F/Image" | sha256sum -c -
+          printf '%s  %s\n'             '69dc25f5e78bb1b03332c0a8cf0169e239e1efbd51c04a7469aea95430f89b2f'             "$F/Module.symvers" | sha256sum -c -
+
+          grep -qx 'CONFIG_KSU=y' "$F/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS=y' "$F/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS_SUS_MAP=y' "$F/final.config"
+          grep -qx 'CONFIG_NOMOUNT=y' "$F/final.config"
+          grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$F/final.config"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$F/final.config"
+
+          grep -qx 'BASE_VMLINUX_EXPORTS=18725' "$F/abi-diff.txt"
+          grep -qx 'MATCHED_SYMBOL_NAMES=18725' "$F/abi-diff.txt"
+          grep -Eq '^NEW_EXPORTS=(0)?$' "$F/abi-diff.txt"
+          grep -Eq '^MISSING_EXPORTS=(0)?$' "$F/abi-diff.txt"
+          grep -Eq '^CRC_CONFLICTS=(0)?$' "$F/abi-diff.txt"
+
+      - name: "自动生成完整功能版临时 boot.img"
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/template/$TEMPLATE_IMG"
+          F="$RUNNER_TEMP/feature/Image"
+          O="$RUNNER_TEMP/$OUTPUT_IMG"
+
+          python3 scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py "$T" "$F" "$O" | tee "$RUNNER_TEMP/repack-report.txt"
+          test -s "$O"
+
+          grep -qx "template_boot_sha256=$TEMPLATE_IMG_SHA256" "$RUNNER_TEMP/repack-report.txt"
+          grep -qx "feature_kernel_sha256=$FEATURE_IMAGE_SHA256" "$RUNNER_TEMP/repack-report.txt"
+          grep -qx 'lkm_guard=module_blacklist=kernelsu' "$RUNNER_TEMP/repack-report.txt"
+          grep -qx 'FLASHABLE=NO' "$RUNNER_TEMP/repack-report.txt"
+          grep -qx 'USE=fastboot boot ONLY' "$RUNNER_TEMP/repack-report.txt"
+
+          sha256sum "$O" | tee "$RUNNER_TEMP/SHA256SUMS.txt"
+
+      - name: "对最终 IMG 做独立 boot-v4 二次审计"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/$OUTPUT_IMG" <<'PY'
+          from pathlib import Path
+          import hashlib, struct, sys
+
+          p = Path(sys.argv[1])
+          d = p.read_bytes()
+          assert d[:8] == b"ANDROID!", "bad Android boot magic"
+          assert struct.unpack_from("<I", d, 40)[0] == 4, "not boot header v4"
+          assert struct.unpack_from("<I", d, 36)[0] == 1584, "unexpected header size"
+
+          ksize = struct.unpack_from("<I", d, 8)[0]
+          kernel = d[4096:4096 + ksize]
+          kh = hashlib.sha256(kernel).hexdigest()
+          assert kh == "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c", kh
+
+          cmd = d[44:44+1536].split(b"\0", 1)[0]
+          toks = cmd.split()
+          assert b"module_blacklist=kernelsu" in toks, cmd
+
+          assert d[-64:-60] != b"AVBf", "temporary image must not carry AVB footer"
+          print("FINAL_BOOT_V4_AUDIT=PASS")
+          print("KERNEL_SHA256=" + kh)
+          print("CMDLINE=" + cmd.decode("ascii", "replace"))
+          print("OUTPUT_SHA256=" + hashlib.sha256(d).hexdigest())
+          PY
+
+      - name: "生成真机测试说明"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/README-FASTBOOT-BOOT-ONLY.txt" <<EOF
+          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          R62 BakaSU Built-in + SUSFS + NoMount
+          临时启动真机测试镜像
+
+          文件：
+          $OUTPUT_IMG
+
+          只允许：
+          fastboot boot $OUTPUT_IMG
+
+          严禁：
+          fastboot flash boot $OUTPUT_IMG
+          fastboot flash boot_a $OUTPUT_IMG
+
+          本镜像不会修改 init_boot/vendor_boot/dtbo。
+          临时 cmdline 已加入 module_blacklist=kernelsu，
+          用于阻止当前 LKM init_boot 再加载旧 kernelsu.ko。
+
+          成功开机后检查：
+          adb shell uname -r
+          adb shell cat /proc/cmdline
+          adb shell "cat /proc/modules | grep '^kernelsu ' || true"
+          adb shell su -c id
+
+          预期：
+          uname = 6.12.69-android16-6-os4r62-features-4k
+          cmdline 包含 module_blacklist=kernelsu
+          /proc/modules 不出现 kernelsu LKM
+          su -c id 返回 uid=0
+
+          safe_to_flash=false
+          EOF
+
+      - name: "上传 Actions Artifact"
+        uses: actions/upload-artifact@v6
+        with:
+          name: FASTBOOT-BOOT-ONLY-pandora-OS4-R62-BakaSU-SUSFS-NoMount
+          path: |
+            ${{ runner.temp }}/${{ env.OUTPUT_IMG }}
+            ${{ runner.temp }}/SHA256SUMS.txt
+            ${{ runner.temp }}/repack-report.txt
+            ${{ runner.temp }}/README-FASTBOOT-BOOT-ONLY.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: "发布成可直接下载的 GitHub Release 测试资产"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/release-notes.txt" <<'EOF'
+          # ⚠️ FASTBOOT BOOT ONLY — 禁止持久刷写
+
+          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          R62 BakaSU Built-in + SUSFS + NoMount 真机临时测试候选。
+
+          该文件仅用于：
+
+          ```text
+          fastboot boot pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img
+          ```
+
+          不允许 `fastboot flash boot` / AnyKernel3 / 持久写入。
+
+          当前状态仍为 `safe_to_flash=false`。
+          EOF
+
+          if gh release view "$TEST_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TEST_RELEASE_TAG"               --repo "$GITHUB_REPOSITORY"               --title "TEST ONLY · pandora OS4 R62 BakaSU + SUSFS + NoMount"               --notes-file "$RUNNER_TEMP/release-notes.txt"               --prerelease
+          else
+            gh release create "$TEST_RELEASE_TAG"               --repo "$GITHUB_REPOSITORY"               --title "TEST ONLY · pandora OS4 R62 BakaSU + SUSFS + NoMount"               --notes-file "$RUNNER_TEMP/release-notes.txt"               --prerelease
+          fi
+
+          gh release upload "$TEST_RELEASE_TAG"             "$RUNNER_TEMP/$OUTPUT_IMG"             "$RUNNER_TEMP/SHA256SUMS.txt"             "$RUNNER_TEMP/README-FASTBOOT-BOOT-ONLY.txt"             --repo "$GITHUB_REPOSITORY"             --clobber
+
+      - name: "摘要"
+        run: |
+          {
+            echo "## 功能内核临时启动镜像"
+            echo
+            echo "Actions 已生成完整 IMG，不需要用户本地 repack。"
+            echo
+            echo "`$OUTPUT_IMG`"
+            echo
+            echo "**只允许 fastboot boot；safe_to_flash=false。**"
+          } >> "$GITHUB_STEP_SUMMARY"
