@@ -28,6 +28,8 @@ env:
   FEATURE_ARTIFACT: "NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI"
   FEATURE_IMAGE_SHA256: "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
   FIXTURE: ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+  STOCK_BOOT_SHA256: "4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653"
+  STOCK_HEADER_SHA256: "946575ca66cdc3ede85ce96c59a2a75a286335d4cf5e47f9541a28244d567d90"
   OUTPUT_IMG: "pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img"
 
 jobs:
@@ -37,6 +39,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+
+      - name: "校验固定 stock boot-v4 头部缓存（无需 ROM 下载）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          test -s "$FIXTURE"
+          python3 - "$FIXTURE" "$STOCK_BOOT_SHA256" "$STOCK_HEADER_SHA256" <<'PY'
+          import json,sys
+          f=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert f["stock_boot_sha256"]==sys.argv[2]
+          assert f["stock_header_sha256"]==sys.argv[3]
+          assert f["stock_build"]=="OS4.0.5.0.XBLCNXM"
+          assert f["safe_to_flash"] is False
+          print("STOCK_BOOT_CACHE=PINNED_FIXTURE")
+          PY
 
       - name: "拒绝退回官方 ROM 下载"
         shell: bash
@@ -99,7 +117,48 @@ jobs:
             "${{ runner.temp }}/feature4/Image" \
             "$OUT/$OUTPUT_IMG" | tee "$OUT/repack-report.txt"
           grep -Fq 'lkm_guard=module_blacklist=kernelsu' "$OUT/repack-report.txt"
-          sha256sum "$OUT/$OUTPUT_IMG" > "$OUT/SHA256SUMS.txt"
+          grep -Fq 'FLASHABLE=NO' "$OUT/repack-report.txt"
+          (cd "$OUT" && sha256sum "$OUTPUT_IMG" > SHA256SUMS.txt)
+          cat > "$OUT/README.txt" <<EOF
+          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          R62 BakaSU Built-in + SUSFS + NoMount
+          TEST MODE ONLY / safe_to_flash=false
+          Extract this Artifact and verify SHA256SUMS.txt first.
+          Only allowed command after verification:
+          fastboot boot $OUTPUT_IMG
+          Do not flash any partition or generate AnyKernel3 from this artifact.
+          EOF
+
+      - name: "独立核验成品 IMG：SHA256 / boot-v4 / 功能内核 / blacklist"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/out"
+          (cd "$OUT" && sha256sum -c SHA256SUMS.txt)
+          python3 - "$OUT/$OUTPUT_IMG" "$FEATURE_IMAGE_SHA256" <<'PY'
+          import hashlib,struct,sys
+          from pathlib import Path
+          data=Path(sys.argv[1]).read_bytes()
+          expected_kernel_sha=sys.argv[2]
+          assert len(data)>=4096 and data[:8]==b"ANDROID!", "boot magic mismatch"
+          kernel_size,ramdisk_size,os_version,header_size=struct.unpack_from("<IIII",data,8)
+          version=struct.unpack_from("<I",data,40)[0]
+          signature_size=struct.unpack_from("<I",data,1580)[0]
+          assert version==4 and header_size==1584, "boot-v4 header mismatch"
+          assert ramdisk_size==0 and signature_size==0, "unexpected ramdisk/signature"
+          expected_size=4096+((kernel_size+4095)//4096)*4096
+          assert len(data)==expected_size, "unexpected payload/footer"
+          assert hashlib.sha256(data[4096:4096+kernel_size]).hexdigest()==expected_kernel_sha, "embedded feature Image SHA mismatch"
+          cmd=data[44:44+1536].split(b"\0",1)[0]
+          assert b"module_blacklist=kernelsu" in cmd.split(), "LKM guard missing"
+          assert data[-64:-60]!=b"AVBf", "AVB footer found"
+          print("FINAL_BOOT_V4_AUDIT=PASS")
+          print("FEATURE_IMAGE_SHA256="+expected_kernel_sha)
+          print("CMDLINE="+cmd.decode("ascii","replace"))
+          print("OUTPUT_SIZE="+str(len(data)))
+          print("OUTPUT_SHA256="+hashlib.sha256(data).hexdigest())
+          print("safe_to_flash=false")
+          PY
 
       - name: "上传可直接 fastboot boot 的成品 IMG"
         uses: actions/upload-artifact@v6
@@ -109,6 +168,24 @@ jobs:
             ${{ runner.temp }}/out/${{ env.OUTPUT_IMG }}
             ${{ runner.temp }}/out/SHA256SUMS.txt
             ${{ runner.temp }}/out/repack-report.txt
+            ${{ runner.temp }}/out/README.txt
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: "运行摘要（仅临时启动）"
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## OS4 功能版完整临时 boot-v4"
+            echo
+            echo "stock boot 缓存：固定 4KB header fixture；不下载官方 ROM。"
+            echo "真机基线：#7 boot SHA256 $TESTED_BASELINE_BOOT_SHA256"
+            echo "功能内核 SHA256：$FEATURE_IMAGE_SHA256"
+            echo "最终 IMG SHA256：$(cut -d' ' -f1 "$RUNNER_TEMP/out/SHA256SUMS.txt")"
+            echo "FINAL_BOOT_V4_AUDIT=PASS"
+            echo "safe_to_flash=false"
+            echo
+            echo "仅供 fastboot boot 临时测试，禁止持久刷写。"
+          } >> "$GITHUB_STEP_SUMMARY"
