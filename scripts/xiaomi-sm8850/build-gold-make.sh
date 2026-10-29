@@ -188,6 +188,8 @@ make -j"$(nproc)" \
   CC="$CC_COMMAND" HOSTCC="$HOSTCC_COMMAND" LD=ld.lld OBJCOPY=llvm-objcopy \
   O=out olddefconfig
 
+bash "$XIAOMI_SCRIPT_DIR/guard-gki-abi.sh" "$KOUT/.config"
+
 note "Gold make path: building Image only (no Kleaf dist/module-output enforcement)"
 make -j"$(nproc)" \
   LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
