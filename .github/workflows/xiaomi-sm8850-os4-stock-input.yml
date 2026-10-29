@@ -114,7 +114,9 @@ jobs:
           set -euo pipefail
           python3 scripts/xiaomi-os4/make-tested-boot-v4-fixture.py \
             "${{ runner.temp }}/tested-r62-boot.img" \
-            ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+            ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json" \
+            --stock-boot "${{ runner.temp }}/stock/boot.img" \
+            --stock-build "$OS4_STOCK_INPUT_BUILD"
           test -s .github/config/pandora-os4-r62-tested-boot-v4-fixture.json
 
       - name: "提交 fixture 到当前 OS4 分支"
