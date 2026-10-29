@@ -1,0 +1,164 @@
+name: "Xiaomi 17 Pro OS4 / 6.12.69 源码与补丁预检（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-preflight.yml"
+      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
+      - "docs/xiaomi-sm8850-os4-6.12.69.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xiaomi-os4-source-audit
+  cancel-in-progress: true
+
+jobs:
+  source-preflight:
+    name: "官方 R62 源码 / KMI / 补丁只读预检"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: "检出独立 OS4 适配分支"
+        uses: actions/checkout@v7
+
+      - name: "读取 OS4 设备基线与源码锁定配置"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/xiaomi-sm8850-os4-6.12.69.env
+          test "$OS4_DEVICE" = pandora
+          test "$OS4_ANDROID_PLATFORM" = 17
+          test "$OS4_KERNEL_VERSION" = 6.12.69
+          test "$OS4_STOCK_KMI" = android16-6
+          test "$OS4_KMI_GENERATION" = 6
+          test "$OS4_GKI_BRANCH" = android16-6.12-2026-03
+          test "$OS4_GKI_TAG" = android16-6.12-2026-03_r62
+          test "$OS4_GKI_COMMON_COMMIT" = e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5
+          echo "OS4 source configuration: PASS"
+          echo "GKI candidate is NOT equivalent to OEM release: $OS4_STOCK_KERNEL_RELEASE"
+
+      - name: "获取并核验 Google 官方 GKI 源码"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/xiaomi-sm8850-os4-6.12.69.env
+          mkdir -p "$RUNNER_TEMP/os4"
+          cd "$RUNNER_TEMP/os4"
+          git init -q common
+          git -C common remote add origin "$OS4_GKI_COMMON_URL"
+          git -C common fetch --depth=1 --no-tags origin "refs/tags/$OS4_GKI_TAG"
+          resolved="$(git -C common rev-parse 'FETCH_HEAD^{commit}')"
+          if [[ "$resolved" != "$OS4_GKI_COMMON_COMMIT" ]]; then
+            echo "::error::GKI tag commit drift: $resolved"
+            exit 1
+          fi
+          git -C common checkout -q --detach "$resolved"
+          version="$(awk '/^VERSION = /{a=$3} /^PATCHLEVEL = /{b=$3} /^SUBLEVEL = /{c=$3} END{print a "." b "." c}' common/Makefile)"
+          branch="$(sed -n 's/^BRANCH=//p' common/build.config.constants)"
+          kmi="$(sed -n 's/^KMI_GENERATION=//p' common/build.config.constants)"
+          clang="$(sed -n 's/^CLANG_VERSION=//p' common/build.config.constants)"
+          printf 'source commit: %s\nversion: %s\nbranch: %s\nkmi generation: %s\nclang: %s\n' "$resolved" "$version" "$branch" "$kmi" "$clang"
+          {
+            echo "GKI_TAG=$OS4_GKI_TAG"
+            echo "GKI_COMMIT=$resolved"
+            echo "GKI_KERNEL_VERSION=$version"
+            echo "GKI_BRANCH=$branch"
+            echo "GKI_KMI_GENERATION=$kmi"
+            echo "GKI_CLANG=$clang"
+            echo "STOCK_RELEASE=$OS4_STOCK_KERNEL_RELEASE"
+          } > "$RUNNER_TEMP/os4/source-audit.txt"
+          [[ "$version" == "$OS4_KERNEL_VERSION" ]] || { echo "::error::unexpected kernel version $version"; exit 1; }
+          [[ "$branch" == android16-6.12 ]] || { echo "::error::unexpected GKI branch $branch"; exit 1; }
+          [[ "$kmi" == "$OS4_KMI_GENERATION" ]] || { echo "::error::KMI mismatch $kmi"; exit 1; }
+          [[ "$clang" == "$OS4_GKI_EXPECTED_CLANG" ]] || { echo "::error::Clang mismatch $clang"; exit 1; }
+          if [[ -f common/gki/aarch64/symbols/xiaomi ]]; then
+            echo "GKI_XIAOMI_SYMBOL_LIST=present" >> "$RUNNER_TEMP/os4/source-audit.txt"
+          else
+            echo "GKI_XIAOMI_SYMBOL_LIST=absent" >> "$RUNNER_TEMP/os4/source-audit.txt"
+            echo "::warning::R62 tag has no Xiaomi symbol list; KMI audit must account for that"
+          fi
+          echo "OFFICIAL_GKI_SOURCE_CHECK=PASS" >> "$RUNNER_TEMP/os4/source-audit.txt"
+
+      - name: "查看 SUSFS 与 DroidSpaces 6.12 补丁兼容性（仅预览）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/xiaomi-sm8850-os4-6.12.69.env
+          cd "$RUNNER_TEMP/os4"
+          echo "PATCH_DRY_RUN_NOTE=Preview only; no source integration or flash artifact" >> source-audit.txt
+          if git clone -q --depth=1 --single-branch --branch "$OS4_SUSFS_BRANCH" "$OS4_SUSFS_REPO" susfs; then
+            s_patch="susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+            echo "SUSFS_COMMIT=$(git -C susfs rev-parse HEAD)" >> source-audit.txt
+            if [[ -f "$s_patch" ]]; then
+              if patch --dry-run --batch --forward -d common -p1 < "$s_patch" > susfs-preview.log 2>&1; then
+                echo "SUSFS_UPSTREAM_PATCH_DRYRUN=PASS" >> source-audit.txt
+              else
+                echo "SUSFS_UPSTREAM_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
+                echo "::warning::SUSFS upstream patch is not clean on the pinned R62 source; inspect the preview log"
+              fi
+            else
+              echo "SUSFS_UPSTREAM_PATCH_DRYRUN=PATCH_MISSING" >> source-audit.txt
+              echo "::warning::expected SUSFS kernel patch is missing"
+            fi
+          else
+            echo "SUSFS_UPSTREAM_PATCH_DRYRUN=FETCH_UNAVAILABLE" >> source-audit.txt
+            echo "::warning::SUSFS upstream GitLab checkout unavailable; retry later"
+          fi
+          if git clone -q --depth=1 "$OS4_DROIDSPACES_REPO" droidspaces; then
+            d_patch="droidspaces/Documentation/resources/kernel-patches/GKI/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
+            echo "DROIDSPACES_COMMIT=$(git -C droidspaces rev-parse HEAD)" >> source-audit.txt
+            if [[ -f "$d_patch" ]]; then
+              if patch --dry-run --batch --forward -d common -p1 < "$d_patch" > droidspaces-preview.log 2>&1; then
+                echo "DROIDSPACES_KABI_PATCH_DRYRUN=PASS" >> source-audit.txt
+              else
+                echo "DROIDSPACES_KABI_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
+                echo "::warning::DroidSpaces kABI patch is not clean on pinned R62; inspect preview log"
+              fi
+            else
+              echo "DROIDSPACES_KABI_PATCH_DRYRUN=PATCH_MISSING" >> source-audit.txt
+              echo "::warning::expected DroidSpaces kABI patch is missing"
+            fi
+          else
+            echo "DROIDSPACES_KABI_PATCH_DRYRUN=FETCH_UNAVAILABLE" >> source-audit.txt
+            echo "::warning::DroidSpaces source checkout unavailable; retry later"
+          fi
+          echo "No Image, AnyKernel3 or flashable payload was built."
+
+      - name: "发布只读审查结论"
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## OS4 / Android 17 / 6.12.69 源码预检"
+            echo
+            echo "**仅为静态源码预检，不是可刷内核，不表示真机兼容。**"
+            echo
+            echo "手机原厂内核：`6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`"
+            echo
+            if [[ -f "$RUNNER_TEMP/os4/source-audit.txt" ]]; then
+              echo '~~~text'
+              cat "$RUNNER_TEMP/os4/source-audit.txt"
+              echo '~~~'
+            else
+              echo "源码检查尚未产生报告，查看前面步骤的错误。"
+            fi
+            echo
+            echo "下一阶段才做 BakaSU / SUSFS / NoMount / DroidSpaces 编译与 ABI 审计。"
+            echo "OS3 旧内核与既有 stable/LKG 均未更动。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "保存源码审计报告"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-pandora-os4-6.12.69-source-audit
+          path: |
+            ${{ runner.temp }}/os4/source-audit.txt
+            ${{ runner.temp }}/os4/susfs-preview.log
+            ${{ runner.temp }}/os4/droidspaces-preview.log
+          if-no-files-found: warn
+          retention-days: 14
