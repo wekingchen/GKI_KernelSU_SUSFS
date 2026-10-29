@@ -136,6 +136,8 @@ jobs:
             ${{ runner.temp }}/xiaomi-os4-build/results/vmlinux.zst
             ${{ runner.temp }}/xiaomi-os4-build/results/final.config
             ${{ runner.temp }}/xiaomi-os4-build/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-build/results/rust_binder-R62.ko
+            ${{ runner.temp }}/xiaomi-os4-build/results/rust-binder-R62-metadata.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
