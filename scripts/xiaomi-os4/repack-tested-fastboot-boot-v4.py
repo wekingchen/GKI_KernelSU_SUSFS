@@ -6,9 +6,11 @@ This tool is intentionally narrow and fail-closed:
 - input template must be the previously tested FASTBOOT-BOOT-ONLY boot-v4 image;
 - its embedded kernel must match R62 #7 exactly;
 - input must not carry an AVB footer;
-- only the kernel payload and kernel_size field are changed;
-- ramdisk, cmdline, OS version, boot header and any existing boot-signature bytes
-  are preserved byte-for-byte.
+- only the kernel payload, kernel_size and one deliberate cmdline guard are changed;
+- the cmdline guard appends module_blacklist=kernelsu so the current LKM-patched
+  init_boot cannot load a second KernelSU on top of BakaSU Built-in;
+- ramdisk, OS version, all other boot header fields and any existing
+  boot-signature bytes are preserved byte-for-byte.
 
 The output is for `fastboot boot` only. It is NOT a persistent flash image.
 """
@@ -23,6 +25,9 @@ from typing import NoReturn
 BOOT_MAGIC = b"ANDROID!"
 PAGE_SIZE = 4096
 HEADER_V4_SIZE = 1584
+CMDLINE_OFFSET = 44
+CMDLINE_SIZE = 1536
+LKM_GUARD = b"module_blacklist=kernelsu"
 EXPECTED_TEMPLATE_KERNEL_SHA256 = "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
 EXPECTED_FEATURE_KERNEL_SHA256 = "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
 EXPECTED_TEMPLATE_RELEASE = b"6.12.69-android16-6-os4r62-analysis-4k"
@@ -39,6 +44,29 @@ def align(value: int, size: int = PAGE_SIZE) -> int:
 
 def fail(message: str) -> NoReturn:
     raise SystemExit(f"ERROR: {message}")
+
+
+def add_lkm_guard(header_page: bytearray) -> tuple[bytes, bytes]:
+    raw = bytes(header_page[CMDLINE_OFFSET:CMDLINE_OFFSET + CMDLINE_SIZE])
+    nul = raw.find(b"\0")
+    if nul < 0:
+        fail("boot-v4 cmdline field is not NUL-terminated")
+    original = raw[:nul]
+    if b"module_blacklist=" in original:
+        tokens = original.split()
+        values = [t.split(b"=", 1)[1] for t in tokens if t.startswith(b"module_blacklist=")]
+        if any(b"kernelsu" in v.split(b",") for v in values):
+            guarded = original
+        else:
+            fail("template already has module_blacklist= without kernelsu; manual review required")
+    else:
+        guarded = original + (b" " if original else b"") + LKM_GUARD
+
+    if len(guarded) + 1 > CMDLINE_SIZE:
+        fail("boot-v4 cmdline has no room for kernelsu LKM guard")
+    header_page[CMDLINE_OFFSET:CMDLINE_OFFSET + CMDLINE_SIZE] = b"\0" * CMDLINE_SIZE
+    header_page[CMDLINE_OFFSET:CMDLINE_OFFSET + len(guarded)] = guarded
+    return original, guarded
 
 
 def main() -> None:
@@ -94,6 +122,7 @@ def main() -> None:
 
     header_page = bytearray(template[:PAGE_SIZE])
     struct.pack_into("<I", header_page, 8, len(new_kernel))
+    original_cmdline, guarded_cmdline = add_lkm_guard(header_page)
 
     out = bytearray(header_page)
     out += new_kernel
@@ -111,6 +140,10 @@ def main() -> None:
         fail("output embedded kernel hash validation failed")
     if bytes(out)[-64:-60] == b"AVBf":
         fail("output unexpectedly contains an AVB footer")
+    out_cmdline_raw = bytes(out[CMDLINE_OFFSET:CMDLINE_OFFSET + CMDLINE_SIZE])
+    out_cmdline = out_cmdline_raw.split(b"\0", 1)[0]
+    if LKM_GUARD not in out_cmdline.split():
+        fail("output is missing module_blacklist=kernelsu LKM guard")
 
     args.output.write_bytes(out)
     print(f"template_kernel_sha256={old_sha}")
@@ -120,6 +153,9 @@ def main() -> None:
     print(f"ramdisk_size={ramdisk_size}")
     print(f"signature_size={signature_size}")
     print(f"preserved_suffix_bytes={len(suffix)}")
+    print(f"template_cmdline={original_cmdline.decode('ascii', errors='replace')}")
+    print(f"guarded_cmdline={guarded_cmdline.decode('ascii', errors='replace')}")
+    print("lkm_guard=module_blacklist=kernelsu")
     print(f"output_size={len(out)}")
     print(f"output_sha256={sha256(bytes(out))}")
     print("FLASHABLE=NO")
