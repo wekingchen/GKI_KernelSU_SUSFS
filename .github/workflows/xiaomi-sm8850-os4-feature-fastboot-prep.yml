@@ -6,7 +6,8 @@ on:
       - "os4/pandora-6.12.69-adaptation-20261029"
     paths:
       - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-prep.yml"
-      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"\n      - "tests/test_xiaomi_os4_repack_fastboot_boot.py"
+      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
+      - "tests/test_xiaomi_os4_repack_fastboot_boot.py"
   workflow_dispatch:
 
 permissions:
