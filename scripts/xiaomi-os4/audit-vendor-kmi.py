@@ -89,10 +89,22 @@ def analyze_ko(file: Path, exports: dict) -> dict:
                                if s["st_shndx"] == "SHN_UNDEF" and s.name)
         matching = 0
         mismatch, external, no_crc = [], [], []
+        other_matched, other_mismatch, other_missing_crc = 0, [], []
         for symbol in sorted(imports | set(version)):
             dest = exports.get(symbol)
-            if dest is None or dest[1] != "vmlinux":
+            if dest is None:
                 external.append(symbol)
+            elif dest[1] != "vmlinux":
+                # These candidate providers are optional modules, not vmlinux.
+                # They may not be the providers used by the original OEM build.
+                if symbol not in version:
+                    other_missing_crc.append(symbol)
+                elif version[symbol] != dest[0]:
+                    other_mismatch.append({"symbol": symbol, "provider": dest[1],
+                                           "oem": f"0x{version[symbol]:08x}",
+                                           "candidate": f"0x{dest[0]:08x}"})
+                else:
+                    other_matched += 1
             elif symbol not in version:
                 no_crc.append(symbol)
             elif version[symbol] != dest[0]:
@@ -106,6 +118,10 @@ def analyze_ko(file: Path, exports: dict) -> dict:
                 "crc_entries": len(version), "undefined_symbols": len(imports),
                 "matched": matching, "mismatch_count": len(mismatch),
                 "mismatches": mismatch[:EXAMPLES],
+                "candidate_other_module_crc_matched": other_matched,
+                "candidate_other_module_crc_mismatch_count": len(other_mismatch),
+                "candidate_other_module_crc_mismatches": other_mismatch[:EXAMPLES],
+                "candidate_other_module_missing_crc_count": len(other_missing_crc),
                 "unknown_provider_count": len(external), "unknown_provider_examples": external[:EXAMPLES],
                 "missing_expected_crc_count": len(no_crc), "missing_expected_crc_examples": no_crc[:EXAMPLES]}
 
@@ -137,22 +153,30 @@ def audit(symvers: Path, modules: Path) -> tuple[dict, int]:
     count = sum(item["mismatch_count"] for item in results)
     matched = sum(item["matched"] for item in results)
     total_versioned = sum(bool(item["crc_entries"]) for item in results)
+    other_conflicts = sum(i["candidate_other_module_crc_mismatch_count"] for i in results)
+    other_matched = sum(i["candidate_other_module_crc_matched"] for i in results)
     incomplete = bool(errors or matched + count == 0 or total_versioned != len(results)
-                      or any(i["unknown_provider_count"] or i["missing_expected_crc_count"] for i in results))
+                      or any(i["unknown_provider_count"] or i["missing_expected_crc_count"]
+                             or i["candidate_other_module_missing_crc_count"] for i in results))
     verdict = ("CRC_CONFLICT_DETECTED" if count else
+               "CANDIDATE_MODULE_CRC_CONFLICT_DETECTED" if other_conflicts else
                "INCOMPLETE_EVIDENCE" if incomplete else
                "NO_CRC_CONFLICT_IN_CHECKED_SYMBOLS_ONLY")
-    code = 1 if count else 2 if incomplete else 0
+    code = 1 if count or other_conflicts else 2 if incomplete else 0
     return {
         "verdict": verdict, "safe_to_flash": False,
         "checked_modules": len(results), "total_module_files": len(files),
         "modules_with_crc": total_versioned,
         "matched_vmlinux_crc": matched, "mismatched_vmlinux_crc": count,
+        "candidate_other_module_crc_matched": other_matched,
+        "candidate_other_module_crc_mismatched": other_conflicts,
+        "candidate_other_module_mismatch_is_conditional": True,
         "unknown_provider_count": sum(i["unknown_provider_count"] for i in results),
         "errors_count": len(errors), "errors": errors[:EXAMPLES], "modules": results,
         "limitations": [
             "此检查不证明可启动/可刷机；没有验证 OEM boot、KMI symbol namespace、DT、签名或驱动行为。",
             "缺失于公共 GKI 的符号可能由厂商其它模块导出，不可仅据此判断模块缺失。",
+            "候选其他模块的 CRC 冲突仅表示交叉组合风险；原厂可能有自身配对的模块版本。",
             "原厂模块 vermagic 与故意使用 analysis localversion 的候选 R62 不同。",
             "蜂窝数据、IMS/通话、相机、Wi-Fi 等功能必须后续真机独立验证。"
         ]}, code
