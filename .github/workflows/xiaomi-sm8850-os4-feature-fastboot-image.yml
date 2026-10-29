@@ -80,7 +80,17 @@ jobs:
           grep -Eq '^MISSING_EXPORTS=(0)?$' "$F/abi-diff.txt"
           grep -Eq '^CRC_CONFLICTS=(0)?$' "$F/abi-diff.txt"
 
-      - name: "从小米官方 ROM 流式提取 stock boot"
+      # 缓存仅保存官方 ROM 中的 stock boot；精确版本+SHA 锁定，不能跨系统版本复用。
+      # 采用 restore/save 分步动作，提取并校验成功后立刻保存，后续步骤失败也不浪费本次下载。
+      - name: "恢复 OS4 stock boot 缓存"
+        id: stock-boot-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/stock-boot.img
+          key: pandora-stock-boot-OS4.0.5.0.XBLCNXM-4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653
+
+      - name: "缓存未命中：从小米官方 ROM 流式提取 stock boot"
+        if: steps.stock-boot-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +98,31 @@ jobs:
             "$STOCK_ROM_URL" \
             "${{ runner.temp }}/stock-boot.img" \
             --expected-sha256 "$STOCK_BOOT_SHA256"
+
+      - name: "校验 stock boot（缓存命中也必须校验）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "${{ runner.temp }}/stock-boot.img"
+          printf '%s  %s\n' "$STOCK_BOOT_SHA256" "${{ runner.temp }}/stock-boot.img" | sha256sum -c -
+          python3 - "${{ runner.temp }}/stock-boot.img" <<'PY'
+          import struct, sys
+          from pathlib import Path
+          p = Path(sys.argv[1])
+          with p.open('rb') as f:
+              h = f.read(4096)
+          assert h[:8] == b'ANDROID!', 'stock boot magic mismatch'
+          assert struct.unpack_from('<I', h, 40)[0] == 4, 'stock boot is not v4'
+          assert struct.unpack_from('<I', h, 36)[0] == 1584, 'unexpected stock boot header size'
+          print('STOCK_BOOT_CACHE_SHA256_AND_V4=PASS')
+          PY
+
+      - name: "保存已核验的 stock boot 缓存"
+        if: steps.stock-boot-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/stock-boot.img
+          key: pandora-stock-boot-OS4.0.5.0.XBLCNXM-4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653
 
       - name: "重现真机成功的 #7 临时 boot"
         shell: bash
