@@ -1,0 +1,32 @@
+name: "Xiaomi DroidSpaces boot isolation — PIDs only"
+
+on:
+  push:
+    branches:
+      - xiaomi-droidspaces-diag-pids-only-20261029
+    paths:
+      - .github/workflows/xiaomi-droidspaces-boot-isolation.yml
+
+permissions:
+  contents: write
+
+# Only this exact branch contains the diagnostic caller; no new workflow on dev.
+jobs:
+  gold-custom:
+    name: "Gold-cctv #23 + PIDs only"
+    uses: ./.github/workflows/kernel-xiaomi-sm8850.yml
+    with:
+      device: "Xiaomi 17 Pro (pandora)"
+      source_profile: "gold-cctv"
+      root_mode: "bakasu-susfs"
+      susfs_extra_features: true
+      use_kpm: "disabled"
+      droidspaces: "on"
+      droidspaces_ntsync: true
+      use_zram: true
+      use_bbg: true
+      use_rekernel: true
+      use_nomount: true
+      use_networking: true
+      cve_2026_43499_patch: true
+      artifact_upload_mode: "仅上传 AnyKernel3.zip"
