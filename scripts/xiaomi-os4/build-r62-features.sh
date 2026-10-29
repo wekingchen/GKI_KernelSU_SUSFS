@@ -60,6 +60,44 @@ checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$SUSFS_SHA" "$STAGE/susfs
 checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
 checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
 
+# SUSFS's patch only edits existing kernel sources; its extra .c/.h files are
+# shipped separately and MUST be installed before Image compilation.
+# The old proven Gold integration copied both trees; the first OS4 feature
+# run omitted them and kernel/kallsyms.c failed to find linux/susfs_def.h.
+SUSFS_ASSETS="$STAGE/susfs/kernel_patches"
+[[ -d "$SUSFS_ASSETS/fs" && -d "$SUSFS_ASSETS/include/linux" ]] || {
+  echo "::error::Pinned SUSFS companion source directories are missing"; exit 1;
+}
+for required in \
+  "$SUSFS_ASSETS/include/linux/susfs_def.h" \
+  "$SUSFS_ASSETS/include/linux/susfs.h" \
+  "$SUSFS_ASSETS/fs/susfs.c"; do
+  [[ -s "$required" ]] || {
+    echo "::error::Pinned SUSFS companion file missing: $required"; exit 1;
+  }
+done
+shopt -s nullglob
+for kind in fs include/linux; do
+  files=( "$SUSFS_ASSETS/$kind/"* )
+  (( ${#files[@]} > 0 )) || {
+    echo "::error::No SUSFS companion files under $kind"; exit 1;
+  }
+  for file in "${files[@]}"; do
+    [[ -f "$file" ]] || { echo "::error::Unexpected SUSFS asset type: $file"; exit 1; }
+    target="$SRC/$kind/${file##*/}"
+    if [[ -e "$target" ]] && ! cmp -s "$file" "$target"; then
+      echo "::error::SUSFS companion would overwrite a different existing kernel file: $target"
+      exit 1
+    fi
+    install -m 0644 "$file" "$target"
+  done
+done
+shopt -u nullglob
+[[ -s "$SRC/include/linux/susfs_def.h" && -s "$SRC/include/linux/susfs.h" && -s "$SRC/fs/susfs.c" ]] || {
+  echo "::error::SUSFS source copy validation failed"; exit 1;
+}
+echo "[OS4] SUSFS .c/.h companion files installed from pinned upstream commit"
+
 SUSFS_PATCH="$STAGE/susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 [[ -s "$SUSFS_PATCH" ]] || { echo "::error::Pinned SUSFS patch missing"; exit 1; }
 python3 "$ROOT/scripts/xiaomi-os4/susfs-task-mmu-compat.py" filter-patch "$SUSFS_PATCH" "$STAGE/susfs-filtered.patch"
