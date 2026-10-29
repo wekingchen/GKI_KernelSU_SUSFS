@@ -197,7 +197,8 @@ jobs:
             echo 'R62_SUSFS_FILTERED_PATCH=PASS'
             echo 'R62_SUSFS_FULL_TREE_APPLY=PASS'
             echo 'R62_SUSFS_SMAPS_ROLLUP_PORT=PASS'
-            echo 'R62_SUSFS_TASK_MMU_DIFF_CHECK=PASS'\n            echo 'R62_SUSFS_UPSTREAM_WHITESPACE=RECORDED_SEPARATELY'
+            echo 'R62_SUSFS_TASK_MMU_DIFF_CHECK=PASS'
+            echo 'R62_SUSFS_UPSTREAM_WHITESPACE=RECORDED_SEPARATELY'
             echo 'R62_SUSFS_SOURCE_ONLY=YES'
           } >> source-audit.txt
           echo "R62 source-level SUSFS patch port PASS; no Image/ZIP built."
