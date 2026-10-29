@@ -29,22 +29,22 @@ jobs:
       - name: "下载唯一的 *xm.zip"
         shell: bash
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p "\${{ runner.temp }}/stock"
+          mkdir -p "${{ runner.temp }}/stock"
           gh release download "$STOCK_INPUT_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern '*xm.zip' \
-            --dir "\${{ runner.temp }}/stock"
+            --dir "${{ runner.temp }}/stock"
 
-          mapfile -t ZIPS < <(find "\${{ runner.temp }}/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
-          [[ "\${#ZIPS[@]}" -eq 1 ]] || {
-            echo "::error::固定 Release 中必须且只能有一个 *xm.zip，当前找到 \${#ZIPS[@]} 个。"
-            printf '%s\n' "\${ZIPS[@]}" || true
+          mapfile -t ZIPS < <(find "${{ runner.temp }}/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          [[ "${#ZIPS[@]}" -eq 1 ]] || {
+            echo "::error::固定 Release 中必须且只能有一个 *xm.zip，当前找到 ${#ZIPS[@]} 个。"
+            printf '%s\n' "${ZIPS[@]}" || true
             exit 1
           }
-          echo "STOCK_ZIP=\${ZIPS[0]}" >> "$GITHUB_ENV"
+          echo "STOCK_ZIP=${ZIPS[0]}" >> "$GITHUB_ENV"
 
       - name: "列出压缩包并识别 boot"
         shell: bash
@@ -53,26 +53,26 @@ jobs:
           unzip -l "$STOCK_ZIP"
 
           mapfile -t BOOT_MEMBERS < <(unzip -Z1 "$STOCK_ZIP" | awk 'tolower($0) ~ /(^|\/)boot(_[^\/]*)?\.img$/ {print}')
-          [[ "\${#BOOT_MEMBERS[@]}" -eq 1 ]] || {
-            echo "::error::xm.zip 中必须且只能有一个 boot*.img，当前找到 \${#BOOT_MEMBERS[@]} 个。"
-            printf '%s\n' "\${BOOT_MEMBERS[@]}" || true
+          [[ "${#BOOT_MEMBERS[@]}" -eq 1 ]] || {
+            echo "::error::xm.zip 中必须且只能有一个 boot*.img，当前找到 ${#BOOT_MEMBERS[@]} 个。"
+            printf '%s\n' "${BOOT_MEMBERS[@]}" || true
             exit 1
           }
 
-          BOOT_MEMBER="\${BOOT_MEMBERS[0]}"
+          BOOT_MEMBER="${BOOT_MEMBERS[0]}"
           echo "BOOT_MEMBER=$BOOT_MEMBER" >> "$GITHUB_ENV"
-          unzip -p "$STOCK_ZIP" "$BOOT_MEMBER" > "\${{ runner.temp }}/boot.img"
+          unzip -p "$STOCK_ZIP" "$BOOT_MEMBER" > "${{ runner.temp }}/boot.img"
 
           README_MEMBER="$(unzip -Z1 "$STOCK_ZIP" | awk 'tolower($0) ~ /(^|\/)readme\.txt$/ {print; exit}')"
           if [[ -n "$README_MEMBER" ]]; then
-            unzip -p "$STOCK_ZIP" "$README_MEMBER" > "\${{ runner.temp }}/README.txt"
+            unzip -p "$STOCK_ZIP" "$README_MEMBER" > "${{ runner.temp }}/README.txt"
           fi
 
       - name: "只读审计 boot-v4 与版本信息"
         shell: bash
         run: |
           set -euo pipefail
-          python3 - "\${{ runner.temp }}/boot.img" "\${{ runner.temp }}/README.txt" <<'PY'
+          python3 - "${{ runner.temp }}/boot.img" "${{ runner.temp }}/README.txt" <<'PY'
           import hashlib
           import pathlib
           import re
