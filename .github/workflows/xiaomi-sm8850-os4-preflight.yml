@@ -223,6 +223,15 @@ jobs:
           grep -Fq 'Skip hidden VMA after mmap_lock contention' common/fs/proc/task_mmu.c
           grep -Fq 'if (!(vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))))' common/fs/proc/task_mmu.c
           git -C common diff -- fs/proc/task_mmu.c > susfs-R62-task-mmu-port.diff
+          if grep -Fq 'module_blacklist=' common/kernel/module/main.c 2>/dev/null &&
+             grep -Fq 'module_blacklist' common/kernel/module/main.c 2>/dev/null; then
+            echo 'R62_GENERIC_MODULE_BLACKLIST_CMDLINE=PRESENT' >> source-audit.txt
+            echo "::notice::R62_GENERIC_MODULE_BLACKLIST_CMDLINE=PRESENT; temporary boot cmdline can block kernelsu LKM without writing init_boot"
+          else
+            echo 'R62_GENERIC_MODULE_BLACKLIST_CMDLINE=NOT_PROVEN' >> source-audit.txt
+            echo "::error::R62 generic module_blacklist= command-line path not proven"
+            exit 1
+          fi
           if grep -Fq 'ksu_handle_init_module' common/kernel/module/main.c 2>/dev/null &&
              grep -Fq 'ksu_handle_finit_module' common/kernel/module/main.c 2>/dev/null; then
             echo 'R62_KSU_INSMOD_HOOK_SOURCE=PRESENT' >> source-audit.txt
