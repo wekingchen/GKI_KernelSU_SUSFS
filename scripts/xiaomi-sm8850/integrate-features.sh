@@ -123,23 +123,14 @@ if [[ "$DROIDSPACES" != "off" ]]; then
   grep -qF 'EXPORT_SYMBOL(put_ipc_ns);' "$COMMON/ipc/namespace.c" ||
     die "DroidSpaces put_ipc_ns export is missing after integration"
 
-  # DroidSpaces containers: enable the two missing controllers and
-  # MACVLAN as built-ins (AnyKernel3 only replaces Image, not vendor modules).
-  # CFS_BANDWIDTH is already in both pinned GKI defconfigs, but make its
-  # dependencies explicit and validate the *final* Image below.
-  droidspaces_required_configs=(
-    CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS
-    CONFIG_DEVTMPFS CONFIG_USER_NS
-    CONFIG_CGROUPS CONFIG_CGROUP_SCHED CONFIG_FAIR_GROUP_SCHED
-    CONFIG_CFS_BANDWIDTH CONFIG_CGROUP_PIDS
-    CONFIG_NET CONFIG_NET_NS CONFIG_NETDEVICES CONFIG_MACVLAN
-  )
-  for cfg in "${droidspaces_required_configs[@]}"; do
-    config_defined "$cfg" ||
-      die "DroidSpaces requires $cfg, but its Kconfig symbol is absent"
+  for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
     append_config "$FRAGMENT" "$cfg=y"
   done
-  note "DroidSpaces container kernel features: MACVLAN/CFS_BANDWIDTH/CGROUP_PIDS built-in"
+  # Verified on Xiaomi 17 Pro (pandora): enable Macvlan only. Keep PIDs controller
+  # at the existing default until its boot regression is diagnosed.
+  config_defined CONFIG_MACVLAN || die "DroidSpaces requires CONFIG_MACVLAN"
+  append_config "$FRAGMENT" "CONFIG_MACVLAN=y"
+  note "DroidSpaces: enable verified MACVLAN only; CGROUP_PIDS unchanged"
   for cfg in CONFIG_NETFILTER_XT_MATCH_ADDRTYPE CONFIG_NETFILTER_XT_TARGET_LOG     CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_IP_SET CONFIG_IP_SET_HASH_IP     CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET CONFIG_NETFILTER_XT_TARGET_REJECT     CONFIG_IP_NF_TARGET_REJECT; do
     enable_if_defined "$cfg"
   done
