@@ -1,0 +1,49 @@
+name: "Xiaomi OS4 / 厂商模块 CRC 审计器自测（不刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-abi-selftest.yml"
+      - "scripts/xiaomi-os4/audit-vendor-kmi.py"
+      - "tests/test_xiaomi_os4_vendor_kmi.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  abi-selftest:
+    name: "ARM64 ELF / 经典与扩展版本 CRC 测试"
+    if: github.ref == 'refs/heads/os4/pandora-6.12.69-adaptation-20261029'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+      - name: "准备 Python 3.12"
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: "安装 ELF 解析依赖与 Clang"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check pyelftools==0.32
+          command -v clang || { sudo apt-get update -qq; sudo apt-get install -y clang; }
+          clang --version | head -n1
+          python3 -m py_compile scripts/xiaomi-os4/audit-vendor-kmi.py tests/test_xiaomi_os4_vendor_kmi.py
+      - name: "实际 ARM64 ELF 模块 CRC 单元测试"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_xiaomi_os4_vendor_kmi.py -v
+      - name: "记录验收范围"
+        if: always()
+        run: |
+          {
+            echo "## 小米17 Pro OS4 ABI 审计工具自测"
+            echo "仅验证 ELF 解析与 CRC 对照逻辑；**尚未读取任何原厂模块，也不代表可刷机**。"
+            echo "设备原厂模块须来自 OS4.0.5.0.XBLCNXM，需继续验证实际导出、签名、依赖和运行行为。"
+          } >> "$GITHUB_STEP_SUMMARY"
