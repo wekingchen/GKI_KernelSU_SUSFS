@@ -56,7 +56,23 @@ if [[ ! -x "$TOOL_CACHE/clang19/bin/clang" || ! -x "$TOOL_CACHE/rust/bin/rustc" 
 fi
 export PATH="$TOOL_CACHE/clang19/bin:$TOOL_CACHE/build-tools/bin:$TOOL_CACHE/rust/bin:$PATH"
 export RUSTC=rustc BINDGEN=bindgen LIBCLANG_PATH="$TOOL_CACHE/clang19/lib"
-export CC=clang HOSTCC=clang LD=ld.lld HOSTLD=ld.lld
+# Preserve compiler output across experimental CI runs; Rust expects CC as one executable.
+CLANG_CC=clang
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="$HOME/.cache/xiaomi-os4/ccache-r62"
+  export CCACHE_COMPILERCHECK="string:android-r536225"
+  export CCACHE_BASEDIR="$STAGE"
+  mkdir -p "$CCACHE_DIR" "$STAGE/.compiler"
+  ccache --max-size=3G >/dev/null
+  cat > "$STAGE/.compiler/clang" <<'CC_WRAPPER'
+#!/usr/bin/env bash
+exec ccache clang "$@"
+CC_WRAPPER
+  chmod +x "$STAGE/.compiler/clang"
+  CLANG_CC="$STAGE/.compiler/clang"
+  ccache --show-stats || true
+fi
+export CC="$CLANG_CC" HOSTCC="$CLANG_CC" LD=ld.lld HOSTLD=ld.lld
 export LLVM=1 LLVM_IAS=1 ARCH=arm64 SUBARCH=arm64
 export CROSS_COMPILE=aarch64-linux-gnu-
 export KBUILD_GENDWARFKSYMS_STABLE=1
