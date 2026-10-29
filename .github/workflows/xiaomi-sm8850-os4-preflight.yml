@@ -7,7 +7,8 @@ on:
     paths:
       - ".github/workflows/xiaomi-sm8850-os4-preflight.yml"
       - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
-      - "docs/xiaomi-sm8850-os4-6.12.69.md"\n      - "scripts/xiaomi-sm8850/os4-susfs-task-mmu-compat.py"
+      - "docs/xiaomi-sm8850-os4-6.12.69.md"
+      - "scripts/xiaomi-os4/susfs-task-mmu-compat.py"
 
 permissions:
   contents: read
@@ -168,7 +169,7 @@ jobs:
             exit 1
           }
           PATCH=susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch
-          HELPER="$GITHUB_WORKSPACE/scripts/xiaomi-sm8850/os4-susfs-task-mmu-compat.py"
+          HELPER="$GITHUB_WORKSPACE/scripts/xiaomi-os4/susfs-task-mmu-compat.py"
           python3 "$HELPER" filter-patch "$PATCH" susfs-filtered-R62.patch
           patch --dry-run --batch --forward -d common -p1 < susfs-filtered-R62.patch > susfs-compat-dryrun.log 2>&1 || {
             cat susfs-compat-dryrun.log
