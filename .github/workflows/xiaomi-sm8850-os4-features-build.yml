@@ -120,9 +120,9 @@ jobs:
               }
               print "BASE_VMLINUX_EXPORTS=" base_count
               print "MATCHED_SYMBOL_NAMES=" compared
-              print "NEW_EXPORTS=" added
-              print "MISSING_EXPORTS=" missing
-              print "CRC_CONFLICTS=" conflicts
+              print "NEW_EXPORTS=" (added + 0)
+              print "MISSING_EXPORTS=" (missing + 0)
+              print "CRC_CONFLICTS=" (conflicts + 0)
               if (base_count < 1000 || missing || conflicts) exit 1
             }
           ' "$BASE" "$NEW" | tee "$OUT"
