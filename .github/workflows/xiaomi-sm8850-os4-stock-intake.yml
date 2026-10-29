@@ -1,6 +1,11 @@
 name: "小米17 Pro OS4 / 检查新固件 xm.zip（只读）"
 
 on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-stock-intake.yml"
   workflow_dispatch:
 
 permissions:
