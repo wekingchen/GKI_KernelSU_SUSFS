@@ -62,13 +62,20 @@ jobs:
             echo "::error::Release $OS4_STOCK_INPUT_RELEASE_TAG 中还没有 $OS4_STOCK_INPUT_ASSET。只需上传整包 xm.zip，不需要手工提取 boot.img。"
             exit 1
           fi
-          test -s "${{ runner.temp }}/stock/$OS4_STOCK_INPUT_ASSET"
+          mapfile -t STOCK_ZIPS < <(find "${{ runner.temp }}/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          [[ "${#STOCK_ZIPS[@]}" -eq 1 ]] || {
+            echo "::error::stock-input Release 必须且只能有一个 *xm.zip，当前找到 ${#STOCK_ZIPS[@]} 个。"
+            printf '%s\n' "${STOCK_ZIPS[@]}" || true
+            exit 1
+          }
+          echo "OS4_STOCK_INPUT_ZIP=${STOCK_ZIPS[0]}" >> "$GITHUB_ENV"
+          test -s "${STOCK_ZIPS[0]}"
 
       - name: "从 xm.zip 提取并核对 stock boot"
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="${{ runner.temp }}/stock/$OS4_STOCK_INPUT_ASSET"
+          ZIP="$OS4_STOCK_INPUT_ZIP"
           unzip -l "$ZIP"
           BOOT_MEMBER="$(unzip -Z1 "$ZIP" | awk 'tolower($0) ~ /(^|\/)boot\.img$/ {print; exit}')"
           test -n "$BOOT_MEMBER" || { echo "::error::xm.zip 内没有 boot.img"; exit 1; }
