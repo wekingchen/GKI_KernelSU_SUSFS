@@ -39,6 +39,10 @@ jobs:
           test "$OS4_GKI_BRANCH" = android16-6.12-2026-03
           test "$OS4_GKI_TAG" = android16-6.12-2026-03_r62
           test "$OS4_GKI_COMMON_COMMIT" = e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5
+          test "$OS4_SUSFS_COMMIT" = 519c86c5d8ad3832ff4a2e1a81dc1b81076f1693
+          test "$OS4_BAKASU_COMMIT" = d5e9e025b8b49155f8014684d64c91742b465f65
+          test "$OS4_NOMOUNT_COMMIT" = 9c69668eefdc524c6155f7925cc7649200c6d737
+          test "$OS4_DROIDSPACES_COMMIT" = 4344dc5fc4ab981f1cf2df54c93bf32a6ebbdc85
           echo "OS4 source configuration: PASS"
           echo "GKI candidate is NOT equivalent to OEM release: $OS4_STOCK_KERNEL_RELEASE"
 
@@ -105,41 +109,52 @@ jobs:
           source .github/config/xiaomi-sm8850-os4-6.12.69.env
           cd "$RUNNER_TEMP/os4"
           echo "PATCH_DRY_RUN_NOTE=Preview only; no source integration or flash artifact" >> source-audit.txt
-          if git clone -q --depth=1 --single-branch --branch "$OS4_SUSFS_BRANCH" "$OS4_SUSFS_REPO" susfs; then
-            s_patch="susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-            echo "SUSFS_COMMIT=$(git -C susfs rev-parse HEAD)" >> source-audit.txt
-            if [[ -f "$s_patch" ]]; then
-              if patch --dry-run --batch --forward -d common -p1 < "$s_patch" > susfs-preview.log 2>&1; then
-                echo "SUSFS_UPSTREAM_PATCH_DRYRUN=PASS" >> source-audit.txt
-              else
-                echo "SUSFS_UPSTREAM_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
-                echo "::warning::SUSFS upstream patch is not clean on the pinned R62 source; inspect the preview log"
-              fi
-            else
-              echo "SUSFS_UPSTREAM_PATCH_DRYRUN=PATCH_MISSING" >> source-audit.txt
-              echo "::warning::expected SUSFS kernel patch is missing"
-            fi
-          else
-            echo "SUSFS_UPSTREAM_PATCH_DRYRUN=FETCH_UNAVAILABLE" >> source-audit.txt
-            echo "::warning::SUSFS upstream GitLab checkout unavailable; retry later"
+
+          checkout_pinned() {
+            local url="$1" sha="$2" dir="$3"
+            rm -rf "$dir"
+            git init -q "$dir"
+            git -C "$dir" remote add origin "$url"
+            git -C "$dir" fetch -q --depth=1 origin "$sha" || {
+              echo "::error::unable to fetch audited commit $sha from $url"
+              exit 1
+            }
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            [[ "$(git -C "$dir" rev-parse HEAD)" == "$sha" ]] || {
+              echo "::error::audited commit mismatch for $url"
+              exit 1
+            }
+          }
+
+          susfs_branch_head="$(git ls-remote "$OS4_SUSFS_REPO" "refs/heads/$OS4_SUSFS_BRANCH" | awk 'NR==1 {print $1}')"
+          echo "SUSFS_BRANCH_HEAD=${susfs_branch_head:-unknown}" >> source-audit.txt
+          if [[ -n "$susfs_branch_head" && "$susfs_branch_head" != "$OS4_SUSFS_COMMIT" ]]; then
+            echo "::notice::SUSFS upstream HEAD moved to $susfs_branch_head; validation stays on audited $OS4_SUSFS_COMMIT"
           fi
-          if git clone -q --depth=1 "$OS4_DROIDSPACES_REPO" droidspaces; then
-            d_patch="droidspaces/Documentation/resources/kernel-patches/GKI/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
-            echo "DROIDSPACES_COMMIT=$(git -C droidspaces rev-parse HEAD)" >> source-audit.txt
-            if [[ -f "$d_patch" ]]; then
-              if patch --dry-run --batch --forward -d common -p1 < "$d_patch" > droidspaces-preview.log 2>&1; then
-                echo "DROIDSPACES_KABI_PATCH_DRYRUN=PASS" >> source-audit.txt
-              else
-                echo "DROIDSPACES_KABI_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
-                echo "::warning::DroidSpaces kABI patch is not clean on pinned R62; inspect preview log"
-              fi
+          checkout_pinned "$OS4_SUSFS_REPO" "$OS4_SUSFS_COMMIT" susfs
+          s_patch="susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+          echo "SUSFS_COMMIT=$(git -C susfs rev-parse HEAD)" >> source-audit.txt
+          if [[ -f "$s_patch" ]]; then
+            if patch --dry-run --batch --forward -d common -p1 < "$s_patch" > susfs-preview.log 2>&1; then
+              echo "SUSFS_UPSTREAM_PATCH_DRYRUN=PASS" >> source-audit.txt
             else
-              echo "DROIDSPACES_KABI_PATCH_DRYRUN=PATCH_MISSING" >> source-audit.txt
-              echo "::warning::expected DroidSpaces kABI patch is missing"
+              echo "SUSFS_UPSTREAM_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
+              echo "::warning::Audited SUSFS patch still needs the R62 compatibility layer"
             fi
           else
-            echo "DROIDSPACES_KABI_PATCH_DRYRUN=FETCH_UNAVAILABLE" >> source-audit.txt
-            echo "::warning::DroidSpaces source checkout unavailable; retry later"
+            echo "::error::expected SUSFS kernel patch is missing at audited commit"
+            exit 1
+          fi
+
+          checkout_pinned "$OS4_DROIDSPACES_REPO" "$OS4_DROIDSPACES_COMMIT" droidspaces
+          d_patch="droidspaces/Documentation/resources/kernel-patches/GKI/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
+          echo "DROIDSPACES_COMMIT=$(git -C droidspaces rev-parse HEAD)" >> source-audit.txt
+          [[ -f "$d_patch" ]] || { echo "::error::expected DroidSpaces kABI patch is missing"; exit 1; }
+          if patch --dry-run --batch --forward -d common -p1 < "$d_patch" > droidspaces-preview.log 2>&1; then
+            echo "DROIDSPACES_KABI_PATCH_DRYRUN=PASS" >> source-audit.txt
+          else
+            echo "DROIDSPACES_KABI_PATCH_DRYRUN=NEEDS_PORTING" >> source-audit.txt
+            echo "::warning::Pinned DroidSpaces kABI patch needs porting on pinned R62"
           fi
           echo "No Image, AnyKernel3 or flashable payload was built."
 
@@ -178,8 +193,9 @@ jobs:
             echo "::error::R62 GKI commit has changed; refuse an unverified port"
             exit 1
           }
-          [[ "$(git -C susfs rev-parse HEAD)" == 519c86c5d8ad3832ff4a2e1a81dc1b81076f1693 ]] || {
-            echo "::error::SUSFS source has changed; revalidate the compatibility script before use"
+          source "$GITHUB_WORKSPACE/.github/config/xiaomi-sm8850-os4-6.12.69.env"
+          [[ "$(git -C susfs rev-parse HEAD)" == "$OS4_SUSFS_COMMIT" ]] || {
+            echo "::error::SUSFS checkout no longer matches audited pin"
             exit 1
           }
           PATCH=susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch
@@ -238,8 +254,12 @@ jobs:
           cd "$RUNNER_TEMP/os4"
           test -s source-audit.txt
           grep -qx 'R62_SUSFS_FULL_TREE_APPLY=PASS' source-audit.txt
-          git clone -q --depth=1 --branch "$OS4_BAKASU_REF" "$OS4_BAKASU_REPO" BakaSU
+          git init -q BakaSU
+          git -C BakaSU remote add origin "$OS4_BAKASU_REPO"
+          git -C BakaSU fetch -q --depth=1 origin "$OS4_BAKASU_COMMIT"
+          git -C BakaSU checkout -q --detach FETCH_HEAD
           bakasu_commit="$(git -C BakaSU rev-parse HEAD)"
+          [[ "$bakasu_commit" == "$OS4_BAKASU_COMMIT" ]] || { echo "::error::BakaSU pin mismatch"; exit 1; }
           [[ -f BakaSU/kernel/Kconfig && -f BakaSU/kernel/Makefile ]] || {
             echo "::error::BakaSU kernel source integration files missing"
             exit 1
@@ -273,8 +293,12 @@ jobs:
           [[ -L common/drivers/kernelsu ]] || exit 1
           grep -Fq 'source "drivers/kernelsu/Kconfig"' common/drivers/Kconfig
 
-          git clone -q --depth=1 --branch "$OS4_NOMOUNT_REF" "$OS4_NOMOUNT_REPO" common/NoMount
+          git init -q common/NoMount
+          git -C common/NoMount remote add origin "$OS4_NOMOUNT_REPO"
+          git -C common/NoMount fetch -q --depth=1 origin "$OS4_NOMOUNT_COMMIT"
+          git -C common/NoMount checkout -q --detach FETCH_HEAD
           nomount_commit="$(git -C common/NoMount rev-parse HEAD)"
+          [[ "$nomount_commit" == "$OS4_NOMOUNT_COMMIT" ]] || { echo "::error::NoMount pin mismatch"; exit 1; }
           [[ -f common/NoMount/kernel/setup.sh ]] || {
             echo "::error::NoMount setup.sh is missing"
             exit 1
