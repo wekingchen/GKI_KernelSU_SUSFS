@@ -96,6 +96,10 @@ if [[ "${XIAOMI_DROIDSPACES:-off}" != "off" ]]; then
     config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key"
   done
 fi
+if [[ "${XIAOMI_DROIDSPACES:-off}" == "on" ]]; then
+  # Controlled #23 regression test: verify effective Image, not input fragment.
+  config_is_y "$FINAL" CONFIG_CGROUP_PIDS || die "DroidSpaces isolation requires CONFIG_CGROUP_PIDS=y in final Image"
+fi
 if truthy_feature "${XIAOMI_DROIDSPACES_NTSYNC:-false}"; then
   config_is_y "$FINAL" CONFIG_NTSYNC || die "NTSync requested but CONFIG_NTSYNC=y is missing"
 fi
