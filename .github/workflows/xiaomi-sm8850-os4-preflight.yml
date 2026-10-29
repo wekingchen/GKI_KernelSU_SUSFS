@@ -42,6 +42,12 @@ jobs:
           echo "OS4 source configuration: PASS"
           echo "GKI candidate is NOT equivalent to OEM release: $OS4_STOCK_KERNEL_RELEASE"
 
+      - name: "缓存官方 R62 GKI Git 对象"
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/os4/common/.git
+          key: xiaomi-pandora-os4-r62-git-e2b8ca7c8d05-v1
+
       - name: "获取并核验 Google 官方 GKI 源码"
         shell: bash
         run: |
@@ -50,7 +56,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/os4"
           cd "$RUNNER_TEMP/os4"
           git init -q common
-          git -C common remote add origin "$OS4_GKI_COMMON_URL"
+          git -C common remote get-url origin >/dev/null 2>&1 || git -C common remote add origin "$OS4_GKI_COMMON_URL"
+          git -C common remote set-url origin "$OS4_GKI_COMMON_URL"
           git -C common fetch --depth=1 --no-tags origin "refs/tags/$OS4_GKI_TAG"
           resolved="$(git -C common rev-parse 'FETCH_HEAD^{commit}')"
           if [[ "$resolved" != "$OS4_GKI_COMMON_COMMIT" ]]; then
@@ -293,6 +300,57 @@ jobs:
         with:
           name: xiaomi-pandora-os4-bakasu-nomount-source-audit
           path: ${{ runner.temp }}/os4/nomount-os4-setup.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: "解析 R62 BakaSU/SUSFS/NoMount 最终 Kconfig（不编译 Image）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/os4"
+          grep -qx 'R62_NOMOUNT_SETUP_SOURCE_ONLY=PASS' source-audit.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bc bison flex libelf-dev libssl-dev
+          mkdir -p kconfig-out
+          make -C common ARCH=arm64 LLVM=1 O="$PWD/kconfig-out" gki_defconfig > kconfig-defconfig.log 2>&1 || {
+            tail -n 100 kconfig-defconfig.log
+            echo "::error::R62 gki_defconfig could not be generated"
+            exit 1
+          }
+          common/scripts/config --file kconfig-out/.config \
+            --enable KSU --enable KSU_SUSFS --disable KSU_TRACEPOINT_HOOK \
+            --enable KSU_SUSFS_SUS_MAP --enable NOMOUNT
+          make -C common ARCH=arm64 LLVM=1 O="$PWD/kconfig-out" olddefconfig > kconfig-olddefconfig.log 2>&1 || {
+            tail -n 100 kconfig-olddefconfig.log
+            echo "::error::R62 integrated Kconfig could not be resolved"
+            exit 1
+          }
+          for key in CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_MAP CONFIG_NOMOUNT; do
+            grep -qx "$key=y" kconfig-out/.config || {
+              echo "::error::R62 resolved .config does not enable $key"
+              grep -E "^(# )?$key" kconfig-out/.config || true
+              exit 1
+            }
+          done
+          grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' kconfig-out/.config || {
+            echo "::error::unexpected BakaSU tracepoint hook in SUSFS inline mode"
+            exit 1
+          }
+          {
+            echo 'R62_BAKASU_SUSFS_NOMOUNT_KCONFIG=PASS'
+            echo 'R62_KERNEL_IMAGE_BUILD=NOT_RUN'
+          } >> source-audit.txt
+          echo "R62 gki_defconfig/olddefconfig integrated features PASS; no kernel Image was built."
+
+      - name: "保存 R62 最终 Kconfig 与日志"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-pandora-os4-integrated-kconfig-audit
+          path: |
+            ${{ runner.temp }}/os4/kconfig-out/.config
+            ${{ runner.temp }}/os4/kconfig-defconfig.log
+            ${{ runner.temp }}/os4/kconfig-olddefconfig.log
           if-no-files-found: warn
           retention-days: 14
 
