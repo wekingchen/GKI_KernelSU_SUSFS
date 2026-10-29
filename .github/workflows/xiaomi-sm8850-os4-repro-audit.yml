@@ -51,6 +51,10 @@ jobs:
           mkdir -p "$O/a-sections" "$O/b-sections"
 
           sha256sum "$A/Image" "$B/Image" "$A/Module.symvers" "$B/Module.symvers" > "$O/sha256.txt"
+          {
+            echo "[module-signing-config]"
+            grep -E '^(CONFIG_MODULE_SIG|CONFIG_SYSTEM_TRUSTED_KEYS|CONFIG_SYSTEM_REVOCATION_KEYS|# CONFIG_MODULE_SIG)' "$A/final.config" || true
+          } | tee "$O/module-signing-config.txt"
 
           {
             echo "FINAL_CONFIG_IDENTICAL=$(cmp -s "$A/final.config" "$B/final.config" && echo YES || echo NO)"
