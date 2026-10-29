@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest tests/test_xiaomi_os4_repack_fastboot_boot.py -v
+          python3 -m unittest discover -s tests -p test_xiaomi_os4_repack_fastboot_boot.py -v
 
       - name: "下载已通过编译与 ABI 门禁的功能构建 #4"
         uses: actions/download-artifact@v6
