@@ -100,7 +100,9 @@ jobs:
           2. 必须使用此前已在本机成功 fastboot boot 的：
              pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.img
              作为模板。
-          3. repack 工具会强制验证模板内核 SHA256：
+          3. repack 工具会先强制验证整张已实测模板 SHA256：
+             3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0
+             再验证模板内核 SHA256：
              f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8
           4. 本包功能 Image SHA256：
              f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c
@@ -126,9 +128,56 @@ jobs:
           - /proc/modules 不应再出现 kernelsu LKM
           - su -c id 仍应取得 root（此时来自 Built-in BakaSU）
           EOF
+          cat > "$OUT/prepare-feature-boot.cmd" <<'EOF'
+          @echo off
+          setlocal
+          set "TEMPLATE=pandora-OS4-R62-baseline-FASTBOOT-BOOT-ONLY.img"
+          set "OUTPUT=pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img"
+          if not exist "%TEMPLATE%" (
+            echo [ERROR] Missing %TEMPLATE%
+            echo Copy the exact R62 #7 temporary boot image that already booted successfully into this folder.
+            exit /b 1
+          )
+          where py >nul 2>nul
+          if %errorlevel%==0 (
+            py -3 repack-tested-fastboot-boot-v4.py "%TEMPLATE%" Image "%OUTPUT%"
+          ) else (
+            where python >nul 2>nul
+            if not %errorlevel%==0 (
+              echo [ERROR] Python 3 was not found.
+              exit /b 1
+            )
+            python repack-tested-fastboot-boot-v4.py "%TEMPLATE%" Image "%OUTPUT%"
+          )
+          if errorlevel 1 exit /b 1
+          echo.
+          echo [OK] Temporary feature boot created. DO NOT fastboot flash it.
+          certutil -hashfile "%OUTPUT%" SHA256
+          echo.
+          echo Next command, after manual review:
+          echo fastboot boot "%OUTPUT%"
+          endlocal
+          EOF
+          cat > "$OUT/check-feature-runtime.cmd" <<'EOF'
+          @echo off
+          echo ==== kernel ====
+          adb shell uname -r
+          echo ==== boot completed ====
+          adb shell getprop sys.boot_completed
+          echo ==== temporary LKM guard ====
+          adb shell cat /proc/cmdline
+          echo ==== KernelSU LKM must NOT be present ====
+          adb shell "cat /proc/modules | grep '^kernelsu ' || echo [OK] no kernelsu LKM in /proc/modules"
+          echo ==== Built-in root ====
+          adb shell su -c id
+          echo ==== vendor memory modules ====
+          adb shell "cat /proc/modules | grep -E '^(node_cache|zram|zsmalloc) '"
+          echo ==== relevant kernel log tail ====
+          adb shell su -c "dmesg | grep -Ei 'kernelsu|bakasu|susfs|nomount|blacklist' | tail -n 120"
+          EOF
           (
             cd "$OUT"
-            sha256sum Image repack-tested-fastboot-boot-v4.py README.txt > checksums.txt
+            sha256sum Image repack-tested-fastboot-boot-v4.py README.txt prepare-feature-boot.cmd check-feature-runtime.cmd > checksums.txt
           )
           echo "FLASHABLE=NO" > "$OUT/SAFETY.txt"
           echo "USE=fastboot boot ONLY" >> "$OUT/SAFETY.txt"
