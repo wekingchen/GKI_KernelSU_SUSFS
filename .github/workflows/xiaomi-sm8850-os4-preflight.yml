@@ -137,7 +137,7 @@ jobs:
             echo
             echo "**仅为静态源码预检，不是可刷内核，不表示真机兼容。**"
             echo
-            echo "手机原厂内核：`6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`"
+            echo '手机原厂内核：6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k'
             echo
             if [[ -f "$RUNNER_TEMP/os4/source-audit.txt" ]]; then
               echo '~~~text'
