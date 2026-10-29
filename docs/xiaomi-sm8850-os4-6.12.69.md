@@ -57,3 +57,22 @@
 - 不把 PIDs Controller 的问题作为 OS4 移植的前置障碍；
 - 不向用户推荐刷 OS3 的 AnyKernel3；
 - 不从字符串 `g43b5ab7e247d` 推断已找到小米内部完整源码，或用改 `uname -r` 冒充原厂兼容。
+
+## 首轮 Actions 源码预检结果（2026-10-29）
+
+[Run #1 / ID 40829503036](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40829503036) 通过。实际下载的审查 Artifact 为 `xiaomi-pandora-os4-6.12.69-source-audit`（ID `12877933057`），记录如下：
+
+| 检查点 | 实际结果 |
+| --- | --- |
+| 官方 `android16-6.12-2026-03_r62` tag 对应提交 | `e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5`，PASS |
+| Makefile | `6.12.69`，PASS |
+| build.config.constants / GKI 分支 | `android16-6.12`，PASS |
+| KMI generation | `6`，PASS |
+| Clang | `r536225`，PASS |
+| `gki/aarch64/symbols/xiaomi` | 存在 |
+| 当前 SUSFS `gki-android16-6.12` | `519c86c5d8ad3832ff4a2e1a81dc1b81076f1693`，上游完整补丁 **未通过** dry-run |
+| DroidSpaces `kernel-6.12` kABI 补丁 | `4344dc5fc4ab981f1cf2df54c93bf32a6ebbdc85`，dry-run **PASS** |
+
+SUSFS 失败位置：`fs/proc/task_mmu.c` 第 5、6 个 hunk，与 R62 源码上下文不一致；其余部分存在位置偏移。必须做**源码层专门适配并重新进行全量 dry-run/编译**，不能忽略这两个 hunk、强制 `patch --force`、也不能用旧 6.12.23 的兼容结果代替。预检的补丁 dry-run 本身不会写入源码，因此不会掩盖失败。
+
+**注意：** `DroidSpaces kABI` 补丁 dry-run 通过只表示可以应用，后续的配置、符号 ABI、模块加载和运行时尚未验证。BakaSU/NoMount 的 6.12.69 兼容也尚未得到验证。上述 Run #1 **没有生成 Image 或刷机 ZIP**，对 OS4 内核可启动性没有证明作用。
