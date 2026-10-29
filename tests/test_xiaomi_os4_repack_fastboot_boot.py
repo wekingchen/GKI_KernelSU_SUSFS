@@ -47,7 +47,9 @@ class RepackFastbootBootV4Test(unittest.TestCase):
             template = td / "template.img"
             image = td / "Image"
             output = td / "out.img"
-            template.write_bytes(make_boot(old, signature))
+            boot = make_boot(old, signature)
+            mod.EXPECTED_TEMPLATE_BOOT_SHA256 = hashlib.sha256(boot).hexdigest()
+            template.write_bytes(boot)
             image.write_bytes(new)
 
             with patch.object(sys, "argv", [str(SCRIPT), str(template), str(image), str(output)]):
@@ -72,7 +74,9 @@ class RepackFastbootBootV4Test(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             template, image, output = td/"template.img", td/"Image", td/"out.img"
-            template.write_bytes(make_boot(old, cmdline=b"module_blacklist=foo"))
+            boot = make_boot(old, cmdline=b"module_blacklist=foo")
+            mod.EXPECTED_TEMPLATE_BOOT_SHA256 = hashlib.sha256(boot).hexdigest()
+            template.write_bytes(boot)
             image.write_bytes(new)
             with patch.object(sys, "argv", [str(SCRIPT), str(template), str(image), str(output)]):
                 with self.assertRaises(SystemExit):
@@ -90,7 +94,9 @@ class RepackFastbootBootV4Test(unittest.TestCase):
             template = td / "template.img"
             image = td / "Image"
             output = td / "out.img"
-            template.write_bytes(make_boot(old))
+            boot = make_boot(old)
+            mod.EXPECTED_TEMPLATE_BOOT_SHA256 = hashlib.sha256(boot).hexdigest()
+            template.write_bytes(boot)
             image.write_bytes(new)
 
             with patch.object(sys, "argv", [str(SCRIPT), str(template), str(image), str(output)]):
