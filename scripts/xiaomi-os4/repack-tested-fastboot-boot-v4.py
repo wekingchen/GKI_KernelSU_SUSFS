@@ -28,6 +28,7 @@ HEADER_V4_SIZE = 1584
 CMDLINE_OFFSET = 44
 CMDLINE_SIZE = 1536
 LKM_GUARD = b"module_blacklist=kernelsu"
+EXPECTED_TEMPLATE_BOOT_SHA256 = "3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0"
 EXPECTED_TEMPLATE_KERNEL_SHA256 = "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
 EXPECTED_FEATURE_KERNEL_SHA256 = "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
 EXPECTED_TEMPLATE_RELEASE = b"6.12.69-android16-6-os4r62-analysis-4k"
@@ -78,6 +79,10 @@ def main() -> None:
 
     template = args.template.read_bytes()
     new_kernel = args.image.read_bytes()
+
+    template_boot_sha = sha256(template)
+    if template_boot_sha != EXPECTED_TEMPLATE_BOOT_SHA256:
+        fail(f"tested FASTBOOT-BOOT-ONLY template SHA256 mismatch: {template_boot_sha}")
 
     if len(template) < PAGE_SIZE or template[:8] != BOOT_MAGIC:
         fail("template is not an Android boot image")
@@ -146,6 +151,7 @@ def main() -> None:
         fail("output is missing module_blacklist=kernelsu LKM guard")
 
     args.output.write_bytes(out)
+    print(f"template_boot_sha256={template_boot_sha}")
     print(f"template_kernel_sha256={old_sha}")
     print(f"feature_kernel_sha256={new_sha}")
     print(f"template_kernel_size={kernel_size}")
