@@ -77,6 +77,30 @@ jobs:
           set -euo pipefail
           bash scripts/xiaomi-os4/build-r62-baseline.sh
 
+      - name: "失败时仍保留校验过的源码缓存"
+        if: failure()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "失败时仍保留校验过的工具链"
+        if: failure()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "失败时仍保留热缓存用于重试"
+        if: failure()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-${{ github.sha }}
+
       - name: "输出真实编译记录"
         if: always()
         shell: bash
