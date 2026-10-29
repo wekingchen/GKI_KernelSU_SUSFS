@@ -310,7 +310,7 @@ jobs:
           cd "$RUNNER_TEMP/os4"
           grep -qx 'R62_NOMOUNT_SETUP_SOURCE_ONLY=PASS' source-audit.txt
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends bc bison flex libelf-dev libssl-dev
+          sudo apt-get install -y -qq --no-install-recommends bc bison flex libelf-dev libssl-dev clang lld
           mkdir -p kconfig-out
           make -C common ARCH=arm64 LLVM=1 O="$PWD/kconfig-out" gki_defconfig > kconfig-defconfig.log 2>&1 || {
             tail -n 100 kconfig-defconfig.log
