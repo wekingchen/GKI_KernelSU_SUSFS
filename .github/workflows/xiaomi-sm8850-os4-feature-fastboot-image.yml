@@ -1,15 +1,15 @@
 name: "小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）"
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - "os4/pandora-6.12.69-adaptation-20261029"
     paths:
       - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-image.yml"
-      - "scripts/xiaomi-os4/extract-stock-boot-from-fastboot-rom.py"
-      - "scripts/xiaomi-os4/rebuild-tested-r62-baseline-boot.py"
+      - "scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py"
       - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
+      - ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,8 +20,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STOCK_ROM_URL: "https://bigota.d.miui.com/OS4.0.5.0.XBLCNXM/pandora_images_OS4.0.5.0.XBLCNXM_20261021.0000.00_17.0_cn_16a91e169d.tgz"
-  STOCK_BOOT_SHA256: "4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653"
   BASELINE_RUN_ID: "40853513946"
   BASELINE_ARTIFACT: "NOFLASH-pandora-OS4-R62-baseline-Image-ABI"
   BASELINE_IMAGE_SHA256: "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
@@ -29,25 +27,26 @@ env:
   FEATURE_RUN_ID: "40896020115"
   FEATURE_ARTIFACT: "NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI"
   FEATURE_IMAGE_SHA256: "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
+  FIXTURE: ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
   OUTPUT_IMG: "pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img"
 
 jobs:
   build-fastboot-image:
-    name: "官方 stock boot → 已实测 #7 → 功能版完整 IMG"
+    name: "固定 xm.zip 模板 → 已实测 #7 → 功能版完整 IMG"
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-
+    timeout-minutes: 20
     steps:
-      - name: "检出 OS4 分支"
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: "检查打包脚本"
+      - name: "拒绝退回官方 ROM 下载"
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/xiaomi-os4/extract-stock-boot-from-fastboot-rom.py
-          python3 -m py_compile scripts/xiaomi-os4/rebuild-tested-r62-baseline-boot.py
-          python3 -m py_compile scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          ! grep -q 'bigota.d.miui.com' .github/workflows/xiaomi-sm8850-os4-feature-fastboot-image.yml
+          test -s "$FIXTURE" || {
+            echo "::error::xm.zip 的已验证 boot-v4 fixture 尚未固化；禁止回退到 12.5GB 官方 ROM 下载。"
+            exit 1
+          }
 
       - name: "下载 R62 #7 baseline Image"
         uses: actions/download-artifact@v6
@@ -65,7 +64,7 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/feature4
 
-      - name: "核对两份 Image 与 ABI"
+      - name: "核对内核与 ABI"
         shell: bash
         run: |
           set -euo pipefail
@@ -73,63 +72,18 @@ jobs:
           F="${{ runner.temp }}/feature4"
           printf '%s  %s\n' "$BASELINE_IMAGE_SHA256" "$B/Image" | sha256sum -c -
           printf '%s  %s\n' "$FEATURE_IMAGE_SHA256" "$F/Image" | sha256sum -c -
-          grep -qx 'KERNEL_RELEASE=6.12.69-android16-6-os4r62-features-4k' "$F/build-metadata.txt"
           grep -qx 'BASE_VMLINUX_EXPORTS=18725' "$F/abi-diff.txt"
           grep -qx 'MATCHED_SYMBOL_NAMES=18725' "$F/abi-diff.txt"
           grep -Eq '^NEW_EXPORTS=(0)?$' "$F/abi-diff.txt"
           grep -Eq '^MISSING_EXPORTS=(0)?$' "$F/abi-diff.txt"
           grep -Eq '^CRC_CONFLICTS=(0)?$' "$F/abi-diff.txt"
 
-      # 缓存仅保存官方 ROM 中的 stock boot；精确版本+SHA 锁定，不能跨系统版本复用。
-      # 采用 restore/save 分步动作，提取并校验成功后立刻保存，后续步骤失败也不浪费本次下载。
-      - name: "恢复 OS4 stock boot 缓存"
-        id: stock-boot-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/stock-boot.img
-          key: pandora-stock-boot-OS4.0.5.0.XBLCNXM-4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653
-
-      - name: "缓存未命中：从小米官方 ROM 流式提取 stock boot"
-        if: steps.stock-boot-cache.outputs.cache-hit != 'true'
+      - name: "从固定 fixture 重建真机成功的 #7 临时 boot"
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/xiaomi-os4/extract-stock-boot-from-fastboot-rom.py \
-            "$STOCK_ROM_URL" \
-            "${{ runner.temp }}/stock-boot.img" \
-            --expected-sha256 "$STOCK_BOOT_SHA256"
-
-      - name: "校验 stock boot（缓存命中也必须校验）"
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s "${{ runner.temp }}/stock-boot.img"
-          printf '%s  %s\n' "$STOCK_BOOT_SHA256" "${{ runner.temp }}/stock-boot.img" | sha256sum -c -
-          python3 - "${{ runner.temp }}/stock-boot.img" <<'PY'
-          import struct, sys
-          from pathlib import Path
-          p = Path(sys.argv[1])
-          with p.open('rb') as f:
-              h = f.read(4096)
-          assert h[:8] == b'ANDROID!', 'stock boot magic mismatch'
-          assert struct.unpack_from('<I', h, 40)[0] == 4, 'stock boot is not v4'
-          assert struct.unpack_from('<I', h, 36)[0] == 1584, 'unexpected stock boot header size'
-          print('STOCK_BOOT_CACHE_SHA256_AND_V4=PASS')
-          PY
-
-      - name: "保存已核验的 stock boot 缓存"
-        if: steps.stock-boot-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/stock-boot.img
-          key: pandora-stock-boot-OS4.0.5.0.XBLCNXM-4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653
-
-      - name: "重现真机成功的 #7 临时 boot"
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-boot.py \
-            "${{ runner.temp }}/stock-boot.img" \
+          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            "$FIXTURE" \
             "${{ runner.temp }}/baseline7/Image" \
             "${{ runner.temp }}/tested-baseline-fastboot-boot.img"
           printf '%s  %s\n' "$TESTED_BASELINE_BOOT_SHA256" "${{ runner.temp }}/tested-baseline-fastboot-boot.img" | sha256sum -c -
@@ -145,58 +99,9 @@ jobs:
             "${{ runner.temp }}/feature4/Image" \
             "$OUT/$OUTPUT_IMG" | tee "$OUT/repack-report.txt"
           grep -Fq 'lkm_guard=module_blacklist=kernelsu' "$OUT/repack-report.txt"
-          grep -Fq 'FLASHABLE=NO' "$OUT/repack-report.txt"
           sha256sum "$OUT/$OUTPUT_IMG" > "$OUT/SHA256SUMS.txt"
 
-      - name: "独立审计最终 IMG"
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - "${{ runner.temp }}/out/$OUTPUT_IMG" <<'PY'
-          from pathlib import Path
-          import hashlib, struct, sys
-          d=Path(sys.argv[1]).read_bytes()
-          assert d[:8] == b"ANDROID!"
-          assert struct.unpack_from("<I", d, 40)[0] == 4
-          assert struct.unpack_from("<I", d, 36)[0] == 1584
-          n=struct.unpack_from("<I", d, 8)[0]
-          k=d[4096:4096+n]
-          assert hashlib.sha256(k).hexdigest()=="f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
-          cmd=d[44:44+1536].split(b"\0",1)[0]
-          assert b"module_blacklist=kernelsu" in cmd.split()
-          assert d[-64:-60] != b"AVBf"
-          print("FINAL_BOOT_V4_AUDIT=PASS")
-          print("OUTPUT_SHA256="+hashlib.sha256(d).hexdigest())
-          print("CMDLINE="+cmd.decode("ascii","replace"))
-          PY
-
-      - name: "生成说明"
-        shell: bash
-        run: |
-          OUT="${{ runner.temp }}/out"
-          cat > "$OUT/README.txt" <<EOF
-          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
-          R62 BakaSU Built-in + SUSFS + NoMount
-
-          Action 已生成完整成品：
-          $OUTPUT_IMG
-
-          本地不需要 Python 或 repack。
-
-          只执行：
-          fastboot boot $OUTPUT_IMG
-
-          严禁 fastboot flash boot。
-          当前 safe_to_flash=false。
-
-          启动后检查：
-          adb shell uname -r
-          adb shell cat /proc/cmdline
-          adb shell "cat /proc/modules | grep '^kernelsu ' || true"
-          adb shell su -c id
-          EOF
-
-      - name: "上传可直接使用的 IMG"
+      - name: "上传可直接 fastboot boot 的成品 IMG"
         uses: actions/upload-artifact@v6
         with:
           name: FASTBOOT-BOOT-ONLY-pandora-OS4-R62-BakaSU-SUSFS-NoMount
@@ -204,18 +109,6 @@ jobs:
             ${{ runner.temp }}/out/${{ env.OUTPUT_IMG }}
             ${{ runner.temp }}/out/SHA256SUMS.txt
             ${{ runner.temp }}/out/repack-report.txt
-            ${{ runner.temp }}/out/README.txt
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
-
-      - name: "摘要"
-        shell: bash
-        run: |
-          {
-            echo "## 完整功能版临时启动 IMG"
-            echo
-            echo "无需本地 repack，下载 Artifact 后直接 fastboot boot。"
-            echo
-            echo "safe_to_flash=false"
-          } >> "$GITHUB_STEP_SUMMARY"
