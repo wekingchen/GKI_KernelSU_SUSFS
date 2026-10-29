@@ -82,7 +82,9 @@ jobs:
           grep -qx 'KERNEL_RELEASE=6.12.69-android16-6-os4r62-features-4k' "$F/build-metadata.txt"
           grep -qx 'BASE_VMLINUX_EXPORTS=18725' "$F/abi-diff.txt"
           grep -qx 'MATCHED_SYMBOL_NAMES=18725' "$F/abi-diff.txt"
-          grep -Eq '^NEW_EXPORTS=(0)?
+          grep -Eq '^NEW_EXPORTS=(0)?$' "$F/abi-diff.txt"
+          grep -Eq '^MISSING_EXPORTS=(0)?$' "$F/abi-diff.txt"
+          grep -Eq '^CRC_CONFLICTS=(0)?$' "$F/abi-diff.txt"
 
       - name: "从小米官方 Fastboot ROM 流式提取精确 stock boot"
         shell: bash
