@@ -6,7 +6,7 @@ on:
       - "os4/pandora-6.12.69-adaptation-20261029"
     paths:
       - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-prep.yml"
-      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
+      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"\n      - "tests/test_xiaomi_os4_repack_fastboot_boot.py"
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,12 @@ jobs:
           python3 -m py_compile scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
           ! grep -Eq 'fastboot[[:space:]]+flash|flashall|erase[[:space:]]+boot' scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
           echo "repack helper syntax/safety scan: PASS"
+
+      - name: "合成 boot-v4 实际 repack 自测"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest tests/test_xiaomi_os4_repack_fastboot_boot.py -v
 
       - name: "下载已通过编译与 ABI 门禁的功能构建 #4"
         uses: actions/download-artifact@v6
