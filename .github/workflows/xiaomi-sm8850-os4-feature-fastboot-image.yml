@@ -1,4 +1,5 @@
-name: "小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）"\n# stock fixture source verified from Release xm.zip
+name: "小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）"
+# stock fixture source verified from Release xm.zip
 
 on:
   push:
