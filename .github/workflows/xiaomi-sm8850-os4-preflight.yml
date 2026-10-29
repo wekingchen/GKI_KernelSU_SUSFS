@@ -205,7 +205,7 @@ jobs:
           fi
           git -C common diff --check -- fs/proc/task_mmu.c
           grep -Fq 'Skip hidden VMA after mmap_lock contention' common/fs/proc/task_mmu.c
-          grep -Fq 'if (!vma->vm_file || !SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))' common/fs/proc/task_mmu.c
+          grep -Fq 'if (!(vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))))' common/fs/proc/task_mmu.c
           git -C common diff -- fs/proc/task_mmu.c > susfs-R62-task-mmu-port.diff
           {
             echo 'R62_SUSFS_FILTERED_PATCH=PASS'
