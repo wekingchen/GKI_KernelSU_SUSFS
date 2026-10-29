@@ -197,6 +197,15 @@ export LLVM=1 LLVM_IAS=1 ARCH=arm64 SUBARCH=arm64
 export CROSS_COMPILE=aarch64-linux-gnu-
 export KBUILD_GENDWARFKSYMS_STABLE=1
 export LOCALVERSION=""
+# Make repeated builds from the same pinned source/config byte-reproducible.
+# GitHub runner hostnames and wall-clock time otherwise change UTS_VERSION and
+# therefore the final Image hash even when KMI and Module.symvers are identical.
+SOURCE_DATE_EPOCH="$(git -C "$SRC" show -s --format=%ct "$OS4_GKI_COMMON_COMMIT")"
+export SOURCE_DATE_EPOCH
+export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%a %b %d %T UTC %Y')"
+export KBUILD_BUILD_USER="android-build"
+export KBUILD_BUILD_HOST="pandora-r62-ci"
+export KBUILD_BUILD_VERSION=1
 export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip
 # Build official R62 with upstream flags: Gold's 6.12.23 KCFLAGS (notably
 # -fmacro-prefix-map) fail when R62 compiles Rust kernel objects with -Werror.
@@ -300,6 +309,11 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "STOCK_RELEASE=$OS4_STOCK_KERNEL_RELEASE"
   echo "SOURCE_COMMIT=$OS4_GKI_COMMON_COMMIT"
   echo "KMI_GENERATION=$OS4_KMI_GENERATION"
+  echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+  echo "KBUILD_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP"
+  echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
+  echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
+  echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
   echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_ANALYSIS"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
