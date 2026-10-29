@@ -126,6 +126,10 @@ if [[ "$DROIDSPACES" != "off" ]]; then
   for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
     append_config "$FRAGMENT" "$cfg=y"
   done
+  # Controlled #23 regression test. Add ONLY CONFIG_CGROUP_PIDS; no other Kconfig forcing.
+  config_defined CONFIG_CGROUP_PIDS || die "DroidSpaces isolation requires CONFIG_CGROUP_PIDS"
+  append_config "$FRAGMENT" "CONFIG_CGROUP_PIDS=y"
+  note "DroidSpaces boot-isolation: CONFIG_CGROUP_PIDS=y ONLY"
   for cfg in CONFIG_NETFILTER_XT_MATCH_ADDRTYPE CONFIG_NETFILTER_XT_TARGET_LOG     CONFIG_NETFILTER_XT_MATCH_RECENT CONFIG_IP_SET CONFIG_IP_SET_HASH_IP     CONFIG_IP_SET_HASH_NET CONFIG_NETFILTER_XT_SET CONFIG_NETFILTER_XT_TARGET_REJECT     CONFIG_IP_NF_TARGET_REJECT; do
     enable_if_defined "$cfg"
   done
