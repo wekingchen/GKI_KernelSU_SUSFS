@@ -1,4 +1,4 @@
-name: "Xiaomi 17 Pro OS4 / 6.12.69 源码与补丁预检（不可刷机）"
+name: "Xiaomi 17 Pro OS4 / 6.12.69 补丁兼容验证（不可刷机）"
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/xiaomi-sm8850-os4-preflight.yml"
       - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
-      - "docs/xiaomi-sm8850-os4-6.12.69.md"
+      - "docs/xiaomi-sm8850-os4-6.12.69.md"\n      - "scripts/xiaomi-sm8850/os4-susfs-task-mmu-compat.py"
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   source-preflight:
-    name: "官方 R62 源码 / KMI / 补丁只读预检"
+    name: "官方 R62 源码 / KMI / SUSFS R62 兼容验证"
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -154,12 +154,64 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: "发布只读审查结论"
+      - name: "验证 R62 SUSFS 专用兼容层（临时 Runner 源码，不编译）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/os4"
+          [[ "$(git -C common rev-parse HEAD)" == e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5 ]] || {
+            echo "::error::R62 GKI commit has changed; refuse an unverified port"
+            exit 1
+          }
+          [[ "$(git -C susfs rev-parse HEAD)" == 519c86c5d8ad3832ff4a2e1a81dc1b81076f1693 ]] || {
+            echo "::error::SUSFS source has changed; revalidate the compatibility script before use"
+            exit 1
+          }
+          PATCH=susfs/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch
+          HELPER="$GITHUB_WORKSPACE/scripts/xiaomi-sm8850/os4-susfs-task-mmu-compat.py"
+          python3 "$HELPER" filter-patch "$PATCH" susfs-filtered-R62.patch
+          patch --dry-run --batch --forward -d common -p1 < susfs-filtered-R62.patch > susfs-compat-dryrun.log 2>&1 || {
+            cat susfs-compat-dryrun.log
+            echo "::error::Filtered SUSFS patch failed full-tree dry-run"
+            exit 1
+          }
+          patch --batch --forward --no-backup-if-mismatch -d common -p1 < susfs-filtered-R62.patch > susfs-compat-apply.log 2>&1
+          python3 "$HELPER" port-source common/fs/proc/task_mmu.c
+          if find common -type f -name '*.rej' -print -quit | grep -q .; then
+            echo "::error::SUSFS patch left reject files"
+            exit 1
+          fi
+          git -C common diff --check
+          grep -Fq 'Skip hidden VMA after mmap_lock contention' common/fs/proc/task_mmu.c
+          grep -Fq 'if (!vma->vm_file || !SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))' common/fs/proc/task_mmu.c
+          git -C common diff -- fs/proc/task_mmu.c > susfs-R62-task-mmu-port.diff
+          {
+            echo 'R62_SUSFS_FILTERED_PATCH=PASS'
+            echo 'R62_SUSFS_FULL_TREE_APPLY=PASS'
+            echo 'R62_SUSFS_SMAPS_ROLLUP_PORT=PASS'
+            echo 'R62_SUSFS_GIT_DIFF_CHECK=PASS'
+            echo 'R62_SUSFS_SOURCE_ONLY=YES'
+          } >> source-audit.txt
+          echo "R62 source-level SUSFS patch port PASS; no Image/ZIP built."
+
+      - name: "保存 R62 SUSFS 兼容移植审查结果"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: xiaomi-pandora-os4-susfs-R62-port-report
+          path: |
+            ${{ runner.temp }}/os4/susfs-compat-dryrun.log
+            ${{ runner.temp }}/os4/susfs-compat-apply.log
+            ${{ runner.temp }}/os4/susfs-R62-task-mmu-port.diff
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: "发布源码审查结论"
         if: always()
         shell: bash
         run: |
           {
-            echo "## OS4 / Android 17 / 6.12.69 源码预检"
+            echo "## OS4 / Android 17 / 6.12.69 源码与补丁兼容验证"
             echo
             echo "**仅为静态源码预检，不是可刷内核，不表示真机兼容。**"
             echo
