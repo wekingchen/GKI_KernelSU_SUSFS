@@ -113,10 +113,13 @@ def analyze_ko(file: Path, exports: dict) -> dict:
 def audit(symvers: Path, modules: Path) -> tuple[dict, int]:
     if not modules.is_dir():
         raise ValueError("请提供已解压的原厂模块目录")
-    zipped = [p for ext in ("*.ko.zst", "*.ko.xz", "*.ko.gz")
+    zipped = [p for ext in ("*.ko.zst", "*.ko.xz", "*.ko.gz", "*.ko.lz4")
               for p in modules.rglob(ext) if p.is_file()]
     if zipped:
         raise ValueError(f"发现 {len(zipped)} 个压缩模块，必须先解压，不允许漏检")
+    symlinks = [p for p in modules.rglob("*.ko") if p.is_symlink()]
+    if symlinks:
+        raise ValueError(f"发现 {len(symlinks)} 个 .ko 软链接：离线包可能不完整，不能跳过")
     files = sorted(p for p in modules.rglob("*.ko") if p.is_file() and not p.is_symlink())
     if not files or len(files) > 3000:
         raise ValueError(f".ko 数量异常：{len(files)}")
