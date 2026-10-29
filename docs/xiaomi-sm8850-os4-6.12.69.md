@@ -107,3 +107,17 @@ CI 报告明确包含 `R62_BAKASU_NOMOUNT_KERNEL_COMPILE=NOT_RUN`。**这些都�
 2. 尽可能导出 `Module.symvers` / `vmlinux` 并与原厂 `vendor_dlkm`、`system_dlkm` 预编译模块比对。
 3. 完整构建 BakaSU + SUSFS + NoMount + DroidSpaces，而非仅成功插入文件和 Kconfig。
 4. 获取 **OS4.0.5.0.XBLCNXM** 精确匹配的原厂 `boot.img`；确认回刷与 LKM 冲突处理后，再讨论 AnyKernel3 和真机验证。
+
+### R62 最终 Kconfig 解析成功（2026-10-29）
+
+[第 14 次 Actions / Run 40834560494](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40834560494) **整体成功**，在实际已应用 SUSFS R62 兼容、BakaSU、NoMount 源码的 GKI 树里运行 `gki_defconfig` + `olddefconfig`，最终从解析后的 `.config` 核验：
+
+- `CONFIG_KSU=y`、`CONFIG_KSU_SUSFS=y`、`CONFIG_KSU_SUSFS_SUS_MAP=y`、`CONFIG_NOMOUNT=y`；
+- `# CONFIG_KSU_TRACEPOINT_HOOK is not set`（与 SUSFS inline 模式匹配）；
+- 另有源码级补丁应用、NoMount setup、BakaSU Kconfig 接入检查全部通过。
+
+这说明真实 Kconfig 能接受上述内建功能选项，**尚未完成 Clang 编译、链接 `Image`、`Module.symvers` 比对或手机实刷**。配置阶段使用 Runner 安装的系统 Clang/lld 来解析配置，后续正式构建仍须使用锁定的 Android Clang `r536225`，不得将本次配置验证误认为正式编译器适配通过。
+
+第一次上传配置 Artifact 时，`upload-artifact` 因隐藏文件规则略过 `.config`；已修改工作流使解析后的文件复制为 `resolved-os4-gki.config`，供后续完整留档，并将复测结果作为最终证据。
+
+后续首要任务：创建独立的 **R62 非刷机 Image 构建**，输出 `vmlinux/Module.symvers/Image` 等审核素材；只有 ABI、厂商模块与完整功能层都验证后，才能进入 AnyKernel3 阶段。
