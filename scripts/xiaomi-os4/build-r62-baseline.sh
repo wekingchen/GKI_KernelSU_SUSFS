@@ -78,7 +78,10 @@ export CROSS_COMPILE=aarch64-linux-gnu-
 export KBUILD_GENDWARFKSYMS_STABLE=1
 export LOCALVERSION=""
 export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip
-export KCFLAGS="-fdebug-prefix-map=$STAGE=. -fmacro-prefix-map=$STAGE=. -ffile-prefix-map=$STAGE=. -no-canonical-prefixes -O2 -pipe -Wno-error -D__ANDROID_COMMON_KERNEL__"
+# Build official R62 with upstream flags: Gold's 6.12.23 KCFLAGS (notably
+# -fmacro-prefix-map) fail when R62 compiles Rust kernel objects with -Werror.
+# Baseline must reflect official GKI Kconfig/compiler semantics, not Gold hacks.
+unset KCFLAGS
 echo "[OS4] 工具链: $(clang --version | head -n1) / $(rustc --version)"
 [[ "$(clang --version | head -n1)" == *"clang version 19.0.1"* ]] || { echo "::error::incorrect Clang"; exit 1; }
 
