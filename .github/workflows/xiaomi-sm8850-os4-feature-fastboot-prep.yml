@@ -34,7 +34,8 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
           ! grep -Eq 'fastboot[[:space:]]+flash|flashall|erase[[:space:]]+boot' scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
-          echo "repack helper syntax/safety scan: PASS"
+          grep -Fq 'module_blacklist=kernelsu' scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          echo "repack helper syntax/safety/LKM-guard scan: PASS"
 
       - name: "合成 boot-v4 实际 repack 自测"
         shell: bash
@@ -112,6 +113,18 @@ jobs:
               pandora-OS4-R62-BakaSU-SUSFS-NoMount-FASTBOOT-BOOT-ONLY.img
 
           生成后先记录脚本输出的 output_sha256，再执行任何手机测试。
+
+          临时启动成功后优先检查：
+            adb shell uname -r
+            adb shell cat /proc/cmdline
+            adb shell "cat /proc/modules | grep '^kernelsu ' || true"
+            adb shell su -c id
+
+          预期：
+          - uname 为 6.12.69-android16-6-os4r62-features-4k
+          - /proc/cmdline 可见 module_blacklist=kernelsu
+          - /proc/modules 不应再出现 kernelsu LKM
+          - su -c id 仍应取得 root（此时来自 Built-in BakaSU）
           EOF
           (
             cd "$OUT"
