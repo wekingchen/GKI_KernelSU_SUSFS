@@ -1,0 +1,209 @@
+name: "小米17 Pro OS4 / R62 BakaSU-SUSFS-NoMount 功能编译（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-features-build.yml"
+      - "scripts/xiaomi-os4/build-r62-features.sh"
+      - "scripts/xiaomi-os4/susfs-task-mmu-compat.py"
+      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-features
+  cancel-in-progress: true
+
+jobs:
+  feature-compile:
+    name: "锁定源码编译 BakaSU + SUSFS + NoMount，并对照 #7 ABI"
+    if: github.ref == 'refs/heads/os4/pandora-6.12.69-adaptation-20261029'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: "检出独立 OS4 分支（不修改 Gold 或 stable）"
+        uses: actions/checkout@v7
+
+      - name: "验证分支与编译脚本语法"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          python3 -m py_compile scripts/xiaomi-os4/susfs-task-mmu-compat.py
+          ! grep -Eq 'fastboot[[:space:]]+flash|AnyKernel3.zip|mkbootimg' scripts/xiaomi-os4/build-r62-features.sh
+          echo "OS4 隔离分支及非刷机约束检查通过"
+
+      - name: "清理 Runner 预装冗余工具"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache \
+            cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 \
+            rsync tar unzip xz-utils zip zstd dwarves
+
+      - name: "恢复固定 Google R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复已验证 Android r536225 Clang/Rust 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "复用 R62 编译热缓存（独立新键）"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-features-${{ github.sha }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-features-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "编译 R62 BakaSU Built-in / SUSFS / NoMount（只生成分析 Image）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "下载已真机启动的 #7 官方最小基线 ABI"
+        uses: actions/download-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-baseline-Image-ABI
+          run-id: 40853513946
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/xiaomi-os4-baseline-abi
+
+      - name: "与 #7 比较 vmlinux 导出符号 CRC（差异必须为零）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/xiaomi-os4-baseline-abi/Module.symvers"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/abi-diff.txt"
+          test -s "$BASE" && test -s "$NEW"
+          printf '%s  %s\n' "69dc25f5e78bb1b03332c0a8cf0169e239e1efbd51c04a7469aea95430f89b2f" "$BASE" | sha256sum -c -
+          awk -F '\t' '
+            NR==FNR {
+              if ($3=="vmlinux") { original[$2]=$1; base_count++ }
+              next
+            }
+            $3=="vmlinux" {
+              if ($2 in original) {
+                compared++
+                if ($1 != original[$2]) {
+                  conflicts++
+                  if (conflicts <= 30) print "CRC_CHANGED " $2 " old=" original[$2] " new=" $1
+                }
+                delete original[$2]
+              } else added++
+            }
+            END {
+              for (name in original) {
+                missing++
+                if (missing <= 30) print "MISSING_EXPORT " name
+              }
+              print "BASE_VMLINUX_EXPORTS=" base_count
+              print "MATCHED_SYMBOL_NAMES=" compared
+              print "NEW_EXPORTS=" added
+              print "MISSING_EXPORTS=" missing
+              print "CRC_CONFLICTS=" conflicts
+              if (base_count < 1000 || missing || conflicts) exit 1
+            }
+          ' "$BASE" "$NEW" | tee "$OUT"
+          # Pipefail prevents a partial/mismatching feature build being declared safe.
+          echo "仅比对 R62 对 R62 导出 ABI；仍需原厂模块功能验证"
+
+      - name: "记录分层编译与 ABI 结果"
+        if: always()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          {
+            echo "## OS4 / R62 功能内核编译（禁止刷机）"
+            echo
+            echo "基线 #7 的 Image + 当前 LKM 已获真机启动验证；这次仅验证 BakaSU/SUSFS/NoMount 的编译和 ABI，不代表新功能版已经能启动。"
+            if [[ -s "$OUT/build-metadata.txt" ]]; then
+              echo '~~~text'
+              cat "$OUT/build-metadata.txt"
+              echo '~~~'
+            fi
+            if [[ -s "$OUT/abi-diff.txt" ]]; then
+              echo '~~~text'
+              cat "$OUT/abi-diff.txt"
+              echo '~~~'
+            fi
+            if command -v ccache >/dev/null 2>&1; then
+              export CCACHE_DIR="$HOME/.cache/xiaomi-os4/ccache-r62"
+              ccache --show-stats | tail -n 20 || true
+            fi
+            echo
+            echo "safe_to_flash=false；未打包 boot.img / AnyKernel3；暂不修改手机或原厂模块。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "保存通过 ABI 对照的非刷机 Image 和符号信息"
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Image
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/vmlinux.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/vmlinux.zst
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/final.config
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/abi-diff.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: "失败时保留部分分析素材（仍不可刷机）"
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-features-partial
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Image
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/final.config
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/abi-diff.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: "只保留失败阶段的末尾日志（避免日志截断）"
+        if: failure()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          mkdir -p "$RUNNER_TEMP/xiaomi-os4-feature-errors"
+          for file in config-build.log kernel-build.log modules-build.log patch-dryrun.log patch-apply.log; do
+            if [[ -s "$OUT/$file" ]]; then
+              tail -n 160 "$OUT/$file" > "$RUNNER_TEMP/xiaomi-os4-feature-errors/$file"
+            fi
+          done
+
+      - name: "上传最近 160 行失败上下文"
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-features-error-tail
+          path: ${{ runner.temp }}/xiaomi-os4-feature-errors/
+          if-no-files-found: warn
+          retention-days: 7
