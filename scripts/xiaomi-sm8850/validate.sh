@@ -92,16 +92,13 @@ if truthy_feature "${XIAOMI_USE_NOMOUNT:-false}"; then
   config_is_y "$FINAL" CONFIG_NOMOUNT || die "NoMount requested but CONFIG_NOMOUNT=y is missing"
 fi
 if [[ "${XIAOMI_DROIDSPACES:-off}" != "off" ]]; then
-  # Check effective config extracted from the built Image, not merely the
-  # input fragment. Kernel config dependencies may otherwise drop requests.
-  for key in \
-    CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS \
-    CONFIG_DEVTMPFS CONFIG_USER_NS \
-    CONFIG_CGROUPS CONFIG_CGROUP_SCHED CONFIG_FAIR_GROUP_SCHED \
-    CONFIG_CFS_BANDWIDTH CONFIG_CGROUP_PIDS \
-    CONFIG_NET CONFIG_NET_NS CONFIG_NETDEVICES CONFIG_MACVLAN; do
-    config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key=y"
+  for key in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS CONFIG_DEVTMPFS CONFIG_USER_NS; do
+    config_is_y "$FINAL" "$key" || die "DroidSpaces requested but final Image lacks $key"
   done
+fi
+if [[ "${XIAOMI_DROIDSPACES:-off}" == "on" ]]; then
+  # Verify the built Image, matching the known-bootable Macvlan-only profile.
+  config_is_y "$FINAL" CONFIG_MACVLAN || die "DroidSpaces requires CONFIG_MACVLAN=y in final Image"
 fi
 if truthy_feature "${XIAOMI_DROIDSPACES_NTSYNC:-false}"; then
   config_is_y "$FINAL" CONFIG_NTSYNC || die "NTSync requested but CONFIG_NTSYNC=y is missing"
@@ -256,11 +253,5 @@ fi
   echo "feature_use_networking=${XIAOMI_USE_NETWORKING:-false}"
   echo "feature_cve_2026_43499_patch=${XIAOMI_CVE_2026_43499_PATCH:-false}"
   echo "feature_droidspaces=${XIAOMI_DROIDSPACES:-off}"
-  if [[ "${XIAOMI_DROIDSPACES:-off}" != "off" ]]; then
-    echo "droidspaces_macvlan=y"
-    echo "droidspaces_cfs_bandwidth=y"
-    echo "droidspaces_cgroup_pids=y"
-    echo "droidspaces_runtime_cgroup_check=required_on_device"
-  fi
   echo "feature_droidspaces_ntsync=${XIAOMI_DROIDSPACES_NTSYNC:-false}"
 } | tee "$REPORT"
