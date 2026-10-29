@@ -59,6 +59,7 @@ Wiki 涵盖内容：
 - 🆘 救砖指南
 - 📊 内核版本兼容性说明
 - 🧩 [**进阶功能文档**](docs/advanced-features.md)：GhostLock 安全修复、Droidspaces 容器支持、自定义提交配置、伪装 `/proc/config.gz`
+- 📱 [**小米 17 Pro OS4 固件升级后 stock-input 操作指南**](docs/xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)：升级后只读采集、xm.zip 上传、只读检查、fixture 固化与临时启动流程
 
 ---
 
