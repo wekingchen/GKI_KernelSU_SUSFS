@@ -85,14 +85,17 @@ unset KCFLAGS
 echo "[OS4] 工具链: $(clang --version | head -n1) / $(rustc --version)"
 [[ "$(clang --version | head -n1)" == *"clang version 19.0.1"* ]] || { echo "::error::incorrect Clang"; exit 1; }
 
+BUILD_JOBS="${XIAOMI_OS4_JOBS:-$(nproc)}"
+(( BUILD_JOBS >= 1 && BUILD_JOBS <= 8 )) || { echo "::error::Invalid build jobs: $BUILD_JOBS"; exit 1; }
+echo "[OS4] 编译线程 $BUILD_JOBS，ccache 编译器 $CLANG_CC"
 mkdir -p "$OUT"
-make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j2 gki_defconfig > "$RESULT/config-build.log" 2>&1 || {
+make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESULT/config-build.log" 2>&1 || {
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
 "$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "-android16-6-os4r62-analysis-4k"
 "$SRC/scripts/config" --file "$OUT/.config" --disable LOCALVERSION_AUTO
-make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j2 olddefconfig >> "$RESULT/config-build.log" 2>&1 || {
+make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" olddefconfig >> "$RESULT/config-build.log" 2>&1 || {
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 cp "$OUT/.config" "$RESULT/final.config"
@@ -102,16 +105,29 @@ grep -qx '# CONFIG_CGROUP_PIDS is not set' "$OUT/.config" || {
 }
 echo "[OS4] Starting official GKI R62 baseline Image (no BakaSU/SUSFS/NoMount)"
 start="$(date +%s)"
-if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j2 Image > "$RESULT/kernel-build.log" 2>&1; then
+if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 \
+  CC="$CLANG_CC" HOSTCC="$CLANG_CC" -j"$BUILD_JOBS" Image > "$RESULT/kernel-build.log" 2>&1; then
   echo "::error::R62 baseline Image failed; last 120 lines:"
   tail -n 120 "$RESULT/kernel-build.log"
   exit 1
 fi
-elapsed="$(( $(date +%s) - start ))"
+image_elapsed="$(( $(date +%s) - start ))"
 [[ -s "$OUT/arch/arm64/boot/Image" ]] || { echo "::error::Image missing"; exit 1; }
-[[ -s "$OUT/Module.symvers" ]] || { echo "::error::Module.symvers missing"; exit 1; }
 [[ -s "$OUT/vmlinux" ]] || { echo "::error::vmlinux missing"; exit 1; }
+[[ -s "$OUT/vmlinux.symvers" ]] || { echo "::error::vmlinux.symvers missing"; exit 1; }
+# Image completes before Module.symvers is created. Keep verified outputs
+# even if the subsequent module build fails, but do not label them flashable.
 cp "$OUT/arch/arm64/boot/Image" "$RESULT/Image"
+cp "$OUT/vmlinux.symvers" "$RESULT/vmlinux.symvers"
+echo "[OS4] Image 完成（$image_elapsed 秒），开始内核模块构建以生成真正 Module.symvers"
+if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 \
+  CC="$CLANG_CC" HOSTCC="$CLANG_CC" -j"$BUILD_JOBS" modules > "$RESULT/modules-build.log" 2>&1; then
+  echo "::error::R62 modules build failed; last 120 lines:"
+  tail -n 120 "$RESULT/modules-build.log"
+  exit 1
+fi
+elapsed="$(( $(date +%s) - start ))"
+[[ -s "$OUT/Module.symvers" ]] || { echo "::error::Module.symvers still missing after modules build"; exit 1; }
 cp "$OUT/Module.symvers" "$RESULT/Module.symvers"
 zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
 {
@@ -120,11 +136,14 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KMI_GENERATION=$OS4_KMI_GENERATION"
   echo "BUILD_KIND=R62_UNMODIFIED_GKI_BASELINE"
   echo "FLASHABLE=NO"
-  echo "IMAGE_BUILD_SECONDS=$elapsed"
+  echo "IMAGE_BUILD_SECONDS=$image_elapsed"
+  echo "IMAGE_AND_MODULES_BUILD_SECONDS=$elapsed"
+  echo "SYMVERS_FROM=make_modules"
   echo "KERNEL_RELEASE=$(make --no-print-directory -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 kernelrelease)"
   echo "IMAGE_SHA256=$(sha256sum "$RESULT/Image" | cut -d ' ' -f1)"
   echo "SYMVERS_SHA256=$(sha256sum "$RESULT/Module.symvers" | cut -d ' ' -f1)"
   echo "SYMVERS_LINES=$(wc -l < "$RESULT/Module.symvers")"
+  echo "VMLINUX_SYMVERS_LINES=$(wc -l < "$RESULT/vmlinux.symvers")"
 } > "$RESULT/build-metadata.txt"
 cat "$RESULT/build-metadata.txt"
 echo "[OS4] R62 baseline Image/Symvers built; NOT flashable, no AnyKernel3."
