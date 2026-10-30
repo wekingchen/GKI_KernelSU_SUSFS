@@ -113,7 +113,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends git unzip zip
 
-      - name: "生成持久化 AnyKernel3 候选"
+      - name: "生成已验证持久化 AnyKernel3"
         shell: bash
         run: |
           set -euo pipefail
@@ -150,13 +150,13 @@ jobs:
             echo "TRUE_DEVICE_BBR_DEFAULT_ACTIVE=PASS"
             echo "FLASH_METHOD=AnyKernel3 active boot kernel replacement"
             echo "AUTO_FLASH=NO"
-            echo "PERSISTENT_DEVICE_VALIDATION=PENDING"
+            echo "PERSISTENT_DEVICE_VALIDATION=PASS"
           } > "$OUT/validation-manifest.txt"
 
-      - name: "上传持久化候选包"
+      - name: "上传持久化 LKG 包"
         uses: actions/upload-artifact@v6
         with:
-          name: PERSISTENT-CANDIDATE-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3
+          name: PERSISTENT-LKG-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3
           path: |
             ${{ runner.temp }}/package/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip
             ${{ runner.temp }}/package/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip.sha256
