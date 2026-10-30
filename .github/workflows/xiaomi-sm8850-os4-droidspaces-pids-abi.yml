@@ -1,13 +1,9 @@
 name: "小米17 Pro OS4 / DroidSpaces PIDs 专项 ABI 分析（不可刷机）"
 
+# Historical PIDs experiment. Keep for reproducibility, but do not auto-run
+# when the shared build script changes. The validated net_prio-KMI PIDs result
+# is pinned and consumed by the current CoreNS workflow.
 on:
-  push:
-    branches:
-      - "os4/pandora-6.12.69-adaptation-20261029"
-    paths:
-      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-pids-abi.yml"
-      - "scripts/xiaomi-os4/build-r62-features.sh"
-      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
   workflow_dispatch:
 
 permissions:
