@@ -97,9 +97,9 @@ Generic Netlink family: rekernel
 
 旧 legacy netlink 保持关闭。
 
-## 构建入口
+## 稳定 LKG 复现入口
 
-活动工作流只保留：
+稳定 LKG 的严格复现入口为：
 
 ```text
 .github/workflows/xiaomi-sm8850-os4-lkg.yml
@@ -112,6 +112,68 @@ Generic Netlink family: rekernel
 - AnyKernel3 持久化包
 
 工作流不依赖历史 Run Artifact，因此旧 Actions 记录过期后不会断链。
+
+## 自定义功能编译
+
+当前 OS4 额外提供与旧 OS3 使用习惯一致的图形化选择入口：
+
+```text
+.github/workflows/xiaomi-sm8850-os4-custom.yml
+小米17 Pro OS4 / 自定义内核
+```
+
+可选择：
+
+- Root / SUSFS：
+  - `bakasu-susfs`（默认）
+  - `bakasu`
+  - `none`
+- SUSFS 扩展功能；
+- NoMount；
+- DroidSpaces 完整支持；
+- NTSync；
+- Baseband Guard；
+- Re-Kernel 11.7；
+- 网络增强（BBR / IPSet / FQ / FQ_CODEL / CAKE / WireGuard / CIFS）；
+- CVE-2026-43499 / CVE-2026-53163 修复链审计。
+
+依赖关系由构建脚本统一解析。例如 DroidSpaces 关闭时，NTSync 即使在界面中仍被勾选，也会自动关闭，并把最终生效值写入构建元数据。
+
+### 默认组合
+
+所有默认项保持开启时，选择必须精确复现当前 Full Parity LKG：
+
+```text
+Image SHA256=244772c526f76a33fb96e7c6b8915f1d68e0f79b916bb1624127ccd6eee7a846
+Module.symvers SHA256=f17b4d56fc3b80497a36826e4c9907bd51939662025a739accef20c2c00e0ae8
+fastboot boot SHA256=6f1972757b1d731a2efd93e4db109df1c49fc2776de97f067b838182193eb228
+```
+
+只有这个精确组合允许工作流生成已真机验证的 AnyKernel3 持久化包。
+
+### 自定义组合
+
+只要任一功能与默认 LKG 不同：
+
+- kernel release 使用 `-android16-6-os4r62-custom-4k`；
+- 必须通过固定 KMI/ABI lock；
+- 只生成 `fastboot boot` 临时测试镜像；
+- 不生成 AnyKernel3 持久化包；
+- 未经过真机临时启动验证前，不得提升为可持久化组合。
+
+ABI lock 固定当前已验证基线的 19324 个基础导出及 CRC。允许的 51 个可选功能新增导出单独列在：
+
+```text
+.github/config/pandora-os4-r62-abi-allowed-new-exports.txt
+```
+
+boot 测试镜像直接由已真机验证 fixture 与 candidate Image 重建，不需要每次先完整重编 baseline。
+
+### 暂未加入菜单
+
+ZRAM / LZ4K / LZ4KD 仍属于待适配功能，在完成 OS4 模块形态、ABI 和真机验证之前，不提供无效或未经验证的编译开关。
+
+---
 
 ## 新固件 / OTA
 

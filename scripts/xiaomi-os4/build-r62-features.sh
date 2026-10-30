@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Experimental R62 integrated BakaSU/SUSFS/NoMount. Analysis only, NEVER flash.
+# Xiaomi 17 Pro OS4 R62 selectable builder. Custom combinations remain fastboot-boot test only until validated.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
 STAGE="$RUNNER_TEMP/xiaomi-os4-integrated"
@@ -13,6 +13,19 @@ GIT_CACHE="$CACHE_ROOT/common-r62.git"
 TOOL_CACHE="$CACHE_ROOT/toolchain-r536225"
 mkdir -p "$STAGE" "$RESULT" "$CACHE_ROOT"
 
+CUSTOM_SELECTABLE="${XIAOMI_OS4_SELECTABLE_BUILD:-0}"
+ROOT_MODE="${XIAOMI_OS4_ROOT_MODE:-bakasu-susfs}"
+SUSFS_EXTRA_FEATURES="${XIAOMI_OS4_SUSFS_EXTRA_FEATURES:-1}"
+USE_NOMOUNT="${XIAOMI_OS4_USE_NOMOUNT:-1}"
+DROIDSPACES_ENABLED="${XIAOMI_OS4_DROIDSPACES:-1}"
+USE_NTSYNC="${XIAOMI_OS4_USE_NTSYNC:-1}"
+USE_BBG="${XIAOMI_OS4_USE_BBG:-1}"
+USE_REKERNEL="${XIAOMI_OS4_USE_REKERNEL:-1}"
+USE_NETWORKING="${XIAOMI_OS4_USE_NETWORKING:-1}"
+USE_CVE="${XIAOMI_OS4_USE_CVE:-1}"
+
+# Legacy low-level controls remain supported so the immutable LKG workflow can
+# reproduce the already-verified image byte-for-byte.
 DROIDSPACES_PIDS="${XIAOMI_OS4_ENABLE_CGROUP_PIDS:-0}"
 DROIDSPACES_PIDS_REUSE_NET_PRIO="${XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT:-0}"
 DROIDSPACES_PIDS_REPURPOSE_NET_PRIO="${XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:-0}"
@@ -20,27 +33,100 @@ DROIDSPACES_CORE_NAMESPACES="${XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES:-0}"
 DROIDSPACES_MACVLAN="${XIAOMI_OS4_DROIDSPACES_MACVLAN:-0}"
 DROIDSPACES_FULL_EXTRAS="${XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS:-0}"
 OS3_PARITY_EXTRAS="${XIAOMI_OS4_OS3_PARITY_EXTRAS:-0}"
-[[ "$DROIDSPACES_PIDS" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_ENABLE_CGROUP_PIDS must be 0 or 1"; exit 1;
+SELECTED_EXTRAS=0
+EXACT_LKG_SELECTION=0
+
+check_bool() {
+  local name="$1" value="$2"
+  [[ "$value" == "0" || "$value" == "1" ]] || {
+    echo "::error::$name must be 0 or 1 (actual: $value)"
+    exit 1
+  }
 }
-[[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT must be 0 or 1"; exit 1;
-}
-[[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO must be 0 or 1"; exit 1;
-}
-[[ "$DROIDSPACES_CORE_NAMESPACES" == "0" || "$DROIDSPACES_CORE_NAMESPACES" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES must be 0 or 1"; exit 1;
-}
-[[ "$DROIDSPACES_MACVLAN" == "0" || "$DROIDSPACES_MACVLAN" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_DROIDSPACES_MACVLAN must be 0 or 1"; exit 1;
-}
-[[ "$DROIDSPACES_FULL_EXTRAS" == "0" || "$DROIDSPACES_FULL_EXTRAS" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS must be 0 or 1"; exit 1;
-}
-[[ "$OS3_PARITY_EXTRAS" == "0" || "$OS3_PARITY_EXTRAS" == "1" ]] || {
-  echo "::error::XIAOMI_OS4_OS3_PARITY_EXTRAS must be 0 or 1"; exit 1;
-}
+
+check_bool XIAOMI_OS4_SELECTABLE_BUILD "$CUSTOM_SELECTABLE"
+
+if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
+  case "$ROOT_MODE" in
+    bakasu-susfs)
+      USE_BAKASU=1
+      USE_SUSFS=1
+      ;;
+    bakasu)
+      USE_BAKASU=1
+      USE_SUSFS=0
+      ;;
+    none)
+      USE_BAKASU=0
+      USE_SUSFS=0
+      ;;
+    *)
+      echo "::error::XIAOMI_OS4_ROOT_MODE must be bakasu-susfs, bakasu or none"
+      exit 1
+      ;;
+  esac
+
+  for pair in     "XIAOMI_OS4_SUSFS_EXTRA_FEATURES:$SUSFS_EXTRA_FEATURES"     "XIAOMI_OS4_USE_NOMOUNT:$USE_NOMOUNT"     "XIAOMI_OS4_DROIDSPACES:$DROIDSPACES_ENABLED"     "XIAOMI_OS4_USE_NTSYNC:$USE_NTSYNC"     "XIAOMI_OS4_USE_BBG:$USE_BBG"     "XIAOMI_OS4_USE_REKERNEL:$USE_REKERNEL"     "XIAOMI_OS4_USE_NETWORKING:$USE_NETWORKING"     "XIAOMI_OS4_USE_CVE:$USE_CVE"; do
+    check_bool "${pair%%:*}" "${pair#*:}"
+  done
+
+  if [[ "$USE_SUSFS" != "1" && "$SUSFS_EXTRA_FEATURES" == "1" ]]; then
+    echo "::warning::SUSFS 扩展已选择，但 Root 模式未启用 SUSFS；自动忽略。"
+    SUSFS_EXTRA_FEATURES=0
+  fi
+  DROIDSPACES_PIDS=0
+  DROIDSPACES_PIDS_REUSE_NET_PRIO=0
+  DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=0
+  DROIDSPACES_CORE_NAMESPACES=0
+  DROIDSPACES_MACVLAN=0
+  DROIDSPACES_FULL_EXTRAS=0
+  if [[ "$DROIDSPACES_ENABLED" == "1" ]]; then
+    DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=1
+    DROIDSPACES_CORE_NAMESPACES=1
+    DROIDSPACES_MACVLAN=1
+    DROIDSPACES_FULL_EXTRAS=1
+  fi
+
+  # Reuse the already-proven parity integration verbatim when the complete
+  # parity set is selected; partial combinations use the componentized helper.
+  if [[ "$DROIDSPACES_ENABLED" == "1" && "$USE_NTSYNC" == "1" && "$USE_BBG" == "1" &&
+        "$USE_REKERNEL" == "1" && "$USE_NETWORKING" == "1" && "$USE_CVE" == "1" ]]; then
+    OS3_PARITY_EXTRAS=1
+  else
+    OS3_PARITY_EXTRAS=0
+    if [[ "$USE_NTSYNC" == "1" || "$USE_BBG" == "1" || "$USE_REKERNEL" == "1" ||
+          "$USE_NETWORKING" == "1" || "$USE_CVE" == "1" ]]; then
+      SELECTED_EXTRAS=1
+    fi
+  fi
+
+  if [[ "$ROOT_MODE" == "bakasu-susfs" && "$SUSFS_EXTRA_FEATURES" == "1" &&
+        "$USE_NOMOUNT" == "1" && "$DROIDSPACES_ENABLED" == "1" &&
+        "$USE_NTSYNC" == "1" && "$USE_BBG" == "1" && "$USE_REKERNEL" == "1" &&
+        "$USE_NETWORKING" == "1" && "$USE_CVE" == "1" ]]; then
+    EXACT_LKG_SELECTION=1
+  fi
+else
+  # Historical/LKG behavior: these three sources were always integrated.
+  USE_BAKASU=1
+  USE_SUSFS=1
+  USE_NOMOUNT=1
+  SUSFS_EXTRA_FEATURES=1
+  DROIDSPACES_ENABLED="$DROIDSPACES_FULL_EXTRAS"
+  USE_NTSYNC="$OS3_PARITY_EXTRAS"
+  USE_BBG="$OS3_PARITY_EXTRAS"
+  USE_REKERNEL="$OS3_PARITY_EXTRAS"
+  USE_NETWORKING="$OS3_PARITY_EXTRAS"
+  USE_CVE="$OS3_PARITY_EXTRAS"
+  if [[ "$OS3_PARITY_EXTRAS" == "1" && "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+    EXACT_LKG_SELECTION=1
+  fi
+fi
+
+for pair in   "XIAOMI_OS4_ENABLE_CGROUP_PIDS:$DROIDSPACES_PIDS"   "XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT:$DROIDSPACES_PIDS_REUSE_NET_PRIO"   "XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"   "XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES:$DROIDSPACES_CORE_NAMESPACES"   "XIAOMI_OS4_DROIDSPACES_MACVLAN:$DROIDSPACES_MACVLAN"   "XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS:$DROIDSPACES_FULL_EXTRAS"   "XIAOMI_OS4_OS3_PARITY_EXTRAS:$OS3_PARITY_EXTRAS"; do
+  check_bool "${pair%%:*}" "${pair#*:}"
+done
+
 if [[ "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
   [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
     echo "::error::Full DroidSpaces extras require validated CoreNS + PIDs repurpose baseline"; exit 1;
@@ -55,17 +141,36 @@ if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && ( "$DROIDSPACES_PIDS" != 
 fi
 if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
   [[ "$DROIDSPACES_FULL_EXTRAS" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
-    echo "::error::OS3 parity extras require the validated Full Extras/CoreNS/PIDs baseline"; exit 1;
+    echo "::error::Full parity integration requires the validated Full Extras/CoreNS/PIDs baseline"; exit 1;
   }
 fi
-echo "[OS4] BakaSU/SUSFS/NoMount 实际编译，只供 ABI 分析；禁止刷机。目标 $OS4_KERNEL_VERSION / $OS4_STOCK_KMI"
+
+echo "[OS4] selectable build: $CUSTOM_SELECTABLE"
+echo "[OS4] Root mode: $ROOT_MODE (BakaSU=$USE_BAKASU SUSFS=$USE_SUSFS extras=$SUSFS_EXTRA_FEATURES)"
+echo "[OS4] NoMount: $USE_NOMOUNT"
+echo "[OS4] DroidSpaces: $DROIDSPACES_ENABLED"
+echo "[OS4] NTSync: $USE_NTSYNC"
+echo "[OS4] BBG: $USE_BBG"
+echo "[OS4] Re-Kernel: $USE_REKERNEL"
+echo "[OS4] Networking: $USE_NETWORKING"
+echo "[OS4] CVE chain: $USE_CVE"
+echo "[OS4] exact verified LKG selection: $EXACT_LKG_SELECTION"
 echo "[OS4] DroidSpaces PIDs controller analysis: $DROIDSPACES_PIDS"
 echo "[OS4] DroidSpaces PIDs reuse net_prio slot: $DROIDSPACES_PIDS_REUSE_NET_PRIO"
 echo "[OS4] DroidSpaces PIDs repurpose net_prio KMI identity: $DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
 echo "[OS4] DroidSpaces core PID/IPC namespaces with pinned 6.12 kABI patch: $DROIDSPACES_CORE_NAMESPACES"
 echo "[OS4] DroidSpaces optional Macvlan support: $DROIDSPACES_MACVLAN"
-echo "[OS4] DroidSpaces full remaining extras (devtmpfs/macvlan/IPv6 NAT/USER_NS): $DROIDSPACES_FULL_EXTRAS"
-echo "[OS4] OS3 parity extras (Networking/NTSync/BBG/Re-Kernel/CVE): $OS3_PARITY_EXTRAS"
+echo "[OS4] DroidSpaces full remaining extras: $DROIDSPACES_FULL_EXTRAS"
+echo "[OS4] legacy full parity helper: $OS3_PARITY_EXTRAS; partial extras helper: $SELECTED_EXTRAS"
+
+# Export normalized/effective values so component helpers see the resolved
+# feature selection rather than the original raw workflow inputs.
+export XIAOMI_OS4_USE_NTSYNC="$USE_NTSYNC"
+export XIAOMI_OS4_USE_BBG="$USE_BBG"
+export XIAOMI_OS4_USE_REKERNEL="$USE_REKERNEL"
+export XIAOMI_OS4_USE_NETWORKING="$USE_NETWORKING"
+export XIAOMI_OS4_USE_CVE="$USE_CVE"
+
 [[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
@@ -89,10 +194,14 @@ make_ver="$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} /^SUBLEVEL = /{s=$3}
 
 # The first feature build uses only commits that passed the source/Kconfig preflight.
 # Stop if upstream history cannot supply the exact object; never substitute branch HEAD.
-SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
-BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
-NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
-DROIDSPACES_SHA="${OS4_DROIDSPACES_COMMIT:?missing OS4_DROIDSPACES_COMMIT}"
+SUSFS_SHA="N/A"
+BAKASU_SHA="N/A"
+NOMOUNT_SHA="N/A"
+DROIDSPACES_SHA="N/A"
+[[ "$USE_SUSFS" != "1" ]] || SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
+[[ "$USE_BAKASU" != "1" ]] || BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
+[[ "$USE_NOMOUNT" != "1" ]] || NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
+[[ "$DROIDSPACES_CORE_NAMESPACES" != "1" ]] || DROIDSPACES_SHA="${OS4_DROIDSPACES_COMMIT:?missing OS4_DROIDSPACES_COMMIT}"
 checkout_locked() {
   local url="$1" ref="$2" sha="$3" dir="$4"
   git init -q "$dir"
@@ -109,13 +218,20 @@ checkout_locked() {
   }
 }
 echo "[OS4] 固定已审核上游提交，不随上游 HEAD 漂移"
-checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$SUSFS_SHA" "$STAGE/susfs"
-checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
-checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
+if [[ "$USE_SUSFS" == "1" ]]; then
+  checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$SUSFS_SHA" "$STAGE/susfs"
+fi
+if [[ "$USE_BAKASU" == "1" ]]; then
+  checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
+fi
+if [[ "$USE_NOMOUNT" == "1" ]]; then
+  checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
+fi
 if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   checkout_locked "$OS4_DROIDSPACES_REPO" "main" "$DROIDSPACES_SHA" "$STAGE/droidspaces"
 fi
 
+if [[ "$USE_SUSFS" == "1" ]]; then
 # SUSFS's patch only edits existing kernel sources; its extra .c/.h files are
 # shipped separately and MUST be installed before Image compilation.
 # The old proven Gold integration copied both trees; the first OS4 feature
@@ -169,6 +285,9 @@ if find "$SRC" -name '*.rej' -print -quit | grep -q .; then
   echo "::error::SUSFS patch produced reject files"; exit 1
 fi
 
+fi
+
+if [[ "$USE_BAKASU" == "1" ]]; then
 # The preflight verified the same BakaSU layout; make the link relative.
 [[ -f "$STAGE/bakasu/kernel/Kconfig" && -f "$STAGE/bakasu/kernel/Makefile" ]] || exit 1
 [[ ! -e "$SRC/drivers/kernelsu" ]] || { echo "::error::unexpected prior KernelSU integration"; exit 1; }
@@ -189,6 +308,9 @@ PY
 [[ -L "$SRC/drivers/kernelsu" ]] || exit 1
 grep -Fq 'source "drivers/kernelsu/Kconfig"' "$SRC/drivers/Kconfig"
 
+fi
+
+if [[ "$USE_NOMOUNT" == "1" ]]; then
 # Reproduce the audited NoMount setup on the isolated checkout, without
 # fetching mutable branch heads or allowing upstream setup.sh to change.
 [[ -f "$SRC/NoMount/kernel/src/Kconfig" && -f "$SRC/NoMount/kernel/src/Makefile" ]] || exit 1
@@ -209,7 +331,9 @@ p.write_text(s[:pos]+'\nsource "fs/nomount/Kconfig"\n'+s[pos:])
 PY
 git -C "$SRC" diff --check -- drivers/Kconfig drivers/Makefile fs/Kconfig fs/Makefile
 [[ -L "$SRC/fs/nomount" ]] || exit 1
-echo "[OS4] SUSFS + BakaSU Built-in + NoMount 实际源码应用通过"
+echo "[OS4] 已选择的 Root / SUSFS / NoMount 源码集成通过"
+
+fi
 
 if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   echo "[OS4] Apply pinned DroidSpaces 6.12 SYSVIPC kABI patch before enabling PID/IPC namespaces"
@@ -286,6 +410,8 @@ fi
 
 if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
   bash "$ROOT/scripts/xiaomi-os4/apply-os3-parity-extras.sh" source
+elif [[ "$SELECTED_EXTRAS" == "1" ]]; then
+  bash "$ROOT/scripts/xiaomi-os4/apply-os4-selected-extras.sh" source
 fi
 
 if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
@@ -403,6 +529,13 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
+if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
+  if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+    FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k"
+  else
+    FEATURE_LOCALVERSION="-android16-6-os4r62-custom-4k"
+  fi
+else
 if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k"
 elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
@@ -420,11 +553,45 @@ elif [[ "$DROIDSPACES_PIDS" == "1" ]]; then
 else
   FEATURE_LOCALVERSION="-android16-6-os4r62-features-4k"
 fi
+fi
 "$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "$FEATURE_LOCALVERSION"
 "$SRC/scripts/config" --file "$OUT/.config" --disable LOCALVERSION_AUTO
-"$SRC/scripts/config" --file "$OUT/.config" \
-  --enable KSU --enable KSU_SUSFS --enable KSU_SUSFS_SUS_MAP \
-  --disable KSU_TRACEPOINT_HOOK --enable NOMOUNT
+if [[ "$CUSTOM_SELECTABLE" == "0" ]]; then
+  "$SRC/scripts/config" --file "$OUT/.config" \
+    --enable KSU --enable KSU_SUSFS --enable KSU_SUSFS_SUS_MAP \
+    --disable KSU_TRACEPOINT_HOOK --enable NOMOUNT
+else
+  if [[ "$USE_BAKASU" == "1" ]]; then
+    "$SRC/scripts/config" --file "$OUT/.config" --enable KSU
+    if [[ "$USE_SUSFS" == "1" ]]; then
+      "$SRC/scripts/config" --file "$OUT/.config" \
+        --enable KSU_SUSFS --disable KSU_TRACEPOINT_HOOK \
+        --enable KSU_SUSFS_SUS_PATH --enable KSU_SUSFS_SUS_MOUNT \
+        --enable KSU_SUSFS_SUS_KSTAT --enable KSU_SUSFS_ENABLE_LOG
+      if [[ "$SUSFS_EXTRA_FEATURES" == "1" ]]; then
+        "$SRC/scripts/config" --file "$OUT/.config" \
+          --enable KSU_SUSFS_SPOOF_UNAME \
+          --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+          --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+          --enable KSU_SUSFS_OPEN_REDIRECT \
+          --enable KSU_SUSFS_SUS_MAP
+      else
+        "$SRC/scripts/config" --file "$OUT/.config" \
+          --disable KSU_SUSFS_SPOOF_UNAME \
+          --disable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+          --disable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+          --disable KSU_SUSFS_OPEN_REDIRECT \
+          --disable KSU_SUSFS_SUS_MAP
+      fi
+    else
+      "$SRC/scripts/config" --file "$OUT/.config" \
+        --disable KSU_SUSFS --enable KSU_TRACEPOINT_HOOK
+    fi
+  fi
+  if [[ "$USE_NOMOUNT" == "1" ]]; then
+    "$SRC/scripts/config" --file "$OUT/.config" --enable NOMOUNT
+  fi
+fi
 if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   "$SRC/scripts/config" --file "$OUT/.config" \
     --enable SYSVIPC --enable POSIX_MQUEUE --enable IPC_NS --enable PID_NS
@@ -441,6 +608,8 @@ elif [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
 fi
 if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
   bash "$ROOT/scripts/xiaomi-os4/apply-os3-parity-extras.sh" config
+elif [[ "$SELECTED_EXTRAS" == "1" ]]; then
+  bash "$ROOT/scripts/xiaomi-os4/apply-os4-selected-extras.sh" config
 fi
 if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
   "$SRC/scripts/config" --file "$OUT/.config" --enable CGROUP_PIDS
@@ -456,12 +625,41 @@ fi
 make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" olddefconfig >> "$RESULT/config-build.log" 2>&1 || {
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
-for cfg in CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_MAP CONFIG_NOMOUNT; do
-  grep -qx "$cfg=y" "$OUT/.config" || { echo "::error::Required feature $cfg was not resolved to y"; exit 1; }
-done
-grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$OUT/.config" || {
-  echo "::error::SUSFS Inline Hook requires tracepoint hook disabled"; exit 1;
-}
+if [[ "$CUSTOM_SELECTABLE" == "0" ]]; then
+  for cfg in CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_MAP CONFIG_NOMOUNT; do
+    grep -qx "$cfg=y" "$OUT/.config" || { echo "::error::Required feature $cfg was not resolved to y"; exit 1; }
+  done
+  grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$OUT/.config" || {
+    echo "::error::SUSFS Inline Hook requires tracepoint hook disabled"; exit 1;
+  }
+else
+  if [[ "$USE_BAKASU" == "1" ]]; then
+    grep -qx 'CONFIG_KSU=y' "$OUT/.config" || { echo "::error::BakaSU CONFIG_KSU did not resolve"; exit 1; }
+    if [[ "$USE_SUSFS" == "1" ]]; then
+      for cfg in CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_PATH CONFIG_KSU_SUSFS_SUS_MOUNT CONFIG_KSU_SUSFS_SUS_KSTAT CONFIG_KSU_SUSFS_ENABLE_LOG; do
+        grep -qx "$cfg=y" "$OUT/.config" || { echo "::error::SUSFS core feature did not resolve: $cfg"; exit 1; }
+      done
+      grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$OUT/.config" || { echo "::error::SUSFS mode requires tracepoint hook disabled"; exit 1; }
+      for cfg in CONFIG_KSU_SUSFS_SPOOF_UNAME CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG CONFIG_KSU_SUSFS_OPEN_REDIRECT CONFIG_KSU_SUSFS_SUS_MAP; do
+        if [[ "$SUSFS_EXTRA_FEATURES" == "1" ]]; then
+          grep -qx "$cfg=y" "$OUT/.config" || { echo "::error::SUSFS extra feature did not resolve: $cfg"; exit 1; }
+        else
+          ! grep -qx "$cfg=y" "$OUT/.config" || { echo "::error::SUSFS extra feature unexpectedly enabled: $cfg"; exit 1; }
+        fi
+      done
+    else
+      grep -qx 'CONFIG_KSU_TRACEPOINT_HOOK=y' "$OUT/.config" || { echo "::error::BakaSU-only mode requires tracepoint hook"; exit 1; }
+      ! grep -qx 'CONFIG_KSU_SUSFS=y' "$OUT/.config" || { echo "::error::SUSFS unexpectedly enabled in BakaSU-only mode"; exit 1; }
+    fi
+  else
+    ! grep -qx 'CONFIG_KSU=y' "$OUT/.config" || { echo "::error::Root mode none unexpectedly enabled CONFIG_KSU"; exit 1; }
+  fi
+  if [[ "$USE_NOMOUNT" == "1" ]]; then
+    grep -qx 'CONFIG_NOMOUNT=y' "$OUT/.config" || { echo "::error::NoMount did not resolve"; exit 1; }
+  else
+    ! grep -qx 'CONFIG_NOMOUNT=y' "$OUT/.config" || { echo "::error::NoMount unexpectedly enabled"; exit 1; }
+  fi
+fi
 if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS; do
     grep -qx "$cfg=y" "$OUT/.config" || {
@@ -485,6 +683,8 @@ elif [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
 fi
 if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
   bash "$ROOT/scripts/xiaomi-os4/apply-os3-parity-extras.sh" validate
+elif [[ "$SELECTED_EXTRAS" == "1" ]]; then
+  bash "$ROOT/scripts/xiaomi-os4/apply-os4-selected-extras.sh" validate
 fi
 cp "$OUT/.config" "$RESULT/final.config"
 grep -qx 'CONFIG_MODVERSIONS=y' "$OUT/.config" || { echo "::error::baseline requires MODVERSIONS"; exit 1; }
@@ -513,7 +713,7 @@ else
     grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$OUT/.config" || { echo "::error::CONFIG_SOCK_CGROUP_DATA must stay enabled"; exit 1; }
   fi
 fi
-echo "[OS4] Building R62 Image with BakaSU + SUSFS + NoMount (not flashable)"
+echo "[OS4] Building R62 Image with selected feature set (custom combinations are fastboot-boot test only)"
 start="$(date +%s)"
 if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 \
   CC="$CLANG_CC" HOSTCC="$CLANG_CC" -j"$BUILD_JOBS" Image > "$RESULT/kernel-build.log" 2>&1; then
@@ -586,7 +786,13 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
-  if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
+  if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
+    if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+      echo "BUILD_KIND=R62_OS4_SELECTABLE_FULL_PARITY_LKG"
+    else
+      echo "BUILD_KIND=R62_OS4_SELECTABLE_CUSTOM"
+    fi
+  elif [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_FULL_OS3_PARITY_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
   elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_FULL_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
@@ -610,8 +816,21 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "DROIDSPACES_MACVLAN=$DROIDSPACES_MACVLAN"
   echo "DROIDSPACES_FULL_EXTRAS=$DROIDSPACES_FULL_EXTRAS"
   echo "OS3_PARITY_EXTRAS=$OS3_PARITY_EXTRAS"
+  echo "SELECTABLE_BUILD=$CUSTOM_SELECTABLE"
+  echo "ROOT_MODE=$ROOT_MODE"
+  echo "SUSFS_EXTRA_FEATURES=$SUSFS_EXTRA_FEATURES"
+  echo "USE_NOMOUNT=$USE_NOMOUNT"
+  echo "DROIDSPACES_ENABLED=$DROIDSPACES_ENABLED"
+  echo "USE_NTSYNC=$USE_NTSYNC"
+  echo "USE_BBG=$USE_BBG"
+  echo "USE_REKERNEL=$USE_REKERNEL"
+  echo "USE_NETWORKING=$USE_NETWORKING"
+  echo "USE_CVE=$USE_CVE"
+  echo "EXACT_LKG_SELECTION=$EXACT_LKG_SELECTION"
   if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
     cat "$RESULT/os3-parity-source.env"
+  elif [[ "$SELECTED_EXTRAS" == "1" ]]; then
+    cat "$RESULT/os4-selected-source.env"
   fi
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
