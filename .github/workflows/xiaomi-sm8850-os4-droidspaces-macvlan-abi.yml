@@ -1,0 +1,257 @@
+name: "小米17 Pro OS4 / DroidSpaces Macvlan kABI 实验（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-macvlan-abi.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-droidspaces-macvlan-abi
+  cancel-in-progress: true
+
+env:
+  CORE_BASE_RUN_ID: "41020166839"
+  CORE_BASE_ARTIFACT: "NOFLASH-pandora-OS4-R62-DroidSpaces-CoreNS-PIDs-KMI"
+  CORE_BASE_SYMVERS_SHA256: "f99c78ff1951657743df23f03566812ed6ca5a5f7ffbc6dff67ae34048a20603"
+
+jobs:
+  macvlan-abi:
+    name: "已真机闭环 CoreNS + 仅启用 CONFIG_MACVLAN"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "安全与语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          ! grep -Eq 'fastboot[[:space:]]+flash|AnyKernel3.zip' scripts/xiaomi-os4/build-r62-features.sh
+          grep -Fq 'XIAOMI_OS4_DROIDSPACES_MACVLAN' scripts/xiaomi-os4/build-r62-features.sh
+          echo "本实验只做 Macvlan 编译与 ABI/KMI 比较；不生成 boot.img。"
+
+      - name: "清理 Runner 预装冗余工具"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache \
+            cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 \
+            rsync tar unzip xz-utils zip zstd dwarves
+
+      - name: "恢复固定 Google R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复已验证 Android r536225 Clang/Rust 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "复用 CoreNS 热缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-dscore-macvlan-${{ github.sha }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-dscore-ns-
+            xiaomi-pandora-os4-ccache-r62-dspids-kmi-
+            xiaomi-pandora-os4-ccache-r62-features-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "构建 CoreNS + Macvlan 候选"
+        shell: bash
+        env:
+          XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO: "1"
+          XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES: "1"
+          XIAOMI_OS4_DROIDSPACES_MACVLAN: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "下载已真机闭环的 CoreNS 基线"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.CORE_BASE_ARTIFACT }}
+          run-id: ${{ env.CORE_BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/core-base
+
+      - name: "核对 Kconfig 只新增 Macvlan"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/core-base/final.config"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/final.config"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-config-diff.txt"
+          test -s "$BASE" && test -s "$NEW"
+
+          grep -qx 'CONFIG_MACVLAN=y' "$NEW"
+          for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS; do
+            grep -qx "$cfg=y" "$NEW"
+          done
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$NEW"
+          grep -qx 'CONFIG_CGROUP_NET_PRIO=y' "$NEW"
+          grep -qx 'CONFIG_CGROUP_NET_CLASSID=y' "$NEW"
+          grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$NEW"
+
+          python3 - "$BASE" "$NEW" "$OUT" <<'PY'
+          from pathlib import Path
+          import sys
+
+          a=Path(sys.argv[1]).read_text().splitlines()
+          b=Path(sys.argv[2]).read_text().splitlines()
+          def norm(lines):
+              return {x for x in lines if not x.startswith("CONFIG_LOCALVERSION=")}
+
+          only_a=sorted(norm(a)-norm(b))
+          only_b=sorted(norm(b)-norm(a))
+          Path(sys.argv[3]).write_text(
+              "ONLY_CORE_BASE:\n"+"\n".join(only_a)+"\n\nONLY_MACVLAN:\n"+"\n".join(only_b)+"\n"
+          )
+          print("ONLY_CORE_BASE:")
+          print("\n".join(only_a))
+          print("\nONLY_MACVLAN:")
+          print("\n".join(only_b))
+
+          expected_a=["# CONFIG_MACVLAN is not set"]
+          expected_b=["CONFIG_MACVLAN=y"]
+          if only_a != expected_a or only_b != expected_b:
+              raise SystemExit("Unexpected Kconfig delta outside CONFIG_MACVLAN")
+          PY
+
+      - name: "比较导出 ABI 与 CoreNS 真机基线"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/core-base/Module.symvers"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-abi-diff.txt"
+          SAFETY="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-safety.txt"
+          NAMES="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-new-exports.txt"
+          test -s "$BASE" && test -s "$NEW"
+          printf '%s  %s\n' "$CORE_BASE_SYMVERS_SHA256" "$BASE" | sha256sum -c -
+
+          awk -F '\t' '
+            NR==FNR {
+              if ($3=="vmlinux") { base[$2]=$1; base_count++ }
+              next
+            }
+            $3=="vmlinux" {
+              if ($2 in base) {
+                matched++
+                if ($1 != base[$2]) {
+                  conflicts++
+                  if (conflicts <= 200) print "CRC_CHANGED " $2 " old=" base[$2] " new=" $1
+                }
+                delete base[$2]
+              } else {
+                added++
+                if (added <= 200) print "NEW_EXPORT " $2 " crc=" $1
+              }
+            }
+            END {
+              for (name in base) {
+                missing++
+                if (missing <= 200) print "MISSING_EXPORT " name
+              }
+              print "BASE_VMLINUX_EXPORTS=" base_count
+              print "MATCHED_SYMBOL_NAMES=" matched
+              print "NEW_EXPORTS=" (added+0)
+              print "MISSING_EXPORTS=" (missing+0)
+              print "CRC_CONFLICTS=" (conflicts+0)
+            }
+          ' "$BASE" "$NEW" | tee "$OUT"
+
+          conflicts="$(sed -n 's/^CRC_CONFLICTS=//p' "$OUT")"
+          added="$(sed -n 's/^NEW_EXPORTS=//p' "$OUT")"
+          missing="$(sed -n 's/^MISSING_EXPORTS=//p' "$OUT")"
+          [[ -n "$conflicts" && -n "$added" && -n "$missing" ]] || exit 1
+
+          awk '/^NEW_EXPORT /{print $2}' "$OUT" | sort -u > "$NAMES"
+          expected="$(printf '%s\n' \
+            macvlan_common_newlink \
+            macvlan_common_setup \
+            macvlan_dellink \
+            macvlan_link_register)"
+          actual="$(cat "$NAMES")"
+
+          {
+            if (( conflicts == 0 && missing == 0 && added == 4 )) && [[ "$actual" == "$expected" ]]; then
+              echo "ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_4_EXPECTED_MACVLAN_EXPORTS"
+              echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+              echo "REASON=All CoreNS vmlinux exports preserve CRC; only four upstream macvlan exports are added"
+            else
+              echo "ABI_LAYOUT_RESULT=FAILED"
+              echo "SAFE_TO_FASTBOOT_BOOT=NO"
+              echo "REASON=Unexpected ABI delta outside the four pinned R62 macvlan exports"
+            fi
+          } | tee "$SAFETY"
+
+          if (( conflicts != 0 || missing != 0 || added != 4 )) || [[ "$actual" != "$expected" ]]; then
+            exit 1
+          fi
+
+      - name: "核对构建身份"
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt"
+          grep -qx 'DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=1' "$META"
+          grep -qx 'DROIDSPACES_CORE_NAMESPACES=1' "$META"
+          grep -qx 'DROIDSPACES_MACVLAN=1' "$META"
+          grep -qx 'BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_CORE_MACVLAN_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS' "$META"
+          grep -qx 'KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-macvlan-kmi-4k' "$META"
+
+      - name: "记录实验结论"
+        if: always()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          {
+            echo "## DroidSpaces Macvlan kABI 实验"
+            echo
+            echo "基线是已真机启动、Requirements 全通过、实际容器 PID/IPC/PIDs 闭环 PASS 的 CoreNS。"
+            echo "本轮唯一 Kconfig 增量：CONFIG_MACVLAN=y。"
+            for f in droidspaces-macvlan-config-diff.txt droidspaces-macvlan-abi-diff.txt droidspaces-macvlan-safety.txt; do
+              [[ -s "$OUT/$f" ]] && { echo '~~~text'; cat "$OUT/$f"; echo '~~~'; }
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "上传 Macvlan ABI 实验素材"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-DroidSpaces-CoreNS-Macvlan-KMI
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Image
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/final.config
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-kabi-apply.log
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-config-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-abi-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-new-exports.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-macvlan-safety.txt
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
