@@ -437,3 +437,38 @@ IPC_NAMESPACE=BLOCKED
 DROIDSPACES_USABLE=NO
 SAFE_TO_FLASH=NO
 ```
+
+
+### DroidSpaces CoreNS ABI 实验 #1：Image 成功、rust_binder MODPOST 阻塞（2026-10-30）
+
+Run `41014864432` 第一轮结果：
+
+- `Image` 编译成功，耗时 999 秒；
+- Image SHA256:
+  `aeadac79a3650ce2be0c6f0133efb030c426cbe2ed2ff844ac5939e1053649cc`；
+- 最终配置已确认：
+  `CONFIG_SYSVIPC=y`、`CONFIG_POSIX_MQUEUE=y`、
+  `CONFIG_IPC_NS=y`、`CONFIG_PID_NS=y`；
+- 已验证 PIDs KMI 方案仍保持
+  `CONFIG_CGROUP_PIDS=n` + `CONFIG_CGROUP_NET_PRIO=y`；
+- modules 阶段在 MODPOST 失败：
+  `rust_binder.ko` 缺 `init_ipc_ns` 与 `put_ipc_ns` 两个模块可见导出；
+- 因 Module.symvers 未完成，本轮没有进入 ABI 对比，不能判定设备安全。
+
+修复策略不是跳过 rust_binder：
+
+1. 真实 `EXPORT_SYMBOL(init_ipc_ns)` 与 `EXPORT_SYMBOL(put_ipc_ns)`；
+2. 保持真实 C SYSVIPC/task_struct 布局；
+3. 仅对 bindgen 隐藏新增 SYSVIPC 布局，保护 stock rust_binder 的 Rust binding / mangled KMI；
+4. 严格 ABI 门禁只允许新增上述 2 个导出，要求所有旧 vmlinux export：
+   `MISSING_EXPORTS=0`、`CRC_CONFLICTS=0`；
+5. 任意其他新增/缺失/CRC 变化均 `SAFE_TO_FASTBOOT_BOOT=NO`。
+
+对应修复提交：
+
+- `e80b6d6f871866311c22410cb964ef21c00f6c95`
+  — preserve Rust KMI + export IPC namespace symbols；
+- `250257b0508b209c2e0d31ad85c31685033ef0f2`
+  — ABI workflow 只接受精确两符号增量。
+
+新的严格复测：Run `41017403112`。
