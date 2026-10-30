@@ -199,7 +199,63 @@ if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   grep -Fq 'struct sysv_sem' "$SRC/include/linux/sched.h"
   grep -Fq 'char __kabi_ignored_1;' "$SRC/include/linux/sched.h"
   grep -Fq 'struct sysv_shm' "$SRC/include/linux/sched.h"
-  git -C "$SRC" diff --check -- include/linux/sched.h
+
+  # CONFIG_SYSVIPC changes task_struct-related C types. Keep the real C layout,
+  # but hide only this newly enabled layout from bindgen so Xiaomi's stock
+  # rust_binder.ko keeps the same Rust bindings/mangled symbol CRCs as stock.
+  python3 - "$SRC" <<'PY'
+from pathlib import Path
+import sys
+root=Path(sys.argv[1])
+
+sched=root/"include/linux/sched.h"
+s=sched.read_text()
+needle="#ifdef CONFIG_SYSVIPC\n\tunion {\n\t\tchar __kabi_ignored_0;"
+repl="#if defined(CONFIG_SYSVIPC) && !defined(__BINDGEN__)\n\t/* Preserve stock Rust KMI while retaining the real C SYSVIPC layout. */\n\tunion {\n\t\tchar __kabi_ignored_0;"
+if s.count(needle) != 1:
+    raise SystemExit("unexpected SYSVIPC kABI block in sched.h")
+sched.write_text(s.replace(needle,repl,1))
+
+sem=root/"include/linux/sem_types.h"
+s=sem.read_text()
+needle="#ifdef CONFIG_SYSVIPC\n\tstruct sem_undo_list *undo_list;"
+repl="#if defined(CONFIG_SYSVIPC) && !defined(__BINDGEN__)\n\tstruct sem_undo_list *undo_list;"
+if s.count(needle) != 1:
+    raise SystemExit("unexpected SYSVIPC block in sem_types.h")
+sem.write_text(s.replace(needle,repl,1))
+
+shm=root/"include/linux/shm.h"
+s=shm.read_text()
+needle="#ifdef CONFIG_SYSVIPC\nstruct sysv_shm {"
+repl="#if defined(CONFIG_SYSVIPC) && !defined(__BINDGEN__)\nstruct sysv_shm {"
+if s.count(needle) != 1:
+    raise SystemExit("unexpected SYSVIPC block in shm.h")
+shm.write_text(s.replace(needle,repl,1))
+
+# Rust Binder is a GKI module. With IPC_NS enabled its binderfs code consumes
+# these two real kernel symbols. Export them; do not fake CRCs or disable
+# MODVERSIONS. The ABI gate below must prove all pre-existing CRCs unchanged.
+msg=root/"ipc/msgutil.c"
+s=msg.read_text()
+needle="#endif\n};\n\nstruct msg_msgseg {"
+repl="#endif\n};\nEXPORT_SYMBOL(init_ipc_ns);\n\nstruct msg_msgseg {"
+if s.count(needle) != 1:
+    raise SystemExit("init_ipc_ns export insertion point not found")
+msg.write_text(s.replace(needle,repl,1))
+
+ns=root/"ipc/namespace.c"
+s=ns.read_text()
+needle="\t}\n}\n\nstatic inline struct ipc_namespace *to_ipc_ns"
+repl="\t}\n}\nEXPORT_SYMBOL(put_ipc_ns);\n\nstatic inline struct ipc_namespace *to_ipc_ns"
+if s.count(needle) != 1:
+    raise SystemExit("put_ipc_ns export insertion point not found")
+ns.write_text(s.replace(needle,repl,1))
+PY
+
+  grep -Fq '#if defined(CONFIG_SYSVIPC) && !defined(__BINDGEN__)' "$SRC/include/linux/sched.h"
+  grep -Fq 'EXPORT_SYMBOL(init_ipc_ns);' "$SRC/ipc/msgutil.c"
+  grep -Fq 'EXPORT_SYMBOL(put_ipc_ns);' "$SRC/ipc/namespace.c"
+  git -C "$SRC" diff --check -- include/linux/sched.h include/linux/sem_types.h include/linux/shm.h ipc/msgutil.c ipc/namespace.c
 fi
 
 if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
