@@ -51,6 +51,13 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
           python3 -m py_compile             scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py             scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          python3 -m unittest discover -s tests -p test_xiaomi_os4_repack_fastboot_boot.py -v
+          grep -Fq "EXPECTED_PIDS_KMI_KERNEL_SHA256 = \"$PIDS_IMAGE_SHA256\"" scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py || {
+            echo "::error::PIDs Image is not explicitly approved by the fail-closed repacker"; exit 1;
+          }
+          grep -Fq "EXPECTED_PIDS_KMI_RELEASE = b\"$PIDS_KERNEL_RELEASE\"" scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py || {
+            echo "::error::PIDs release is not explicitly approved by the fail-closed repacker"; exit 1;
+          }
           test -s "$FIXTURE"
           python3 - "$FIXTURE" "$STOCK_BOOT_SHA256" "$STOCK_HEADER_SHA256" <<'PY'
           import json, sys
