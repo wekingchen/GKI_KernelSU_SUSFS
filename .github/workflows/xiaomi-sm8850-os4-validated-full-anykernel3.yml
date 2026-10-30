@@ -1,11 +1,6 @@
 name: "小米17 Pro OS4 / 已验证 Full 日用 AnyKernel3 打包"
 
 on:
-  push:
-    branches:
-      - "os4/pandora-6.12.69-adaptation-20261029"
-    paths:
-      - ".github/workflows/xiaomi-sm8850-os4-validated-full-anykernel3.yml"
   workflow_dispatch:
     inputs:
       confirm:
@@ -36,19 +31,13 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: "确认持久化候选门禁"
+      - name: "确认人工门禁"
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            [[ "${{ inputs.confirm }}" == "PANDORA_OS4_FULL_VALIDATED" ]] || {
-              echo "::error::Confirmation string mismatch"; exit 1;
-            }
-          else
-            [[ "${{ github.ref_name }}" == "os4/pandora-6.12.69-adaptation-20261029" ]] || {
-              echo "::error::Unexpected branch for automatic packaging trigger"; exit 1;
-            }
-          fi
+          [[ "${{ inputs.confirm }}" == "PANDORA_OS4_FULL_VALIDATED" ]] || {
+            echo "::error::Confirmation string mismatch"; exit 1;
+          }
 
       - name: "检出固定 OS4 分支"
         uses: actions/checkout@v7
