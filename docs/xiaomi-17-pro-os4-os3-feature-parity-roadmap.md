@@ -380,3 +380,60 @@ SAFE_TO_FLASH=NO
 下一步必须先运行 DroidSpaces capability check。只有
 `Process limit support` 变为 PASS，并成功创建一个带 PIDs 限制的测试容器后，
 才能把 PIDs controller 标记为运行时闭环通过。
+
+
+### PIDs 实验 3C：DroidSpaces v7.1.0 Requirements 真机结果（2026-10-30）
+
+在第三轮 ZERO_DIFF PIDs 临时内核上运行 DroidSpaces v7.1.0 requirements check：
+
+```text
+[MUST HAVE]
+[✓] Root privileges
+[✓] Linux version
+[✗] PID namespace
+[✓] Mount namespace
+[✓] UTS namespace
+[✗] IPC namespace
+[✓] pivot_root syscall
+[✓] /proc filesystem
+[✓] /sys filesystem
+[✓] Seccomp support
+
+[OPTIONAL / cgroup]
+[✓] Memory limit support
+[✓] Swap limit support
+[✓] CPU limit support
+[✓] CPU usage accounting
+[✓] Process limit support
+```
+
+关键结论：
+
+- DroidSpaces v7.1.0 已正式把当前 PIDs controller 判定为 **Process limit support = PASS**；
+- 因此 net_prio KMI 身份保留的 PIDs 实现不再是当前阻塞项；
+- 当前两个致命阻塞项变为 `PID namespace` 与 `IPC namespace`；
+- 当前实验最终 config 确认 `CONFIG_PID_NS`、`CONFIG_SYSVIPC`、
+  `CONFIG_POSIX_MQUEUE` 均未启用，`CONFIG_IPC_NS` 依赖链尚未展开；
+- 当前 `CONFIG_MACVLAN`、`CONFIG_DEVTMPFS`、`CONFIG_USER_NS`、
+  `CONFIG_IP6_NF_NAT` 也未启用，但它们不是本轮 MUST HAVE 阻塞项。
+
+下一阶段不修改已经真机通过的 PIDs 实现，只在该基线上：
+
+1. 应用固定 DroidSpaces 6.12
+   `001.GKI-6.12-or-above-fix_sysvipc_kabi.patch`；
+2. 启用 `CONFIG_SYSVIPC=y`、`CONFIG_POSIX_MQUEUE=y`、
+   `CONFIG_IPC_NS=y`、`CONFIG_PID_NS=y`；
+3. 先做编译和 Module.symvers/CRC 门禁；
+4. ABI 通过后才生成下一份 fastboot-boot-only 镜像；
+5. Macvlan、devtmpfs、IPv6 NAT、USER_NS 后续独立恢复，避免把多个 ABI 风险一次混在一起。
+
+当前状态：
+
+```text
+PIDS_CONTROLLER=PASS
+DROIDSPACES_PROCESS_LIMIT=PASS
+PID_NAMESPACE=BLOCKED
+IPC_NAMESPACE=BLOCKED
+DROIDSPACES_USABLE=NO
+SAFE_TO_FLASH=NO
+```
