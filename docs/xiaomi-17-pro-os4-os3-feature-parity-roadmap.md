@@ -472,3 +472,64 @@ Run `41014864432` 第一轮结果：
   — ABI workflow 只接受精确两符号增量。
 
 新的严格复测：Run `41017403112`。
+
+
+### DroidSpaces CoreNS ABI 实验 #3：完整构建通过，门禁误判已纠正（2026-10-30）
+
+Run `41017403112` 已完整生成 Image 与 Module.symvers；workflow 最终显示 failure
+不是编译失败，而是旧门禁错误地只允许 2 个新增 IPC export。
+
+实际结果：
+
+```text
+KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-kmi-4k
+IMAGE_SHA256=f42f187538c3ec9026ca26824403f3c963fed6783fc6dc00287db9ffe72b9b8b
+SYMVERS_SHA256=f99c78ff1951657743df23f03566812ed6ca5a5f7ffbc6dff67ae34048a20603
+
+BASE_VMLINUX_EXPORTS=18725
+MATCHED_SYMBOL_NAMES=18725
+NEW_EXPORTS=3
+MISSING_EXPORTS=0
+CRC_CONFLICTS=0
+
+NEW:
+init_ipc_ns  0x59e1383f
+put_ipc_ns   0x7c5bd82c
+put_pid_ns   0xc6e3bdd7
+```
+
+`put_pid_ns` 不是本地补丁意外引入；Google R62 的
+`kernel/pid_namespace.c` 原本就有 `EXPORT_SYMBOL_GPL(put_pid_ns)`，
+只是基线 `CONFIG_PID_NS=n` 时对应对象/导出不出现。启用 `CONFIG_PID_NS=y`
+后该导出自然出现。
+
+因此正确门禁应为：
+
+```text
+OLD_EXPORTS_MATCHED=18725/18725
+MISSING_EXPORTS=0
+CRC_CONFLICTS=0
+NEW_EXPORTS_EXACT={
+  init_ipc_ns,
+  put_ipc_ns,
+  put_pid_ns
+}
+```
+
+满足以上条件时可标记：
+
+```text
+ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_3_EXPECTED_NAMESPACE_EXPORTS
+SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL
+SAFE_TO_FLASH=NO
+```
+
+门禁已在提交 `317490d68b741d393c83ff3da8591d51c47bcefd` 修正。
+
+同时，已退休的两条 PIDs ABI 失败路线仍保持原结论：
+
+- direct `CONFIG_CGROUP_PIDS=y`: 7005 CRC conflicts；
+- PIDs/net_prio config slot swap: 2571 CRC conflicts。
+
+它们以及已验证完成的 PIDs-KMI 实验都改为仅手动触发，避免共享构建脚本修改时
+重复产生预期失败/重复成功的 Actions 噪音。
