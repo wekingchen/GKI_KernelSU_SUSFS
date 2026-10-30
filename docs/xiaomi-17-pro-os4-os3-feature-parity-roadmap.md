@@ -760,3 +760,87 @@ SAFE_TO_FLASH=NO
 第一次日志在约 309.639 秒出现 `Call trace:`，但旧 checker 只 grep 到 marker，
 没有保留前后堆栈，暂不能判定来源。v2 checker 会自动输出上下文；在确认该 trace
 不是 CoreNS 回归前，不推进持久刷写。
+
+
+### DroidSpaces CoreNS + PIDs 实际容器闭环：PASS（2026-10-30）
+
+v2 checker 在运行中的 `test` 容器上确认：
+
+```text
+HOST_PID_NS=pid:[4026531836]
+HOST_IPC_NS=ipc:[4026531839]
+
+CONTAINER_CGROUP=/sys/fs/cgroup/droidspaces/test
+pids.max=512
+pids.current=9
+pids.events.max=0
+
+intermediate / monitor:
+pid=25162
+comm=[ds-monitor]
+pidns=pid:[4026531836]
+ipcns=ipc:[4026536295]
+NSpid=25162
+
+actual container init:
+pid=25163
+comm=init
+pidns=pid:[4026536297]
+ipcns=ipc:[4026536295]
+NSpid=25163/1
+
+PID_NAMESPACE_RUNTIME=PASS
+IPC_NAMESPACE_RUNTIME=PASS
+PIDS_LIMIT_RUNTIME=PASS
+```
+
+这验证了 DroidSpaces 的真实生命周期：
+
+- monitor 先进入独立 IPC/UTS namespace；
+- intermediate 加入容器 cgroup 并调用 `unshare(CLONE_NEWPID)`；
+- intermediate 自身仍显示 host PID namespace，这是 Linux CLONE_NEWPID 语义；
+- 后续 fork 的 container init 真正进入新 PID namespace，namespace 内 PID=1；
+- 子进程 dhcpcd/getty/sshd 同样位于该新 PID/IPC namespace；
+- `pids.max=512` 实际约束运行中的容器，而不只是 Requirements 探测成功。
+
+因此 CoreNS + PIDs 第一阶段正式闭环：
+
+```text
+DROIDSPACES_REQUIREMENTS=PASS
+PID_NAMESPACE_RUNTIME=PASS
+IPC_NAMESPACE_RUNTIME=PASS
+PIDS_CONTROLLER_RUNTIME=PASS
+PIDS_LIMIT_RUNTIME=PASS
+CORENS_CONTAINER_LIFECYCLE=PASS
+```
+
+#### iorap2 Call trace 归类
+
+在 DroidSpaces App 启动时出现：
+
+```text
+memcpy: detected field-spanning write (size 104)
+../soc-repo/drivers/misc/iorap2/launch_boost_preread.c:58
+mi_lb_dealwith_preread_info_cmd
+ -> mi_lb_ioctl
+ -> __arm64_sys_ioctl
+```
+
+触发进程是 Xiaomi `iorapd`，模块为 stock OEM `iorap2(OE)`，
+调用源来自 Xiaomi launch-boost 对 `com.droidspaces.app` 的 preread 数据。
+堆栈不经过 PID namespace、IPC namespace、cgroup PIDs、BakaSU、SUSFS 或
+NoMount 路径；warning 后 Android、DroidSpaces 容器均继续正常运行。
+
+该项记录为：
+
+```text
+IORAP2_FORTIFY_WARNING=KNOWN_OEM_WARNING
+CORENS_REGRESSION_EVIDENCE=NO
+BLOCK_MACVLAN_STAGE=NO
+```
+
+它仍值得后续用 stock kernel 做一次对照复现，但不阻止继续单项 Macvlan ABI 实验。
+
+下一阶段：仅启用 `CONFIG_MACVLAN=y`，以已真机闭环的 CoreNS 为基线，
+要求所有旧 vmlinux CRC 保持、0 missing，并只允许 R62 macvlan.c 的四个
+上游导出新增。
