@@ -18,6 +18,7 @@ DROIDSPACES_PIDS_REUSE_NET_PRIO="${XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT:-0}"
 DROIDSPACES_PIDS_REPURPOSE_NET_PRIO="${XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:-0}"
 DROIDSPACES_CORE_NAMESPACES="${XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES:-0}"
 DROIDSPACES_MACVLAN="${XIAOMI_OS4_DROIDSPACES_MACVLAN:-0}"
+DROIDSPACES_FULL_EXTRAS="${XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS:-0}"
 [[ "$DROIDSPACES_PIDS" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::XIAOMI_OS4_ENABLE_CGROUP_PIDS must be 0 or 1"; exit 1;
 }
@@ -33,6 +34,15 @@ DROIDSPACES_MACVLAN="${XIAOMI_OS4_DROIDSPACES_MACVLAN:-0}"
 [[ "$DROIDSPACES_MACVLAN" == "0" || "$DROIDSPACES_MACVLAN" == "1" ]] || {
   echo "::error::XIAOMI_OS4_DROIDSPACES_MACVLAN must be 0 or 1"; exit 1;
 }
+[[ "$DROIDSPACES_FULL_EXTRAS" == "0" || "$DROIDSPACES_FULL_EXTRAS" == "1" ]] || {
+  echo "::error::XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS must be 0 or 1"; exit 1;
+}
+if [[ "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+  [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
+    echo "::error::Full DroidSpaces extras require validated CoreNS + PIDs repurpose baseline"; exit 1;
+  }
+  DROIDSPACES_MACVLAN=1
+fi
 [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::PIDs net_prio slot reuse requires XIAOMI_OS4_ENABLE_CGROUP_PIDS=1"; exit 1;
 }
@@ -45,6 +55,7 @@ echo "[OS4] DroidSpaces PIDs reuse net_prio slot: $DROIDSPACES_PIDS_REUSE_NET_PR
 echo "[OS4] DroidSpaces PIDs repurpose net_prio KMI identity: $DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
 echo "[OS4] DroidSpaces core PID/IPC namespaces with pinned 6.12 kABI patch: $DROIDSPACES_CORE_NAMESPACES"
 echo "[OS4] DroidSpaces optional Macvlan support: $DROIDSPACES_MACVLAN"
+echo "[OS4] DroidSpaces full remaining extras (devtmpfs/macvlan/IPv6 NAT/USER_NS): $DROIDSPACES_FULL_EXTRAS"
 [[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
@@ -378,7 +389,9 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
-if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_MACVLAN" == "1" ]]; then
+if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+  FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-full-kmi-4k"
+elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_MACVLAN" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-macvlan-kmi-4k"
 elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-kmi-4k"
@@ -427,7 +440,13 @@ if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
     }
   done
 fi
-if [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
+if [[ "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+  for cfg in CONFIG_DEVTMPFS CONFIG_MACVLAN CONFIG_IP6_NF_NAT CONFIG_IP6_NF_TARGET_MASQUERADE CONFIG_USER_NS; do
+    grep -qx "$cfg=y" "$OUT/.config" || {
+      echo "::error::DroidSpaces full-extra config did not resolve: $cfg"; exit 1;
+    }
+  done
+elif [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
   grep -qx 'CONFIG_MACVLAN=y' "$OUT/.config" || {
     echo "::error::DroidSpaces Macvlan config did not resolve to y"; exit 1;
   }
@@ -532,7 +551,9 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
-  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_MACVLAN" == "1" ]]; then
+  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+    echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_FULL_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
+  elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" && "$DROIDSPACES_MACVLAN" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_CORE_MACVLAN_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
   elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_CORE_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
@@ -550,6 +571,7 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
   echo "DROIDSPACES_CORE_NAMESPACES=$DROIDSPACES_CORE_NAMESPACES"
   echo "DROIDSPACES_MACVLAN=$DROIDSPACES_MACVLAN"
+  echo "DROIDSPACES_FULL_EXTRAS=$DROIDSPACES_FULL_EXTRAS"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
