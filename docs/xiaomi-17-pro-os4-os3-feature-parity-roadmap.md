@@ -1004,3 +1004,36 @@ SAFE_TO_FLASH=PENDING_CGROUP_CLEANUP
 停止并删除测试容器 `test` 后，若
 `/sys/fs/cgroup/droidspaces/test` 不再存在，则 Full Extras 运行时生命周期
 完成最终闭环，可生成持久化 AnyKernel3 候选。
+
+
+### DroidSpaces 容器删除清理：PASS（2026-10-30）
+
+在停止并删除测试容器 `test` 后，真机检查：
+
+```text
+CLEANUP_RESULT=PASS
+/sys/fs/cgroup/droidspaces/test = absent
+```
+
+同时 DroidSpaces cgroup 树中不再残留 `test` 目录。
+
+至此实际容器生命周期完整闭环：
+
+```text
+CREATE_CONTAINER=PASS
+START_CONTAINER=PASS
+PID_NAMESPACE_RUNTIME=PASS
+IPC_NAMESPACE_RUNTIME=PASS
+PIDS_LIMIT_RUNTIME=PASS
+STOP_CONTAINER=PASS
+DELETE_CONTAINER=PASS
+CGROUP_CLEANUP=PASS
+
+DROIDSPACES_CONTAINER_LIFECYCLE=PASS
+FULL_EXTRAS_TRUE_DEVICE_VALIDATION=PASS
+HARDWARE_REGRESSION=PASS
+SAFE_TO_PERSISTENT_CANDIDATE=YES
+```
+
+说明：`SAFE_TO_PERSISTENT_CANDIDATE=YES` 表示允许生成已验证 Image 的
+持久化 AnyKernel3 候选包，不代表自动刷机。实际持久刷写仍由用户手动执行。
