@@ -1,0 +1,313 @@
+name: "小米17 Pro OS4 / DroidSpaces CoreNS 临时启动镜像"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-core-ns-fastboot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-droidspaces-core-ns-fastboot
+  cancel-in-progress: true
+
+env:
+  BASELINE_RUN_ID: "40853513946"
+  BASELINE_ARTIFACT: "NOFLASH-pandora-OS4-R62-baseline-Image-ABI"
+  BASELINE_IMAGE_SHA256: "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
+  TESTED_BASELINE_BOOT_SHA256: "3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0"
+
+  CORE_RUN_ID: "41020166839"
+  CORE_RUN_HEAD_SHA: "317490d68b741d393c83ff3da8591d51c47bcefd"
+  CORE_ARTIFACT: "NOFLASH-pandora-OS4-R62-DroidSpaces-CoreNS-PIDs-KMI"
+  CORE_IMAGE_SHA256: "f31f6702313a1bc7942af4873c005af1072fc6cef192d4d61c4e77cd4fe7018c"
+  CORE_SYMVERS_SHA256: "f99c78ff1951657743df23f03566812ed6ca5a5f7ffbc6dff67ae34048a20603"
+  CORE_KERNEL_RELEASE: "6.12.69-android16-6-os4r62-dspids-dscore-kmi-4k"
+
+  FIXTURE: ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+  STOCK_BOOT_SHA256: "4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653"
+  STOCK_HEADER_SHA256: "946575ca66cdc3ede85ce96c59a2a75a286335d4cf5e47f9541a28244d567d90"
+  OUTPUT_IMG: "pandora-OS4-R62-DroidSpaces-CoreNS-PIDs-KMI-FASTBOOT-BOOT-ONLY.img"
+
+jobs:
+  build-fastboot-image:
+    name: "CoreNS ABI PASS Image → 已实测 #7 boot-v4 模板"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "安全门禁与固定 fixture"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          python3 -m py_compile \
+            scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py
+          python3 -m unittest discover -s tests -p test_xiaomi_os4_repack_fastboot_boot.py -v
+
+          grep -Fq "EXPECTED_DROIDSPACES_CORENS_KERNEL_SHA256 = \"$CORE_IMAGE_SHA256\"" scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py || {
+            echo "::error::CoreNS Image is not explicitly approved by the fail-closed repacker"; exit 1;
+          }
+          grep -Fq "EXPECTED_DROIDSPACES_CORENS_RELEASE = b\"$CORE_KERNEL_RELEASE\"" scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py || {
+            echo "::error::CoreNS release is not explicitly approved by the fail-closed repacker"; exit 1;
+          }
+
+          test -s "$FIXTURE"
+          python3 - "$FIXTURE" "$STOCK_BOOT_SHA256" "$STOCK_HEADER_SHA256" <<'PY'
+          import json, sys
+          f=json.load(open(sys.argv[1], encoding="utf-8"))
+          assert f["stock_boot_sha256"] == sys.argv[2]
+          assert f["stock_header_sha256"] == sys.argv[3]
+          assert f["stock_build"] == "OS4.0.5.0.XBLCNXM"
+          assert f["safe_to_flash"] is False
+          print("STOCK_BOOT_CACHE=PINNED_FIXTURE")
+          PY
+
+          ! grep -Eq 'fastboot[[:space:]]+flash|flashall|erase[[:space:]]+boot' \
+            .github/workflows/xiaomi-sm8850-os4-droidspaces-core-ns-fastboot.yml
+          echo "本工作流只生成 fastboot boot 临时实验镜像，不允许持久刷写。"
+
+      - name: "确认 CoreNS ABI run 身份"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${CORE_RUN_ID}"
+          json="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$api")"
+          test "$(jq -r .head_sha <<<"$json")" = "$CORE_RUN_HEAD_SHA"
+          test "$(jq -r .head_branch <<<"$json")" = "os4/pandora-6.12.69-adaptation-20261029"
+          test "$(jq -r .conclusion <<<"$json")" = "success"
+          echo "CORENS_SOURCE_RUN=PINNED_AND_SUCCESS"
+
+      - name: "下载 R62 #7 baseline Image"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.BASELINE_ARTIFACT }}
+          run-id: ${{ env.BASELINE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline7
+
+      - name: "下载 CoreNS ABI PASS Image"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.CORE_ARTIFACT }}
+          run-id: ${{ env.CORE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/core
+
+      - name: "重新核验 CoreNS Image / Kconfig / ABI"
+        shell: bash
+        run: |
+          set -euo pipefail
+          P="${{ runner.temp }}/core"
+          B="${{ runner.temp }}/baseline7"
+
+          for f in Image Module.symvers final.config build-metadata.txt \
+            droidspaces-core-config-diff.txt droidspaces-core-abi-diff.txt \
+            droidspaces-core-new-exports.txt droidspaces-core-safety.txt \
+            droidspaces-kabi-apply.log; do
+            test -s "$P/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+
+          printf '%s  %s\n' "$BASELINE_IMAGE_SHA256" "$B/Image" | sha256sum -c -
+          printf '%s  %s\n' "$CORE_IMAGE_SHA256" "$P/Image" | sha256sum -c -
+          printf '%s  %s\n' "$CORE_SYMVERS_SHA256" "$P/Module.symvers" | sha256sum -c -
+
+          grep -qx 'CONFIG_SYSVIPC=y' "$P/final.config"
+          grep -qx 'CONFIG_POSIX_MQUEUE=y' "$P/final.config"
+          grep -qx 'CONFIG_IPC_NS=y' "$P/final.config"
+          grep -qx 'CONFIG_PID_NS=y' "$P/final.config"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$P/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_PRIO=y' "$P/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_CLASSID=y' "$P/final.config"
+          grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$P/final.config"
+          grep -qx 'CONFIG_KSU=y' "$P/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS=y' "$P/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS_SUS_MAP=y' "$P/final.config"
+          grep -qx 'CONFIG_NOMOUNT=y' "$P/final.config"
+
+          grep -qx "KERNEL_RELEASE=$CORE_KERNEL_RELEASE" "$P/build-metadata.txt"
+          grep -qx 'BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_CORE_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS' "$P/build-metadata.txt"
+          grep -qx 'DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=1' "$P/build-metadata.txt"
+          grep -qx 'DROIDSPACES_CORE_NAMESPACES=1' "$P/build-metadata.txt"
+          grep -qx "IMAGE_SHA256=$CORE_IMAGE_SHA256" "$P/build-metadata.txt"
+          grep -qx "SYMVERS_SHA256=$CORE_SYMVERS_SHA256" "$P/build-metadata.txt"
+
+          grep -qx 'BASE_VMLINUX_EXPORTS=18725' "$P/droidspaces-core-abi-diff.txt"
+          grep -qx 'MATCHED_SYMBOL_NAMES=18725' "$P/droidspaces-core-abi-diff.txt"
+          grep -qx 'NEW_EXPORTS=3' "$P/droidspaces-core-abi-diff.txt"
+          grep -qx 'MISSING_EXPORTS=0' "$P/droidspaces-core-abi-diff.txt"
+          grep -qx 'CRC_CONFLICTS=0' "$P/droidspaces-core-abi-diff.txt"
+
+          expected="$(printf '%s\n' init_ipc_ns put_ipc_ns put_pid_ns)"
+          actual="$(sort -u "$P/droidspaces-core-new-exports.txt")"
+          test "$actual" = "$expected"
+
+          grep -qx 'ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_3_EXPECTED_NAMESPACE_EXPORTS' "$P/droidspaces-core-safety.txt"
+          grep -qx 'SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL' "$P/droidspaces-core-safety.txt"
+
+          echo "CORENS_ABI_GATE=PASS"
+          echo "OLD_VMLINUX_EXPORTS=18725/18725"
+          echo "MISSING_EXPORTS=0"
+          echo "CRC_CONFLICTS=0"
+          echo "NEW_EXPORTS=init_ipc_ns,put_ipc_ns,put_pid_ns"
+          echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+          echo "SAFE_TO_FLASH=NO"
+
+      - name: "从固定 fixture 重建真机成功的 #7 临时 boot"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            "$FIXTURE" \
+            "${{ runner.temp }}/baseline7/Image" \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img"
+          printf '%s  %s\n' "$TESTED_BASELINE_BOOT_SHA256" \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img" | sha256sum -c -
+
+      - name: "生成 CoreNS 临时启动 IMG"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${{ runner.temp }}/out"
+          mkdir -p "$OUT"
+          python3 scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img" \
+            "${{ runner.temp }}/core/Image" \
+            "$OUT/$OUTPUT_IMG" | tee "$OUT/repack-report.txt"
+
+          grep -Fq 'lkm_guard=module_blacklist=kernelsu' "$OUT/repack-report.txt"
+          grep -Fq 'FLASHABLE=NO' "$OUT/repack-report.txt"
+          (cd "$OUT" && sha256sum "$OUTPUT_IMG" > SHA256SUMS.txt)
+
+          cat > "$OUT/README.txt" <<EOF
+          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          Android userspace: 17
+          Kernel KMI: android16-6 / Linux 6.12.69
+
+          EXPERIMENT:
+          BakaSU Built-in + SUSFS + NoMount
+          + DroidSpaces PIDs KMI-preserving controller
+          + PID namespace
+          + IPC namespace / SYSVIPC / POSIX_MQUEUE
+
+          ABI gate against the already device-tested PIDs baseline:
+          OLD_EXPORTS_MATCHED=18725/18725
+          MISSING_EXPORTS=0
+          CRC_CONFLICTS=0
+          NEW_EXPORTS=init_ipc_ns,put_ipc_ns,put_pid_ns
+
+          TEST MODE ONLY
+          safe_to_fastboot_boot=true (experimental)
+          safe_to_flash=false
+
+          Verify SHA256SUMS.txt first.
+          ONLY allowed boot command:
+          fastboot boot $OUTPUT_IMG
+
+          DO NOT use fastboot flash.
+          DO NOT create AnyKernel3 from this artifact.
+          EOF
+
+          cat > "$OUT/check-corens-runtime.cmd" <<'EOF'
+          @echo off
+          echo ==== kernel ====
+          adb shell uname -r
+          echo ==== boot completed ====
+          adb shell getprop sys.boot_completed
+          echo ==== Built-in root ====
+          adb shell su -c id
+          echo ==== critical modules ====
+          adb shell "cat /proc/modules | grep -E '^(rust_binder|node_cache|zram|zsmalloc) '"
+          echo ==== old KernelSU LKM must remain blocked ====
+          adb shell "cat /proc/modules | grep '^kernelsu ' || echo [OK] no kernelsu LKM"
+          echo ==== namespace handles ====
+          adb shell "ls -l /proc/self/ns/pid /proc/self/ns/ipc /proc/self/ns/mnt /proc/self/ns/uts"
+          echo ==== cgroup controllers ====
+          adb shell su -c "cat /sys/fs/cgroup/cgroup.controllers"
+          echo ==== proc cgroups ====
+          adb shell su -c "cat /proc/cgroups"
+          echo ==== binder / ABI / namespace errors ====
+          adb shell su -c "dmesg | grep -Ei 'rust_binder|binder|disagrees about version|Unknown symbol|module verification|ipc.?ns|pid.?ns|sysvipc|kernel BUG|Oops|Call trace' | tail -n 260"
+          echo.
+          echo NEXT:
+          echo 1. Run DroidSpaces v7.1.0 requirements check.
+          echo 2. PID namespace and IPC namespace MUST both become PASS.
+          echo 3. Process limit support MUST remain PASS.
+          echo 4. Do not flash this image persistently.
+          EOF
+
+      - name: "独立核验最终 boot-v4"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/out"
+          (cd "$OUT" && sha256sum -c SHA256SUMS.txt)
+          python3 - "$OUT/$OUTPUT_IMG" "$CORE_IMAGE_SHA256" <<'PY'
+          import hashlib, struct, sys
+          from pathlib import Path
+
+          data=Path(sys.argv[1]).read_bytes()
+          expected_kernel_sha=sys.argv[2]
+          assert len(data) >= 4096 and data[:8] == b"ANDROID!", "boot magic mismatch"
+          kernel_size, ramdisk_size, os_version, header_size = struct.unpack_from("<IIII", data, 8)
+          version=struct.unpack_from("<I", data, 40)[0]
+          signature_size=struct.unpack_from("<I", data, 1580)[0]
+          assert version == 4 and header_size == 1584, "boot-v4 header mismatch"
+          assert ramdisk_size == 0 and signature_size == 0, "unexpected ramdisk/signature"
+          expected_size=4096 + ((kernel_size + 4095)//4096)*4096
+          assert len(data) == expected_size, "unexpected payload/footer"
+          kernel=data[4096:4096+kernel_size]
+          assert hashlib.sha256(kernel).hexdigest() == expected_kernel_sha, "embedded CoreNS Image SHA mismatch"
+          cmd=data[44:44+1536].split(b"\0",1)[0]
+          assert b"module_blacklist=kernelsu" in cmd.split(), "LKM guard missing"
+          assert data[-64:-60] != b"AVBf", "AVB footer found"
+          print("FINAL_BOOT_V4_AUDIT=PASS")
+          print("CORENS_IMAGE_SHA256="+expected_kernel_sha)
+          print("OUTPUT_SHA256="+hashlib.sha256(data).hexdigest())
+          print("CMDLINE="+cmd.decode("ascii","replace"))
+          print("safe_to_fastboot_boot=true")
+          print("safe_to_flash=false")
+          PY
+
+      - name: "上传 CoreNS 实验临时启动镜像"
+        uses: actions/upload-artifact@v6
+        with:
+          name: FASTBOOT-BOOT-ONLY-pandora-OS4-R62-DroidSpaces-CoreNS
+          path: |
+            ${{ runner.temp }}/out/${{ env.OUTPUT_IMG }}
+            ${{ runner.temp }}/out/SHA256SUMS.txt
+            ${{ runner.temp }}/out/repack-report.txt
+            ${{ runner.temp }}/out/README.txt
+            ${{ runner.temp }}/out/check-corens-runtime.cmd
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: "运行摘要"
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## DroidSpaces CoreNS 临时 boot-v4"
+            echo
+            echo "源实验 Run: $CORE_RUN_ID / $CORE_RUN_HEAD_SHA"
+            echo "实验 Image: $CORE_IMAGE_SHA256"
+            echo "旧 vmlinux ABI: 18725/18725 matched, 0 missing, 0 CRC conflicts"
+            echo "新增 namespace exports: init_ipc_ns / put_ipc_ns / put_pid_ns"
+            echo "最终 IMG SHA256: $(cut -d' ' -f1 "$RUNNER_TEMP/out/SHA256SUMS.txt")"
+            echo
+            echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+            echo "SAFE_TO_FLASH=NO"
+            echo
+            echo "仅允许 fastboot boot 临时测试。"
+          } >> "$GITHUB_STEP_SUMMARY"
