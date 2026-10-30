@@ -413,6 +413,16 @@ if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   "$SRC/scripts/config" --file "$OUT/.config" \
     --enable SYSVIPC --enable POSIX_MQUEUE --enable IPC_NS --enable PID_NS
 fi
+if [[ "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+  "$SRC/scripts/config" --file "$OUT/.config" \
+    --enable DEVTMPFS \
+    --enable MACVLAN \
+    --enable IP6_NF_NAT \
+    --enable IP6_NF_TARGET_MASQUERADE \
+    --enable USER_NS
+elif [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
+  "$SRC/scripts/config" --file "$OUT/.config" --enable MACVLAN
+fi
 if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
   "$SRC/scripts/config" --file "$OUT/.config" --enable CGROUP_PIDS
   if [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
@@ -441,9 +451,12 @@ if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
   done
 fi
 if [[ "$DROIDSPACES_FULL_EXTRAS" == "1" ]]; then
+  echo "[OS4] Full Extras resolved Kconfig:"
+  grep -E '^(CONFIG_DEVTMPFS|CONFIG_MACVLAN|CONFIG_IP6_NF_NAT|CONFIG_IP6_NF_TARGET_MASQUERADE|CONFIG_USER_NS)=' "$OUT/.config" || true
   for cfg in CONFIG_DEVTMPFS CONFIG_MACVLAN CONFIG_IP6_NF_NAT CONFIG_IP6_NF_TARGET_MASQUERADE CONFIG_USER_NS; do
     grep -qx "$cfg=y" "$OUT/.config" || {
-      echo "::error::DroidSpaces full-extra config did not resolve: $cfg"; exit 1;
+      actual="$(grep -E "^$cfg=|^# $cfg is not set" "$OUT/.config" || echo '<absent>')"
+      echo "::error::DroidSpaces full-extra config did not resolve: $cfg (actual: $actual)"; exit 1;
     }
   done
 elif [[ "$DROIDSPACES_MACVLAN" == "1" ]]; then
