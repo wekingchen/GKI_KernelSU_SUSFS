@@ -844,3 +844,116 @@ BLOCK_MACVLAN_STAGE=NO
 下一阶段：仅启用 `CONFIG_MACVLAN=y`，以已真机闭环的 CoreNS 为基线，
 要求所有旧 vmlinux CRC 保持、0 missing，并只允许 R62 macvlan.c 的四个
 上游导出新增。
+
+
+### DroidSpaces Full Extras 真机验收：PASS（2026-10-30）
+
+Full Extras Run `41027979653` / head
+`87dff623f5f89eb1779e746209b2c172340463ca` 完整编译、ABI/KMI 门禁和
+fastboot-only boot-v4 打包均通过。
+
+最终候选：
+
+```text
+KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-full-kmi-4k
+IMAGE_SHA256=9b47f40a172ebe2ff0d7c5f6d2834db3fce2535379ea11277fcf010042f2db24
+BOOT_IMG_SHA256=6298fb802d543f1ff2a9f82ccb953b95e44ce6cf6e91d4469735c6bb892b3086
+```
+
+一次性恢复的 DroidSpaces 剩余能力：
+
+```text
+CONFIG_DEVTMPFS=y
+CONFIG_MACVLAN=y
+CONFIG_IP6_NF_NAT=y
+CONFIG_IP6_NF_TARGET_MASQUERADE=y
+CONFIG_USER_NS=y
+```
+
+ABI/KMI：
+
+```text
+BASE_ALL_EXPORTS=19326
+MATCHED_EXISTING_EXPORTS=19326
+NEW_EXPORTS=15
+MISSING_EXPORTS=0
+CRC_CONFLICTS=0
+ABI_LAYOUT_RESULT=ALL_EXISTING_EXPORTS_ZERO_DIFF_NEW_EXPORTS_ALLOWED
+```
+
+真机 `fastboot boot` 后 DroidSpaces v7.1.0 Requirements 已全部变绿，
+包括此前缺失的：
+
+```text
+devtmpfs        PASS
+Macvlan         PASS
+IPv6 NAT        PASS
+USER_NS         PASS
+```
+
+此前已验证的 PID namespace、IPC namespace、Process limit/PIDs controller
+等均继续保持 PASS。
+
+基础硬件回归：
+
+```text
+Wi-Fi          PASS
+移动数据        PASS
+双 SIM         PASS
+VoLTE / IMS    PASS
+蓝牙            PASS
+相机            PASS
+```
+
+因此当前 Full Extras 已从“静态实验候选”提升为
+**真机功能与基础硬件回归通过候选**。
+
+#### NoMount v2.2.0 状态
+
+当前 Full Extras 内核的 Built-in NoMount API 已真机确认：
+
+```text
+nm version = 22 (1)
+exit code  = 0
+```
+
+即内核 NoMount v22 API 正常。
+
+官方 NoMount v2.2.0 release-605 metamodule 在本机 HyperOS 4 userspace 下
+存在脚本锁兼容问题：
+
+```text
+flock: Bad file descriptor
+```
+
+其 release-605 `common.sh` / 当前 dev 都使用 FD-based flock。
+失败后会留下：
+
+```text
+/data/adb/nomount/disable
+```
+
+并显示：
+
+```text
+Kernel not patched or module failed to load
+```
+
+这不是当前内核 NoMount 驱动失败。用户当前没有任何模块需要 NoMount
+system/vendor/product 文件注入，`nm rule list` 为空符合当前使用状态，
+因此该 metamodule 兼容问题当前无实际功能影响，暂不维护私有修正版，
+等待 NoMount 上游修复。
+
+当前阶段结论：
+
+```text
+DROIDSPACES_FULL_REQUIREMENTS=PASS
+DROIDSPACES_CONTAINER_RUNTIME=PASS
+FULL_EXTRAS_HARDWARE_REGRESSION=PASS
+BUILTIN_NOMOUNT_API=PASS
+NOMOUNT_METAMODULE_HYPEROS4_FLOCK=KNOWN_NONBLOCKING_ISSUE
+```
+
+持久化前只保留最后一个低风险检查：
+停止并删除 DroidSpaces 测试容器后，确认
+`/sys/fs/cgroup/droidspaces/test` 已清理。该检查不需要重新编译内核。
