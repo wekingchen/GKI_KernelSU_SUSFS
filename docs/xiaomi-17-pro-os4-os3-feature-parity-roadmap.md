@@ -137,3 +137,46 @@ SAFE_TO_FASTBOOT_BOOT=NO
 - 当前 #12 继续作为 LKG，不修改、不生成带 PIDs 的 boot 镜像。
 
 后续如果继续攻克 Process limit，必须研究 **保持 `CGROUP_SUBSYS_COUNT` 和核心 cgroup 结构尺寸不变** 的 6.12 专项方案；任何实验先做 ABI-only，不直接进入手机。
+
+
+### PIDs ABI 实验 2：用 PIDs 替换 net_prio 配置槽位
+
+为避免 `CONFIG_CGROUP_PIDS=y` 直接增加 `CGROUP_SUBSYS_COUNT`，第二轮只做：
+
+```text
+BASE:
+# CONFIG_CGROUP_PIDS is not set
+CONFIG_CGROUP_NET_PRIO=y
+
+CANDIDATE:
+CONFIG_CGROUP_PIDS=y
+# CONFIG_CGROUP_NET_PRIO is not set
+```
+
+`CONFIG_CGROUP_NET_CLASSID=y` 与 `CONFIG_SOCK_CGROUP_DATA=y` 保持不变。
+
+结果：
+
+```text
+BASE_VMLINUX_EXPORTS=18725
+MATCHED_SYMBOL_NAMES=18723
+NEW_EXPORTS=2
+MISSING_EXPORTS=2
+CRC_CONFLICTS=2571
+ABI_LAYOUT_RESULT=FAILED
+SAFE_TO_FASTBOOT_BOOT=NO
+```
+
+相较直接增加 PIDs 的 7005 个 CRC 冲突显著下降，但仍无法进入真机。
+
+新增：
+- `pids_cgrp_subsys_enabled_key`
+- `pids_cgrp_subsys_on_dfl_key`
+
+缺失：
+- `net_prio_cgrp_subsys_enabled_key`
+- `net_prio_cgrp_subsys_on_dfl_key`
+
+说明保持 controller 数量不变仍不足以保持 GKI/KMI：controller 的 ABI 身份与相关类型语义变化仍传播到 2571 个导出 CRC。
+
+第三轮继续采用 ABI-only 方法：保留 `CONFIG_CGROUP_NET_PRIO=y`、`net_prio_cgrp_id` 与原有导出符号身份不变，仅把该槽位内部实现替换为 PIDs，并将 userspace 可见 controller 名称映射为 `pids`。该实验在 ABI 与 OEM 依赖审计通过前仍禁止生成真机 boot。
