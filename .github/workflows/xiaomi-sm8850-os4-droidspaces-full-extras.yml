@@ -1,4 +1,5 @@
 name: "小米17 Pro OS4 / DroidSpaces Full Extras 一次性收尾（不可刷机）"
+# Batched final DroidSpaces kernel-feature pass; one compile, one ABI gate, one fastboot image.
 
 on:
   push:
