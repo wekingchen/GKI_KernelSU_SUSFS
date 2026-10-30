@@ -599,3 +599,101 @@ SAFE_TO_FLASH=NO
 6. 基础 Wi-Fi/蜂窝/IMS/蓝牙/相机回归。
 
 在以上闭环前禁止持久 flash / AnyKernel3。
+
+
+### DroidSpaces CoreNS 真机 Requirements：MUST HAVE 全部通过（2026-10-30）
+
+CoreNS fastboot-only 候选已在 Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+真机临时启动成功。
+
+运行状态：
+
+```text
+uname:
+6.12.69-android16-6-os4r62-dspids-dscore-kmi-4k
+
+sys.boot_completed=1
+Built-in root=PASS
+SELinux context=u:r:ksu:s0
+old kernelsu LKM=BLOCKED
+node_cache/zram/zsmalloc=LOADED
+cgroup v2 controllers=pids
+/proc/cgroups runtime name=pids
+```
+
+DroidSpaces v7.1.0 Requirements 真机结果：
+
+```text
+[MUST HAVE]
+Root privileges           PASS
+Linux version             PASS
+PID namespace             PASS
+Mount namespace           PASS
+UTS namespace             PASS
+IPC namespace             PASS
+pivot_root                PASS
+/proc                     PASS
+/sys                      PASS
+Seccomp                   PASS
+
+Summary:
+All required features found
+exit code=0
+```
+
+之前阻塞的三项已经形成连续闭环：
+
+```text
+Process limit support = PASS
+PID namespace         = PASS
+IPC namespace         = PASS
+DROIDSPACES_REQUIREMENTS=PASS
+```
+
+当前仍缺少但不阻塞启动：
+
+```text
+RECOMMENDED:
+devtmpfs = FAIL
+
+OPTIONAL:
+Macvlan = FAIL
+IPv6 NAT = FAIL
+USER_NS / sandboxing = FAIL
+```
+
+CoreNS 运行时日志未见 `Unknown symbol`、`disagrees about version`、
+kernel BUG/Oops/Call trace 等 KMI/崩溃标志。
+
+注意：CoreNS 配置为 C Binder built-in + Rust Binder module。
+本次 /proc/modules 未显示 rust_binder；这一现象在此前成功启动的 R62 #7
+自定义内核路线同样存在，因此不作为本次 CoreNS 回归判定。Android Binder
+用户态和系统启动均正常。
+
+当前状态：
+
+```text
+FASTBOOT_BOOT=PASS
+BOOT_COMPLETED=PASS
+BUILTIN_ROOT=PASS
+PIDS_CONTROLLER=PASS
+DROIDSPACES_PROCESS_LIMIT=PASS
+PID_NAMESPACE=PASS
+IPC_NAMESPACE=PASS
+DROIDSPACES_REQUIREMENTS=PASS
+SAFE_TO_FASTBOOT_BOOT=YES
+SAFE_TO_FLASH=NO
+```
+
+下一步不是立即扩展可选功能，而是创建一个最小 DroidSpaces 测试容器，
+完成实际生命周期闭环：
+
+1. 容器可创建并进入；
+2. 容器进程确实处于独立 PID/IPC namespace；
+3. /sys/fs/cgroup/droidspaces/<container>/pids.max 存在且不是 max；
+4. pids.current 正常；
+5. 容器停止/删除后 cgroup 清理；
+6. 不发生 Android / Binder / 网络 / 存储回归。
+
+完成此闭环后，再按 Macvlan -> devtmpfs -> IPv6 NAT -> USER_NS 的顺序
+逐项评估，每项单独做依赖/ABI/真机验证，避免一次性扩大变更面。
