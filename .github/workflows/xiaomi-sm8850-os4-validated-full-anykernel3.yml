@@ -1,0 +1,180 @@
+name: "小米17 Pro OS4 / 已验证 Full Parity 日用 AnyKernel3 打包"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "必须输入 PANDORA_OS4_FULL_PARITY_VALIDATED"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-pandora-validated-full-parity-anykernel3
+  cancel-in-progress: true
+
+env:
+  FULL_RUN_ID: "41068829461"
+  FULL_ARTIFACT: "FASTBOOT-BOOT-ONLY-pandora-OS4-R62-OS3-PARITY-EXTRAS"
+  FULL_BOOT_IMG: "pandora-OS4-R62-OS3-PARITY-FASTBOOT-BOOT-ONLY.img"
+  FULL_BOOT_SHA256: "6f1972757b1d731a2efd93e4db109df1c49fc2776de97f067b838182193eb228"
+  FULL_IMAGE_SHA256: "244772c526f76a33fb96e7c6b8915f1d68e0f79b916bb1624127ccd6eee7a846"
+  FULL_RELEASE: "6.12.69-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k"
+
+jobs:
+  package:
+    name: "只打包已真机验证的 Full Parity Image"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: "确认人工门禁"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${{ inputs.confirm }}" == "PANDORA_OS4_FULL_PARITY_VALIDATED" ]] || {
+            echo "::error::Confirmation string mismatch"; exit 1;
+          }
+
+      - name: "检出已验证 OS4 Full Parity 分支"
+        uses: actions/checkout@v7
+        with:
+          ref: os4/pandora-6.12.69-os3-parity-20261030
+
+      - name: "静态检查打包脚本"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
+          grep -Fq "$FULL_IMAGE_SHA256" scripts/xiaomi-os4/package-validated-anykernel3.sh
+          grep -Fq "$FULL_RELEASE" scripts/xiaomi-os4/package-validated-anykernel3.sh
+          grep -Fq "module_blacklist=" scripts/xiaomi-os4/package-validated-anykernel3.sh
+          ! grep -Eq "fastboot[[:space:]]+flash|dd[[:space:]].*of=/dev/block" scripts/xiaomi-os4/package-validated-anykernel3.sh
+
+      - name: "下载 Run #6 已真机验证 artifact"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.FULL_ARTIFACT }}
+          run-id: ${{ env.FULL_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/validated-full-parity
+
+      - name: "核对 boot / ABI / 配置安全记录"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${{ runner.temp }}/validated-full-parity"
+          test -s "$ROOT/$FULL_BOOT_IMG"
+          printf '%s  %s\n' "$FULL_BOOT_SHA256" "$ROOT/$FULL_BOOT_IMG" | sha256sum -c -
+          grep -qx 'SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL' "$ROOT/os3-parity-safety.txt"
+          grep -q '^MISSING_EXPORTS=0$' "$ROOT/os3-parity-abi-diff.txt"
+          grep -q '^CRC_CONFLICTS=0$' "$ROOT/os3-parity-abi-diff.txt"
+          grep -q '^FULL15_MATCHED=15$' "$ROOT/full-extras-15-exports-check.txt"
+          grep -q '^FULL15_MISSING_COUNT=0$' "$ROOT/full-extras-15-exports-check.txt"
+          grep -q '^FULL15_MISMATCH_COUNT=0$' "$ROOT/full-extras-15-exports-check.txt"
+          grep -qx "KERNEL_RELEASE=$FULL_RELEASE" "$ROOT/build-metadata.txt"
+          grep -qx "IMAGE_SHA256=$FULL_IMAGE_SHA256" "$ROOT/build-metadata.txt"
+          grep -qx 'OS3_PARITY_CONFIG=PASS' "$ROOT/os3-parity-config-result.txt"
+
+      - name: "从已验证 boot-v4 精确提取 Image"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${{ runner.temp }}/validated-full-parity"
+          OUT="${{ runner.temp }}/validated-image"
+          mkdir -p "$OUT"
+          python3 - "$ROOT/$FULL_BOOT_IMG" "$OUT/Image" "$FULL_IMAGE_SHA256" "$FULL_RELEASE" <<'PY'
+          import hashlib, struct, sys
+          from pathlib import Path
+          src, dst, expected_sha, release = sys.argv[1:]
+          data = Path(src).read_bytes()
+          if data[:8] != b"ANDROID!":
+              raise SystemExit("not Android boot image")
+          kernel_size = struct.unpack_from("<I", data, 8)[0]
+          header_version = struct.unpack_from("<I", data, 40)[0]
+          header_size = struct.unpack_from("<I", data, 20)[0]
+          if header_version != 4 or header_size != 1584:
+              raise SystemExit(f"unexpected boot header v={header_version} size={header_size}")
+          kernel = data[4096:4096 + kernel_size]
+          digest = hashlib.sha256(kernel).hexdigest()
+          if digest != expected_sha:
+              raise SystemExit(f"Image SHA mismatch: {digest}")
+          if release.encode() not in kernel:
+              raise SystemExit("release marker missing from Image")
+          Path(dst).write_bytes(kernel)
+          print(f"EXTRACTED_IMAGE_SHA256={digest}")
+          PY
+
+      - name: "安装打包依赖"
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends git unzip zip
+
+      - name: "生成持久化 AnyKernel3 候选"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/package"
+          bash scripts/xiaomi-os4/package-validated-anykernel3.sh \
+            "${{ runner.temp }}/validated-image/Image" \
+            "${{ runner.temp }}/package" | tee "${{ runner.temp }}/package/package-report.txt"
+
+      - name: "最终包内容审计"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="${{ runner.temp }}/package"
+          ZIP="$OUT/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip"
+          test -s "$ZIP"
+          unzip -t "$ZIP" >/dev/null
+          unzip -p "$ZIP" Image | sha256sum | grep -q "^$FULL_IMAGE_SHA256 "
+          unzip -p "$ZIP" anykernel.sh | grep -Fq "module_blacklist="
+          unzip -p "$ZIP" anykernel.sh | grep -Fq "$FULL_RELEASE"
+          if unzip -Z1 "$ZIP" | grep -Eq "(^|/)(boot|init_boot|vendor_boot|vendor_kernel_boot|dtbo|vbmeta)(_[ab])?\.img$"; then
+            echo "::error::partition image leaked into AnyKernel3 ZIP"; exit 1;
+          fi
+          {
+            echo "SOURCE_FULL_PARITY_RUN_ID=$FULL_RUN_ID"
+            echo "SOURCE_BOOT_SHA256=$FULL_BOOT_SHA256"
+            echo "SOURCE_IMAGE_SHA256=$FULL_IMAGE_SHA256"
+            echo "SOURCE_RELEASE=$FULL_RELEASE"
+            echo "TRUE_DEVICE_BOOT=PASS"
+            echo "TRUE_DEVICE_ROOT_BUILTIN=PASS"
+            echo "TRUE_DEVICE_DROIDSPACES=PASS"
+            echo "TRUE_DEVICE_BBG_ACTIVE_LSM=PASS"
+            echo "TRUE_DEVICE_REKERNEL_GENERIC_NETLINK_11_7=PASS"
+            echo "TRUE_DEVICE_NTSYNC=PASS"
+            echo "TRUE_DEVICE_BBR_DEFAULT_ACTIVE=PASS"
+            echo "FLASH_METHOD=AnyKernel3 active boot kernel replacement"
+            echo "AUTO_FLASH=NO"
+            echo "PERSISTENT_DEVICE_VALIDATION=PENDING"
+          } > "$OUT/validation-manifest.txt"
+
+      - name: "上传持久化候选包"
+        uses: actions/upload-artifact@v6
+        with:
+          name: PERSISTENT-CANDIDATE-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3
+          path: |
+            ${{ runner.temp }}/package/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip
+            ${{ runner.temp }}/package/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip.sha256
+            ${{ runner.temp }}/package/package-report.txt
+            ${{ runner.temp }}/package/validation-manifest.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: "摘要"
+        shell: bash
+        run: |
+          OUT="${{ runner.temp }}/package"
+          {
+            echo "## Xiaomi 17 Pro OS4 Full Parity persistent candidate"
+            echo
+            cat "$OUT/package-report.txt"
+            echo
+            echo "Only packages the true-device-validated Run #6 Image."
+            echo "No device is flashed by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
