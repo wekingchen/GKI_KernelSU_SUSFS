@@ -697,3 +697,66 @@ SAFE_TO_FLASH=NO
 
 完成此闭环后，再按 Macvlan -> devtmpfs -> IPv6 NAT -> USER_NS 的顺序
 逐项评估，每项单独做依赖/ABI/真机验证，避免一次性扩大变更面。
+
+
+### DroidSpaces 容器闭环第一次检查：PIDs 生效，PID namespace 判定脚本需修正（2026-10-30）
+
+真机容器 `test` 已创建并运行，实际 cgroup 结果：
+
+```text
+/sys/fs/cgroup/droidspaces/test
+pids.max=512
+pids.current=9
+pids.events:
+max 0
+```
+
+这证明 DroidSpaces 对实际容器写入的 PIDs limit 已经真正生效，而不只是
+Requirements 检查通过。
+
+第一次检查脚本错误地取了 cgroup 中第一个进程并将其作为 container init。
+DroidSpaces 的真实启动模型是：
+
+1. monitor 先 unshare UTS/IPC；
+2. intermediate 加入容器 cgroup；
+3. intermediate 调用 unshare(CLONE_NEWPID)；
+4. CLONE_NEWPID 只影响后续 fork 的子进程，intermediate 自身仍在 host PID namespace；
+5. fork 出来的 container init 才真正进入新的 PID namespace。
+
+因此第一次输出中：
+
+```text
+HOST_PID_NS=pid:[4026531836]
+PROCESS_PID=25162
+CONTAINER_PID_NS=pid:[4026531836]
+CONTAINER_IPC_NS=ipc:[4026536295]
+```
+
+说明脚本选中了 intermediate，而不是 container init；PID inode 相同不能据此判定
+容器 PID namespace 失败。IPC inode 已经不同则符合 monitor 提前 unshare IPC 的设计。
+
+旧 CMD 还有双层 shell 引号/变量展开问题，导致 inode 相等时仍错误打印
+`[PASS] PID namespace isolated`。
+
+修复：
+
+- 新增 `scripts/xiaomi-os4/check-droidspaces-container-runtime.sh`；
+- CMD 只负责 push + root 执行该 shell，避免双层变量展开；
+- v2 会遍历容器 cgroup 内所有 live task，寻找 PID namespace 与 host 不同的真实子进程；
+- 同时打印 NSpid、comm、cgroup 路径，明确识别 container init/child；
+- 同时抓取 kernel `Call trace` / BUG / Oops / version disagreement 的上下文。
+
+当前可确认：
+
+```text
+DROIDSPACES_REQUIREMENTS=PASS
+PIDS_LIMIT_RUNTIME=PASS (512, current=9, max events=0)
+IPC_NAMESPACE_RUNTIME=PASS_FOR_INTERMEDIATE
+PID_NAMESPACE_RUNTIME=RETEST_REQUIRED_WITH_V2_CHECKER
+KERNEL_CALL_TRACE=NEEDS_CONTEXT
+SAFE_TO_FLASH=NO
+```
+
+第一次日志在约 309.639 秒出现 `Call trace:`，但旧 checker 只 grep 到 marker，
+没有保留前后堆栈，暂不能判定来源。v2 checker 会自动输出上下文；在确认该 trace
+不是 CoreNS 回归前，不推进持久刷写。
