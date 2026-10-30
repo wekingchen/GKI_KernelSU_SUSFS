@@ -280,7 +280,7 @@ pandora-stock-OS4.x.x.x.XBLCNXM-_a-xm.zip
 2. 左侧选择：
    **小米17 Pro OS4 / 检查新固件 xm.zip（只读）**；
 3. 点击 **Run workflow**；
-4. 分支选择当前 OS4 适配分支；
+4. 使用默认分支 `dev`；
 5. 点击绿色 **Run workflow**。
 
 这个工作流只会：
@@ -376,83 +376,63 @@ fastboot boot 真机验证新基线
 
 ---
 
-# 九、什么时候运行“导入 xm.zip 并固化 boot-v4 模板”
+# 九、只读检查之后怎么进入新版本适配
 
-只有在新固件的基线内核已经确定、并完成必要适配之后，才运行：
+收尾后的仓库不再保留“一键导入 xm.zip 并固化 fixture”的旧实验工作流。
 
-**小米17 Pro OS4 / 导入 xm.zip 并固化 boot-v4 模板**
+这是有意的：**新 OTA 的 stock boot、GKI 基线、ABI/KMI 和 boot-v4 布局必须先重新确认，不能让旧自动化直接把新固件推进到可启动/可刷阶段。**
+
+只读检查完成后，按下面顺序处理：
+
+1. 保存 `stock-intake` 报告；
+2. 更新 `.github/config/pandora-os4-stock-input.env` 中的新 build 与 stock boot 身份；
+3. 确认新的 GKI tag / commit / toolchain；
+4. 先构建纯 baseline；
+5. 只允许 `fastboot boot` 验证 baseline；
+6. baseline 真机成功后，再用 `make-tested-boot-v4-fixture.py` 固化新版本 fixture；
+7. 更新版本级 LKG 配置；
+8. 才进入 Full Parity 功能恢复与 ABI/KMI 验证。
+
+旧版本的 fixture、Image SHA、boot SHA 都不能直接复用。
+
+---
+
+# 十、当前 LKG 工作流只用于已验证版本
+
+当前唯一正式 OS4 构建入口：
+
+**小米17 Pro OS4 / Full Parity LKG 复现与打包**
 
 地址：
 
-**https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-stock-input.yml**
+**https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-lkg.yml**
 
-在运行之前，仓库中的：
-
-```text
-.github/config/pandora-os4-stock-input.env
-```
-
-必须已经更新到**新固件**的：
-
-- build；
-- stock boot SHA256；
-- 已确认 baseline Image SHA256；
-- 已真机成功 baseline temporary boot SHA256。
-
-如果还是旧版本参数，导入工作流应该失败。
-
-这是故意的安全门禁，不应该通过删校验、放宽 SHA 或“先跑起来再说”绕过。
-
-成功后会完成：
-
-1. 新 `xm.zip` 的 stock boot 校验；
-2. 用新 baseline Image 重建临时 boot；
-3. 必须与新版本已经真机成功的 baseline boot 精确匹配；
-4. 生成版本化 boot-v4 fixture；
-5. 写入：
-   - stock build
-   - stock boot SHA
-   - stock header SHA
-   - stock kernel SHA
-   - tested baseline boot SHA
-   - baseline kernel SHA
-   - `safe_to_flash=false`
-6. 提交 fixture 到 OS4 适配分支。
-
----
-
-# 十、之后才生成新的功能版 IMG
-
-fixture 固化后，再进入：
-
-**小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）**
-
-当前工作流：
-
-**https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-feature-fastboot-image.yml**
-
-它最终应该输出：
+它当前只针对：
 
 ```text
-FASTBOOT-BOOT-ONLY-pandora-OS4-...
+pandora
+OS4.0.5.0.XBLCNXM
+6.12.69 / android16-6 / R62
 ```
 
-下载并校验 SHA256 后，只允许：
+并使用固定的：
 
-```cmd
-fastboot boot xxx-FASTBOOT-BOOT-ONLY.img
+```text
+.github/config/pandora-os4-full-parity-lkg.env
+.github/config/pandora-os4-r62-tested-boot-v4-fixture.json
 ```
 
-仍然禁止：
+因此系统升级后，在这些版本级配置完成重新验证并更新之前，**不要运行它来给新系统生成内核包**。
 
-```cmd
-fastboot flash boot ...
-```
+当前版本下，该工作流会自行重建 baseline 和 Full Parity LKG，并用已验证 SHA 强校验，最终同时生成：
 
-直到新功能内核经过真机验证并明确改变 `safe_to_flash` 状态。
+- `fastboot boot` 临时测试镜像；
+- AnyKernel3 持久化包；
+- Image / Module.symvers / final.config / 验证清单。
+
+它不依赖历史 Actions Artifact，也不会自动刷写手机。
 
 ---
-
 # 十一、常见问题
 
 | 现象 | 含义 / 处理 |
