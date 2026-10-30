@@ -319,3 +319,64 @@ SAFE_TO_FLASH=NO
 5. DroidSpaces `Process limit support` 是否变为 PASS；
 6. 实际创建带 process limit 的容器并验证 `pids.max`；
 7. Wi-Fi、蜂窝数据、IMS/VoLTE、通话、蓝牙、相机等基础回归，尤其关注网络路径是否出现异常。
+
+
+### PIDs 实验 3B：ZERO_DIFF 临时 boot 真机启动结果（2026-10-30）
+
+使用 `FASTBOOT-BOOT-ONLY-pandora-OS4-R62-DroidSpaces-PIDs-KMI` 进行
+`fastboot boot` 临时启动，真机第一阶段通过：
+
+```text
+uname -r:
+6.12.69-android16-6-os4r62-dspids-kmi-4k
+
+sys.boot_completed:
+1
+
+su -c id:
+uid=0(root) ... context=u:r:ksu:s0
+
+/sys/fs/cgroup/cgroup.controllers:
+pids
+
+/proc/cgroups:
+pids  0  <num_cgroups>  1
+
+/proc/modules:
+kernelsu LKM = absent
+node_cache / zram / zsmalloc = loaded
+```
+
+这说明第三轮方案已经同时通过：
+
+- pandora OS4 真机临时启动；
+- Built-in Root；
+- stock vendor memory modules 基础加载；
+- cgroup controller 用户态名称从 `net_prio` 成功变为 `pids`；
+- cgroup v2 根节点明确把 `pids` 暴露为可用 controller；
+- `/proc/cgroups` 同样显示 `pids` 已启用；
+- 没有加载旧 `kernelsu.ko` LKM。
+
+运行时采集脚本在根层级没有直接发现 `pids.max/pids.current/pids.events` 不构成失败：
+cgroup v2 的资源控制文件由父 cgroup 启用 controller 后出现在非根子 cgroup 中。
+因此下一门禁不是根目录文件，而是 DroidSpaces 是否能在自己的子层级启用 `pids`
+并实际创建/写入 `pids.max`。
+
+当前状态：
+
+```text
+FASTBOOT_BOOT=PASS
+BOOT_COMPLETED=PASS
+BUILTIN_ROOT=PASS
+PIDS_CONTROLLER_REGISTERED=PASS
+OLD_KERNELSU_LKM_BLOCKED=PASS
+VENDOR_MEMORY_MODULES=PASS
+
+DROIDSPACES_PROCESS_LIMIT=UNVERIFIED
+PIDS_MAX_RUNTIME_LIMIT=UNVERIFIED
+SAFE_TO_FLASH=NO
+```
+
+下一步必须先运行 DroidSpaces capability check。只有
+`Process limit support` 变为 PASS，并成功创建一个带 PIDs 限制的测试容器后，
+才能把 PIDs controller 标记为运行时闭环通过。
