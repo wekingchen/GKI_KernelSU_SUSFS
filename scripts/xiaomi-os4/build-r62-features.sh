@@ -13,7 +13,12 @@ GIT_CACHE="$CACHE_ROOT/common-r62.git"
 TOOL_CACHE="$CACHE_ROOT/toolchain-r536225"
 mkdir -p "$STAGE" "$RESULT" "$CACHE_ROOT"
 
+DROIDSPACES_PIDS="${XIAOMI_OS4_ENABLE_CGROUP_PIDS:-0}"
+[[ "$DROIDSPACES_PIDS" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
+  echo "::error::XIAOMI_OS4_ENABLE_CGROUP_PIDS must be 0 or 1"; exit 1;
+}
 echo "[OS4] BakaSU/SUSFS/NoMount 实际编译，只供 ABI 分析；禁止刷机。目标 $OS4_KERNEL_VERSION / $OS4_STOCK_KMI"
+echo "[OS4] DroidSpaces PIDs controller analysis: $DROIDSPACES_PIDS"
 [[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
@@ -222,11 +227,21 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
-"$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "-android16-6-os4r62-features-4k"
+if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
+  FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-4k"
+else
+  FEATURE_LOCALVERSION="-android16-6-os4r62-features-4k"
+fi
+"$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "$FEATURE_LOCALVERSION"
 "$SRC/scripts/config" --file "$OUT/.config" --disable LOCALVERSION_AUTO
 "$SRC/scripts/config" --file "$OUT/.config" \
   --enable KSU --enable KSU_SUSFS --enable KSU_SUSFS_SUS_MAP \
-  --disable KSU_TRACEPOINT_HOOK --enable NOMOUNT --disable CGROUP_PIDS
+  --disable KSU_TRACEPOINT_HOOK --enable NOMOUNT
+if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
+  "$SRC/scripts/config" --file "$OUT/.config" --enable CGROUP_PIDS
+else
+  "$SRC/scripts/config" --file "$OUT/.config" --disable CGROUP_PIDS
+fi
 make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" olddefconfig >> "$RESULT/config-build.log" 2>&1 || {
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
@@ -238,9 +253,15 @@ grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$OUT/.config" || {
 }
 cp "$OUT/.config" "$RESULT/final.config"
 grep -qx 'CONFIG_MODVERSIONS=y' "$OUT/.config" || { echo "::error::baseline requires MODVERSIONS"; exit 1; }
-grep -qx '# CONFIG_CGROUP_PIDS is not set' "$OUT/.config" || {
-  echo "::error::unexpected PIDs feature in baseline"; exit 1;
-}
+if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
+  grep -qx 'CONFIG_CGROUP_PIDS=y' "$OUT/.config" || {
+    echo "::error::DroidSpaces PIDs analysis requested but CONFIG_CGROUP_PIDS did not resolve to y"; exit 1;
+  }
+else
+  grep -qx '# CONFIG_CGROUP_PIDS is not set' "$OUT/.config" || {
+    echo "::error::unexpected PIDs feature in baseline"; exit 1;
+  }
+fi
 echo "[OS4] Building R62 Image with BakaSU + SUSFS + NoMount (not flashable)"
 start="$(date +%s)"
 if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 \
@@ -314,7 +335,12 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
-  echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_ANALYSIS"
+  if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
+    echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_ANALYSIS"
+  else
+    echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_ANALYSIS"
+  fi
+  echo "DROIDSPACES_CGROUP_PIDS=$DROIDSPACES_PIDS"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
