@@ -180,3 +180,77 @@ SAFE_TO_FASTBOOT_BOOT=NO
 说明保持 controller 数量不变仍不足以保持 GKI/KMI：controller 的 ABI 身份与相关类型语义变化仍传播到 2571 个导出 CRC。
 
 第三轮继续采用 ABI-only 方法：保留 `CONFIG_CGROUP_NET_PRIO=y`、`net_prio_cgrp_id` 与原有导出符号身份不变，仅把该槽位内部实现替换为 PIDs，并将 userspace 可见 controller 名称映射为 `pids`。该实验在 ABI 与 OEM 依赖审计通过前仍禁止生成真机 boot。
+
+
+### PIDs ABI 实验 3：保留 net_prio KMI 身份，仅替换内部实现
+
+第三轮保持以下对外 KMI/Kconfig 身份不变：
+
+```text
+# CONFIG_CGROUP_PIDS is not set
+CONFIG_CGROUP_NET_PRIO=y
+CONFIG_CGROUP_NET_CLASSID=y
+CONFIG_SOCK_CGROUP_DATA=y
+```
+
+内部仅将原 `net_prio` controller 槽位的实现替换为 `pids.c`，继续使用
+`net_prio_cgrp_id` / `net_prio_cgrp_subsys` 的 KMI 身份，并把 userspace 可见
+controller 名称映射为 `pids`。
+
+2026-10-30 实验 run `41008768353` 结果：
+
+```text
+BASE_VMLINUX_EXPORTS=18725
+MATCHED_SYMBOL_NAMES=18725
+NEW_EXPORTS=0
+MISSING_EXPORTS=0
+CRC_CONFLICTS=0
+ABI_LAYOUT_RESULT=ZERO_DIFF
+SAFE_TO_FASTBOOT_BOOT=NO
+```
+
+Kconfig 除实验 `LOCALVERSION` 外也为零差异。
+
+结论：
+
+- 第三轮已经解决前两轮的 **GKI/KMI 导出 CRC 变化**；
+- ABI 层不再是当前阻塞项；
+- 仍不能直接进入真机，因为替换了原 `net_prio` 的运行语义；
+- 下一门禁改为检查 HyperOS 4 用户态配置与 OEM 组件是否显式依赖 `net_prio`；
+- 现有 OEM 模块 ABI 报告未发现 `net_prio` / `cgroup` 相关导入记录，但这不能替代用户态运行语义审计。
+
+### PIDs 实验 3A：HyperOS 4 net_prio 用户态依赖采集
+
+新增只读脚本：
+
+```text
+scripts/xiaomi-os4/collect-cgroup-netprio-audit.sh
+```
+
+约束：
+
+- 强制目标为 `OS4.0.5.0.XBLCNXM`；
+- 强制在已记录原厂内核
+  `6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k` 上运行；
+- 不访问 `/data`；
+- 不修改 cgroup、不挂载/卸载、不改系统设置、不刷机；
+- 采集 `/proc/cgroups`、cgroup v2 根节点、`cgroups.json`、
+  `task_profiles*.json`，并扫描 system/vendor/product/system_ext/odm 文本配置里的
+  `net_prio` / `net_cls` / PIDs 显式引用。
+
+手机端执行：
+
+```sh
+su -c 'sh /sdcard/Download/collect-cgroup-netprio-audit.sh'
+```
+
+输出：
+
+```text
+/sdcard/Download/pandora-OS4.0.5.0-cgroup-netprio-audit.txt
+```
+
+在这份真实 OS4 报告完成审计前，第三轮仍保持
+`SAFE_TO_FASTBOOT_BOOT=NO`；如果未发现阻断性 net_prio 依赖，再生成仅供
+`fastboot boot` 的实验镜像，并在真机验证 `pids.max` / `pids.current` /
+`pids.events` 与 DroidSpaces Process limit。
