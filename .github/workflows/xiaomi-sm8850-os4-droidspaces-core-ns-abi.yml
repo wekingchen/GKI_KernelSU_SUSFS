@@ -178,19 +178,24 @@ jobs:
           missing="$(sed -n 's/^MISSING_EXPORTS=//p' "$OUT")"
           [[ -n "$conflicts" && -n "$added" && -n "$missing" ]] || exit 1
 
+          mapfile -t new_names < <(awk '/^NEW_EXPORT /{print $2}' "$OUT" | sort -u)
+          printf '%s\n' "${new_names[@]}" > "$RUNNER_TEMP/xiaomi-os4-integrated/results/droidspaces-core-new-exports.txt"
+          expected="$(printf '%s\n' init_ipc_ns put_ipc_ns)"
+          actual="$(printf '%s\n' "${new_names[@]}")"
+
           {
-            if (( conflicts == 0 && missing == 0 )); then
-              echo "ABI_LAYOUT_RESULT=NO_CRC_CONFLICT"
-              echo "SAFE_TO_FASTBOOT_BOOT=PENDING_NEW_EXPORT_REVIEW"
-              echo "REASON=Core namespace configs preserve all existing export CRCs; review any new exports before device test"
+            if (( conflicts == 0 && missing == 0 && added == 2 )) && [[ "$actual" == "$expected" ]]; then
+              echo "ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_2_REQUIRED_IPC_EXPORTS"
+              echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+              echo "REASON=All pre-existing vmlinux export CRCs preserved; only init_ipc_ns and put_ipc_ns are newly exported for modular rust_binder"
             else
               echo "ABI_LAYOUT_RESULT=FAILED"
               echo "SAFE_TO_FASTBOOT_BOOT=NO"
-              echo "REASON=PID/IPC namespace candidate changes existing exported ABI"
+              echo "REASON=Unexpected ABI delta outside the two required IPC namespace exports"
             fi
           } | tee "$SAFETY"
 
-          if (( conflicts != 0 || missing != 0 )); then
+          if (( conflicts != 0 || missing != 0 || added != 2 )) || [[ "$actual" != "$expected" ]]; then
             exit 1
           fi
 
@@ -223,6 +228,7 @@ jobs:
             ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-kabi-apply.log
             ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-core-config-diff.txt
             ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-core-abi-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-core-new-exports.txt
             ${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-core-safety.txt
           if-no-files-found: warn
           retention-days: 14
