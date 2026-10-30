@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Experimental R62 integrated BakaSU/SUSFS/NoMount. Analysis only, NEVER flash.
+# Xiaomi 17 Pro OS4 R62 selectable builder. Custom combinations remain fastboot-boot test only until validated.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
 STAGE="$RUNNER_TEMP/xiaomi-os4-integrated"
@@ -163,9 +163,8 @@ echo "[OS4] DroidSpaces optional Macvlan support: $DROIDSPACES_MACVLAN"
 echo "[OS4] DroidSpaces full remaining extras: $DROIDSPACES_FULL_EXTRAS"
 echo "[OS4] legacy full parity helper: $OS3_PARITY_EXTRAS; partial extras helper: $SELECTED_EXTRAS"
 
-# Export normalized/effective values so component helpers see dependency
-# resolution (for example NTSync is forced off when DroidSpaces is off),
-# not the original raw workflow inputs.
+# Export normalized/effective values so component helpers see the resolved
+# feature selection rather than the original raw workflow inputs.
 export XIAOMI_OS4_USE_NTSYNC="$USE_NTSYNC"
 export XIAOMI_OS4_USE_BBG="$USE_BBG"
 export XIAOMI_OS4_USE_REKERNEL="$USE_REKERNEL"
@@ -332,7 +331,7 @@ p.write_text(s[:pos]+'\nsource "fs/nomount/Kconfig"\n'+s[pos:])
 PY
 git -C "$SRC" diff --check -- drivers/Kconfig drivers/Makefile fs/Kconfig fs/Makefile
 [[ -L "$SRC/fs/nomount" ]] || exit 1
-echo "[OS4] SUSFS + BakaSU Built-in + NoMount 实际源码应用通过"
+echo "[OS4] 已选择的 Root / SUSFS / NoMount 源码集成通过"
 
 fi
 
