@@ -31,8 +31,10 @@ LKM_GUARD = b"module_blacklist=kernelsu"
 EXPECTED_TEMPLATE_BOOT_SHA256 = "3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0"
 EXPECTED_TEMPLATE_KERNEL_SHA256 = "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
 EXPECTED_FEATURE_KERNEL_SHA256 = "f0d842b770d63ef97a633233d1bd2db18228c796e836e77d8c22fc3b9d19a15c"
+EXPECTED_PIDS_KMI_KERNEL_SHA256 = "97d7ee90bc498b0cc4617155c3a9cdc94dfd9d36b84f05993b9ff1fb5dbd2b88"
 EXPECTED_TEMPLATE_RELEASE = b"6.12.69-android16-6-os4r62-analysis-4k"
 EXPECTED_FEATURE_RELEASE = b"6.12.69-android16-6-os4r62-features-4k"
+EXPECTED_PIDS_KMI_RELEASE = b"6.12.69-android16-6-os4r62-dspids-kmi-4k"
 
 
 def sha256(data: bytes) -> str:
@@ -73,7 +75,7 @@ def add_lkm_guard(header_page: bytearray) -> tuple[bytes, bytes]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("template", type=Path, help="tested R62 #7 FASTBOOT-BOOT-ONLY.img")
-    ap.add_argument("image", type=Path, help="R62 #4 BakaSU/SUSFS/NoMount Image")
+    ap.add_argument("image", type=Path, help="approved R62 feature Image")
     ap.add_argument("output", type=Path, help="output temporary boot image")
     args = ap.parse_args()
 
@@ -115,10 +117,15 @@ def main() -> None:
         fail("template kernel release marker does not match the tested R62 #7 image")
 
     new_sha = sha256(new_kernel)
-    if new_sha != EXPECTED_FEATURE_KERNEL_SHA256:
+    approved = (
+        (EXPECTED_FEATURE_KERNEL_SHA256, EXPECTED_FEATURE_RELEASE),
+        (EXPECTED_PIDS_KMI_KERNEL_SHA256, EXPECTED_PIDS_KMI_RELEASE),
+    )
+    approved_release = next((release for digest, release in approved if digest == new_sha), None)
+    if approved_release is None:
         fail(f"feature Image SHA256 mismatch: {new_sha}")
-    if EXPECTED_FEATURE_RELEASE not in new_kernel:
-        fail("feature Image release marker is missing")
+    if approved_release not in new_kernel:
+        fail("approved feature Image release marker is missing")
 
     ramdisk = template[ramdisk_off:ramdisk_end]
     suffix = template[suffix_off:]
@@ -141,7 +148,7 @@ def main() -> None:
     if struct.unpack_from("<I", out, 8)[0] != len(new_kernel):
         fail("output kernel_size field validation failed")
     out_kernel = bytes(out[PAGE_SIZE:PAGE_SIZE + len(new_kernel)])
-    if sha256(out_kernel) != EXPECTED_FEATURE_KERNEL_SHA256:
+    if sha256(out_kernel) != new_sha:
         fail("output embedded kernel hash validation failed")
     if bytes(out)[-64:-60] == b"AVBf":
         fail("output unexpectedly contains an AVB footer")
