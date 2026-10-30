@@ -533,3 +533,69 @@ SAFE_TO_FLASH=NO
 
 它们以及已验证完成的 PIDs-KMI 实验都改为仅手动触发，避免共享构建脚本修改时
 重复产生预期失败/重复成功的 Actions 噪音。
+
+
+### DroidSpaces CoreNS 临时启动包：正式生成（2026-10-30）
+
+CoreNS ABI Run `41020166839` 正式 PASS 后，专用 fastboot-only 工作流
+Run `41023562661` 已全部通过。
+
+固定源：
+
+```text
+CORE_RUN_ID=41020166839
+CORE_RUN_HEAD_SHA=317490d68b741d393c83ff3da8591d51c47bcefd
+CORE_IMAGE_SHA256=f31f6702313a1bc7942af4873c005af1072fc6cef192d4d61c4e77cd4fe7018c
+CORE_SYMVERS_SHA256=f99c78ff1951657743df23f03566812ed6ca5a5f7ffbc6dff67ae34048a20603
+KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-kmi-4k
+```
+
+ABI 门禁：
+
+```text
+BASE_VMLINUX_EXPORTS=18725
+MATCHED_SYMBOL_NAMES=18725
+NEW_EXPORTS=3
+MISSING_EXPORTS=0
+CRC_CONFLICTS=0
+
+NEW_EXPORTS:
+init_ipc_ns
+put_ipc_ns
+put_pid_ns
+```
+
+fastboot-only 输出：
+
+```text
+Artifact:
+FASTBOOT-BOOT-ONLY-pandora-OS4-R62-DroidSpaces-CoreNS
+Artifact ID: 12962358606
+
+IMG:
+pandora-OS4-R62-DroidSpaces-CoreNS-PIDs-KMI-FASTBOOT-BOOT-ONLY.img
+
+IMG SHA256:
+6ec5dd3212c40e0743274b828a5990fadd73fe81a4f20297412e11e3ff6bc153
+
+Embedded CoreNS Image SHA256:
+f31f6702313a1bc7942af4873c005af1072fc6cef192d4d61c4e77cd4fe7018c
+
+CMDLINE:
+module_blacklist=kernelsu
+
+FINAL_BOOT_V4_AUDIT=PASS
+SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL
+SAFE_TO_FLASH=NO
+```
+
+下一步只允许真机 `fastboot boot` 临时启动。启动后优先检查：
+
+1. Android 是否完整启动；
+2. Built-in root；
+3. stock `rust_binder` 是否正常加载，dmesg 无 version/Unknown symbol 错误；
+4. DroidSpaces v7.1.0 Requirements 中 PID namespace、IPC namespace 由 FAIL 变 PASS；
+5. Process limit support 保持 PASS；
+6. 基础 Wi-Fi/蜂窝/IMS/蓝牙/相机回归。
+
+在以上闭环前禁止持久 flash / AnyKernel3。
