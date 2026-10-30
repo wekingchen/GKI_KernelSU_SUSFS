@@ -1,0 +1,213 @@
+name: "小米17 Pro OS4 / DroidSpaces PIDs 专项 ABI 分析（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-pids-abi.yml"
+      - "scripts/xiaomi-os4/build-r62-features.sh"
+      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-droidspaces-pids-abi
+  cancel-in-progress: true
+
+env:
+  FEATURE_BASE_RUN_ID: "40896020115"
+  FEATURE_BASE_ARTIFACT: "NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI"
+  FEATURE_BASE_SYMVERS_SHA256: "69dc25f5e78bb1b03332c0a8cf0169e239e1efbd51c04a7469aea95430f89b2f"
+
+jobs:
+  pids-abi:
+    name: "只增加 CONFIG_CGROUP_PIDS，量化相对 #4 的 GKI ABI 影响"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "安全与语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          ! grep -Eq 'fastboot[[:space:]]+flash|AnyKernel3.zip' scripts/xiaomi-os4/build-r62-features.sh
+          echo "本工作流只做编译/ABI 分析，不生成 boot.img。"
+
+      - name: "清理 Runner 预装冗余工具"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache \
+            cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 \
+            rsync tar unzip xz-utils zip zstd dwarves
+
+      - name: "恢复固定 Google R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复已验证 Android r536225 Clang/Rust 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "复用 R62 功能内核热缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-dspids-${{ github.sha }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-features-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "构建 #12 同功能 + CONFIG_CGROUP_PIDS=y（仍不可刷机）"
+        shell: bash
+        env:
+          XIAOMI_OS4_ENABLE_CGROUP_PIDS: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "下载已验证功能基线 #4 的 ABI/Kconfig"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.FEATURE_BASE_ARTIFACT }}
+          run-id: ${{ env.FEATURE_BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/feature-base
+
+      - name: "确认专项候选只是在已验证功能基线上打开 PIDs"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/feature-base"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          test -s "$BASE/final.config" && test -s "$NEW/final.config"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$BASE/final.config"
+          grep -qx 'CONFIG_CGROUP_PIDS=y' "$NEW/final.config"
+          grep -qx 'CONFIG_KSU=y' "$NEW/final.config"
+          grep -qx 'CONFIG_KSU_SUSFS=y' "$NEW/final.config"
+          grep -qx 'CONFIG_NOMOUNT=y' "$NEW/final.config"
+          grep -qx 'BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_ANALYSIS' "$NEW/build-metadata.txt"
+          grep -qx 'DROIDSPACES_CGROUP_PIDS=1' "$NEW/build-metadata.txt"
+
+          python3 - "$BASE/final.config" "$NEW/final.config" "$NEW/pids-config-diff.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          a=Path(sys.argv[1]).read_text().splitlines()
+          b=Path(sys.argv[2]).read_text().splitlines()
+          def norm(lines):
+              return {x for x in lines if not x.startswith('CONFIG_LOCALVERSION=')}
+          only_a=sorted(norm(a)-norm(b))
+          only_b=sorted(norm(b)-norm(a))
+          out=["ONLY_BASE:"]+only_a+["","ONLY_PIDS:"]+only_b
+          Path(sys.argv[3]).write_text("\n".join(out)+"\n")
+          print("\n".join(out))
+          PY
+
+      - name: "量化 CONFIG_CGROUP_PIDS 对已验证 #4 导出 ABI 的影响"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/feature-base/Module.symvers"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/pids-abi-diff.txt"
+          test -s "$BASE" && test -s "$NEW"
+          printf '%s  %s\n' "$FEATURE_BASE_SYMVERS_SHA256" "$BASE" | sha256sum -c -
+
+          awk -F '\t' '
+            NR==FNR {
+              if ($3=="vmlinux") { base[$2]=$1; base_count++ }
+              next
+            }
+            $3=="vmlinux" {
+              if ($2 in base) {
+                matched++
+                if ($1 != base[$2]) {
+                  conflicts++
+                  if (conflicts <= 120) print "CRC_CHANGED " $2 " old=" base[$2] " new=" $1
+                }
+                delete base[$2]
+              } else {
+                added++
+                if (added <= 60) print "NEW_EXPORT " $2 " crc=" $1
+              }
+            }
+            END {
+              for (name in base) {
+                missing++
+                if (missing <= 60) print "MISSING_EXPORT " name
+              }
+              print "BASE_VMLINUX_EXPORTS=" base_count
+              print "MATCHED_SYMBOL_NAMES=" matched
+              print "NEW_EXPORTS=" (added+0)
+              print "MISSING_EXPORTS=" (missing+0)
+              print "CRC_CONFLICTS=" (conflicts+0)
+            }
+          ' "$BASE" "$NEW" | tee "$OUT"
+
+          conflicts="$(sed -n 's/^CRC_CONFLICTS=//p' "$OUT")"
+          missing="$(sed -n 's/^MISSING_EXPORTS=//p' "$OUT")"
+          if [[ -z "$conflicts" || -z "$missing" ]]; then
+            echo "::error::ABI diff summary missing"
+            exit 1
+          fi
+          if (( conflicts > 0 || missing > 0 )); then
+            echo "SAFE_TO_FASTBOOT_BOOT=NO" | tee "$NEW/pids-safety.txt"
+            echo "REASON=CONFIG_CGROUP_PIDS changes exported GKI ABI relative to real-device-tested feature baseline" >> "$NEW/pids-safety.txt"
+          else
+            echo "SAFE_TO_FASTBOOT_BOOT=REQUIRES_VENDOR_MODULE_AUDIT" | tee "$NEW/pids-safety.txt"
+            echo "REASON=No exported CRC conflicts; vendor module/runtime audit still required before any fastboot boot" >> "$NEW/pids-safety.txt"
+          fi
+          cat "$NEW/pids-safety.txt"
+
+      - name: "记录 DroidSpaces PIDs 专项结论"
+        if: always()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          {
+            echo "## DroidSpaces / CONFIG_CGROUP_PIDS 专项 ABI 分析"
+            echo
+            echo "只相对已真机验证的 BakaSU + SUSFS + NoMount 功能基线增加 CONFIG_CGROUP_PIDS=y。"
+            echo
+            [[ -s "$OUT/pids-config-diff.txt" ]] && { echo '~~~text'; cat "$OUT/pids-config-diff.txt"; echo '~~~'; }
+            [[ -s "$OUT/pids-abi-diff.txt" ]] && { echo '~~~text'; cat "$OUT/pids-abi-diff.txt"; echo '~~~'; }
+            [[ -s "$OUT/pids-safety.txt" ]] && { echo '~~~text'; cat "$OUT/pids-safety.txt"; echo '~~~'; }
+            echo
+            echo "本工作流不会生成临时 boot，更不会持久刷写。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "上传 PIDs ABI 分析素材"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-DroidSpaces-PIDs-ABI-analysis
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Image
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/final.config
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-config-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-abi-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-safety.txt
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
