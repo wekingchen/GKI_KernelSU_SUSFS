@@ -16,6 +16,7 @@ mkdir -p "$STAGE" "$RESULT" "$CACHE_ROOT"
 DROIDSPACES_PIDS="${XIAOMI_OS4_ENABLE_CGROUP_PIDS:-0}"
 DROIDSPACES_PIDS_REUSE_NET_PRIO="${XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT:-0}"
 DROIDSPACES_PIDS_REPURPOSE_NET_PRIO="${XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:-0}"
+DROIDSPACES_CORE_NAMESPACES="${XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES:-0}"
 [[ "$DROIDSPACES_PIDS" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::XIAOMI_OS4_ENABLE_CGROUP_PIDS must be 0 or 1"; exit 1;
 }
@@ -24,6 +25,9 @@ DROIDSPACES_PIDS_REPURPOSE_NET_PRIO="${XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:-0}"
 }
 [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
   echo "::error::XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO must be 0 or 1"; exit 1;
+}
+[[ "$DROIDSPACES_CORE_NAMESPACES" == "0" || "$DROIDSPACES_CORE_NAMESPACES" == "1" ]] || {
+  echo "::error::XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES must be 0 or 1"; exit 1;
 }
 [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::PIDs net_prio slot reuse requires XIAOMI_OS4_ENABLE_CGROUP_PIDS=1"; exit 1;
@@ -35,6 +39,7 @@ echo "[OS4] BakaSU/SUSFS/NoMount 实际编译，只供 ABI 分析；禁止刷机
 echo "[OS4] DroidSpaces PIDs controller analysis: $DROIDSPACES_PIDS"
 echo "[OS4] DroidSpaces PIDs reuse net_prio slot: $DROIDSPACES_PIDS_REUSE_NET_PRIO"
 echo "[OS4] DroidSpaces PIDs repurpose net_prio KMI identity: $DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
+echo "[OS4] DroidSpaces core PID/IPC namespaces with pinned 6.12 kABI patch: $DROIDSPACES_CORE_NAMESPACES"
 [[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
@@ -61,6 +66,7 @@ make_ver="$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} /^SUBLEVEL = /{s=$3}
 SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
 BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
 NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
+DROIDSPACES_SHA="${OS4_DROIDSPACES_COMMIT:?missing OS4_DROIDSPACES_COMMIT}"
 checkout_locked() {
   local url="$1" ref="$2" sha="$3" dir="$4"
   git init -q "$dir"
@@ -80,6 +86,9 @@ echo "[OS4] 固定已审核上游提交，不随上游 HEAD 漂移"
 checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$SUSFS_SHA" "$STAGE/susfs"
 checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
 checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
+if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  checkout_locked "$OS4_DROIDSPACES_REPO" "main" "$DROIDSPACES_SHA" "$STAGE/droidspaces"
+fi
 
 # SUSFS's patch only edits existing kernel sources; its extra .c/.h files are
 # shipped separately and MUST be installed before Image compilation.
@@ -175,6 +184,23 @@ PY
 git -C "$SRC" diff --check -- drivers/Kconfig drivers/Makefile fs/Kconfig fs/Makefile
 [[ -L "$SRC/fs/nomount" ]] || exit 1
 echo "[OS4] SUSFS + BakaSU Built-in + NoMount 实际源码应用通过"
+
+if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  echo "[OS4] Apply pinned DroidSpaces 6.12 SYSVIPC kABI patch before enabling PID/IPC namespaces"
+  DROIDSPACES_KABI_PATCH="$STAGE/droidspaces/Documentation/resources/kernel-patches/GKI/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
+  [[ -s "$DROIDSPACES_KABI_PATCH" ]] || { echo "::error::Pinned DroidSpaces 6.12 kABI patch missing"; exit 1; }
+  patch --dry-run --batch --forward -d "$SRC" -p1 < "$DROIDSPACES_KABI_PATCH" > "$RESULT/droidspaces-kabi-dryrun.log" 2>&1 || {
+    cat "$RESULT/droidspaces-kabi-dryrun.log"; exit 1;
+  }
+  patch --batch --forward --no-backup-if-mismatch -d "$SRC" -p1 < "$DROIDSPACES_KABI_PATCH" > "$RESULT/droidspaces-kabi-apply.log" 2>&1 || {
+    cat "$RESULT/droidspaces-kabi-apply.log"; exit 1;
+  }
+  grep -Fq 'char __kabi_ignored_0;' "$SRC/include/linux/sched.h"
+  grep -Fq 'struct sysv_sem' "$SRC/include/linux/sched.h"
+  grep -Fq 'char __kabi_ignored_1;' "$SRC/include/linux/sched.h"
+  grep -Fq 'struct sysv_shm' "$SRC/include/linux/sched.h"
+  git -C "$SRC" diff --check -- include/linux/sched.h
+fi
 
 if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
   echo "[OS4] ABI-only: repurpose net_prio cgroup KMI identity as runtime pids controller"
@@ -291,7 +317,9 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
-if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-kmi-4k"
+elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-kmi-4k"
 elif [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-slot-4k"
@@ -305,6 +333,10 @@ fi
 "$SRC/scripts/config" --file "$OUT/.config" \
   --enable KSU --enable KSU_SUSFS --enable KSU_SUSFS_SUS_MAP \
   --disable KSU_TRACEPOINT_HOOK --enable NOMOUNT
+if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  "$SRC/scripts/config" --file "$OUT/.config" \
+    --enable SYSVIPC --enable POSIX_MQUEUE --enable IPC_NS --enable PID_NS
+fi
 if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
   "$SRC/scripts/config" --file "$OUT/.config" --enable CGROUP_PIDS
   if [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
@@ -325,6 +357,13 @@ done
 grep -qx '# CONFIG_KSU_TRACEPOINT_HOOK is not set' "$OUT/.config" || {
   echo "::error::SUSFS Inline Hook requires tracepoint hook disabled"; exit 1;
 }
+if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS; do
+    grep -qx "$cfg=y" "$OUT/.config" || {
+      echo "::error::DroidSpaces core namespace config did not resolve: $cfg"; exit 1;
+    }
+  done
+fi
 cp "$OUT/.config" "$RESULT/final.config"
 grep -qx 'CONFIG_MODVERSIONS=y' "$OUT/.config" || { echo "::error::baseline requires MODVERSIONS"; exit 1; }
 if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
@@ -425,7 +464,9 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
-  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+    echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_CORE_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
+  elif [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
   elif [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_NETPRIO_SLOT_ANALYSIS"
@@ -437,10 +478,12 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "DROIDSPACES_CGROUP_PIDS=$DROIDSPACES_PIDS"
   echo "DROIDSPACES_PIDS_REUSE_NET_PRIO_SLOT=$DROIDSPACES_PIDS_REUSE_NET_PRIO"
   echo "DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
+  echo "DROIDSPACES_CORE_NAMESPACES=$DROIDSPACES_CORE_NAMESPACES"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
   echo "NOMOUNT_COMMIT=$NOMOUNT_SHA"
+  echo "DROIDSPACES_COMMIT=$DROIDSPACES_SHA"
   echo "IMAGE_BUILD_SECONDS=$image_elapsed"
   echo "IMAGE_AND_MODULES_BUILD_SECONDS=$elapsed"
   echo "SYMVERS_FROM=make_modules"
