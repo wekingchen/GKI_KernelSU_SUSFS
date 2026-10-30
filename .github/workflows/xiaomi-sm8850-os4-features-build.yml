@@ -1,14 +1,8 @@
 name: "小米17 Pro OS4 / R62 BakaSU-SUSFS-NoMount 功能编译（不可刷机）"
 
+# Validated historical stage. Keep reproducible, but do not auto-run when
+# the shared OS4 build script grows later experiments.
 on:
-  push:
-    branches:
-      - "os4/pandora-6.12.69-adaptation-20261029"
-    paths:
-      - ".github/workflows/xiaomi-sm8850-os4-features-build.yml"
-      - "scripts/xiaomi-os4/build-r62-features.sh"
-      - "scripts/xiaomi-os4/susfs-task-mmu-compat.py"
-      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
   workflow_dispatch:
 
 permissions:
