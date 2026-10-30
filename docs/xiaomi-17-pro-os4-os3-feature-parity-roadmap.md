@@ -1096,3 +1096,74 @@ PERSISTENT_PACKAGE_AUDIT=PASS
 SAFE_TO_PERSISTENT_CANDIDATE=YES
 AUTO_FLASH=NO
 ```
+
+
+### 持久化日用 LKG：最终验收 PASS（2026-10-30）
+
+用户已从临时 fastboot-boot 测试阶段进入 AnyKernel3 持久刷写，并在持久启动后完成最终验收：
+
+```text
+uname -r:
+6.12.69-android16-6-os4r62-dspids-dscore-full-kmi-4k
+
+sys.boot_completed:
+1
+
+su -c id:
+uid=0(root) ... context=u:r:ksu:s0
+
+/sys/fs/cgroup/cgroup.controllers:
+pids
+
+/proc/modules:
+kernelsu = absent
+node_cache = loaded
+zram = loaded
+zsmalloc = loaded
+
+NoMount:
+22 (1)
+
+/proc/cmdline:
+module_blacklist=kernelsu
+```
+
+DroidSpaces v7.1.0 在持久启动后的 Requirements 再次全部绿。
+
+结合此前已经完成的真实容器生命周期与硬件回归，最终状态：
+
+```text
+PERSISTENT_BOOT=PASS
+BOOT_COMPLETED=PASS
+BUILTIN_ROOT=PASS
+OLD_KERNELSU_LKM_BLOCKED=PASS
+PIDS_CONTROLLER_RUNTIME=PASS
+DROIDSPACES_REQUIREMENTS=PASS
+DROIDSPACES_CONTAINER_LIFECYCLE=PASS
+FULL_EXTRAS_TRUE_DEVICE_VALIDATION=PASS
+HARDWARE_REGRESSION=PASS
+BUILTIN_NOMOUNT_API=PASS
+PERSISTENT_PACKAGE_AUDIT=PASS
+PANDORA_OS4_DAILY_LKG=YES
+```
+
+日用 LKG 固化文件：
+
+```text
+.github/config/pandora-os4-daily-lkg.env
+```
+
+该文件固定当前 OS build、kernel release、上游 commit、Image / boot /
+AnyKernel3 SHA256、来源 Run、Artifact ID 和最终真机 PASS 状态。
+
+NoMount v2.2.0 release-605 metamodule 的 HyperOS 4 FD-flock 问题继续记录为
+userspace known issue；Built-in NoMount API 正常，当前没有注入规则，因此不阻塞
+本 LKG。
+
+后续维护原则：
+
+1. 当前 LKG 不再因非必要实验改动；
+2. BakaSU / SUSFS / NoMount / DroidSpaces 上游更新先做 diff 与 ABI 审计；
+3. 新版本必须重新经过 fastboot boot + 真机回归，不能直接替换 LKG；
+4. HyperOS 系统升级后重新建立对应 stock-input / KMI / boot baseline；
+5. 当前 OS4.0.5.0.XBLCNXM 日用包继续作为可回退的已知稳定版本。
