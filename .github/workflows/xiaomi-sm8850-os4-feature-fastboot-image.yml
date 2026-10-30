@@ -1,15 +1,9 @@
 name: "小米17 Pro OS4 / R62 功能内核临时启动镜像（直接下载）"
 # stock fixture source verified from Release xm.zip; schema v1
 
+# Historical fastboot preparation path. Keep reproducible but do not auto-run
+# when shared repack helpers change.
 on:
-  push:
-    branches:
-      - "os4/pandora-6.12.69-adaptation-20261029"
-    paths:
-      - ".github/workflows/xiaomi-sm8850-os4-feature-fastboot-image.yml"
-      - "scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py"
-      - "scripts/xiaomi-os4/repack-tested-fastboot-boot-v4.py"
-      - ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
   workflow_dispatch:
 
 permissions:
