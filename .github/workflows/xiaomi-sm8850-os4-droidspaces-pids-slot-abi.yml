@@ -1,0 +1,224 @@
+name: "小米17 Pro OS4 / DroidSpaces PIDs 替换 net_prio 槽位 ABI 实验（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-pids-slot-abi.yml"
+      - "scripts/xiaomi-os4/build-r62-features.sh"
+      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: xiaomi-os4-r62-droidspaces-pids-slot-abi
+  cancel-in-progress: true
+
+env:
+  FEATURE_BASE_RUN_ID: "40896020115"
+  FEATURE_BASE_ARTIFACT: "NOFLASH-pandora-OS4-R62-BakaSU-SUSFS-NoMount-ABI"
+  FEATURE_BASE_SYMVERS_SHA256: "69dc25f5e78bb1b03332c0a8cf0169e239e1efbd51c04a7469aea95430f89b2f"
+
+jobs:
+  pids-slot-abi:
+    name: "PIDs 复用 net_prio controller 槽位，只做 ABI 量化"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "安全与语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          ! grep -Eq 'fastboot[[:space:]]+flash|AnyKernel3.zip' scripts/xiaomi-os4/build-r62-features.sh
+          echo "本实验只做 ABI 分析；不会生成 boot.img。"
+
+      - name: "清理 Runner 预装冗余工具"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache \
+            cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 \
+            rsync tar unzip xz-utils zip zstd dwarves
+
+      - name: "恢复固定 Google R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复已验证 Android r536225 Clang/Rust 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "复用 R62 功能内核热缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-dspids-slot-${{ github.sha }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-dspids-
+            xiaomi-pandora-os4-ccache-r62-features-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "构建 PIDs 替换 net_prio 槽位候选（不可刷机）"
+        shell: bash
+        env:
+          XIAOMI_OS4_ENABLE_CGROUP_PIDS: "1"
+          XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "下载已真机验证功能基线 #4"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.FEATURE_BASE_ARTIFACT }}
+          run-id: ${{ env.FEATURE_BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/feature-base
+
+      - name: "确认 Kconfig 只做 PIDs/net_prio 槽位替换"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/feature-base"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$BASE/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_PRIO=y' "$BASE/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_CLASSID=y' "$BASE/final.config"
+          grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$BASE/final.config"
+
+          grep -qx 'CONFIG_CGROUP_PIDS=y' "$NEW/final.config"
+          grep -qx '# CONFIG_CGROUP_NET_PRIO is not set' "$NEW/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_CLASSID=y' "$NEW/final.config"
+          grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$NEW/final.config"
+          grep -qx 'BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_NETPRIO_SLOT_ANALYSIS' "$NEW/build-metadata.txt"
+
+          python3 - "$BASE/final.config" "$NEW/final.config" "$NEW/pids-slot-config-diff.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          a=Path(sys.argv[1]).read_text().splitlines()
+          b=Path(sys.argv[2]).read_text().splitlines()
+          def norm(lines):
+              return {x for x in lines if not x.startswith('CONFIG_LOCALVERSION=')}
+          only_a=sorted(norm(a)-norm(b))
+          only_b=sorted(norm(b)-norm(a))
+          out=["ONLY_BASE:"]+only_a+["","ONLY_SLOT_CANDIDATE:"]+only_b
+          Path(sys.argv[3]).write_text("\n".join(out)+"\n")
+          print("\n".join(out))
+          allowed_a={"# CONFIG_CGROUP_PIDS is not set","CONFIG_CGROUP_NET_PRIO=y"}
+          allowed_b={"CONFIG_CGROUP_PIDS=y","# CONFIG_CGROUP_NET_PRIO is not set"}
+          if set(only_a) != allowed_a or set(only_b) != allowed_b:
+              raise SystemExit("unexpected Kconfig chain reaction")
+          PY
+
+      - name: "比较导出 ABI：重点观察是否消除 7005 个 CRC 冲突"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/feature-base/Module.symvers"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/pids-slot-abi-diff.txt"
+          test -s "$BASE" && test -s "$NEW"
+          printf '%s  %s\n' "$FEATURE_BASE_SYMVERS_SHA256" "$BASE" | sha256sum -c -
+
+          awk -F '\t' '
+            NR==FNR {
+              if ($3=="vmlinux") { base[$2]=$1; base_count++ }
+              next
+            }
+            $3=="vmlinux" {
+              if ($2 in base) {
+                matched++
+                if ($1 != base[$2]) {
+                  conflicts++
+                  if (conflicts <= 160) print "CRC_CHANGED " $2 " old=" base[$2] " new=" $1
+                }
+                delete base[$2]
+              } else {
+                added++
+                print "NEW_EXPORT " $2 " crc=" $1
+              }
+            }
+            END {
+              for (name in base) {
+                missing++
+                print "MISSING_EXPORT " name
+              }
+              print "BASE_VMLINUX_EXPORTS=" base_count
+              print "MATCHED_SYMBOL_NAMES=" matched
+              print "NEW_EXPORTS=" (added+0)
+              print "MISSING_EXPORTS=" (missing+0)
+              print "CRC_CONFLICTS=" (conflicts+0)
+            }
+          ' "$BASE" "$NEW" | tee "$OUT"
+
+          conflicts="$(sed -n 's/^CRC_CONFLICTS=//p' "$OUT")"
+          [[ -n "$conflicts" ]] || { echo "::error::ABI summary missing"; exit 1; }
+
+          {
+            if (( conflicts > 0 )); then
+              echo "ABI_LAYOUT_RESULT=FAILED"
+              echo "SAFE_TO_FASTBOOT_BOOT=NO"
+              echo "REASON=Controller slot reuse still changes existing exported CRCs"
+            else
+              echo "ABI_LAYOUT_RESULT=PROMISING"
+              echo "SAFE_TO_FASTBOOT_BOOT=NO"
+              echo "REASON=Existing CRC layout preserved, but net_prio exports/userspace dependency and OEM module imports must be audited first"
+            fi
+          } | tee "$NEW/pids-slot-safety.txt"
+
+          # 这一步故意不以 CRC=0 作为可启动许可；任何结果都只供研究。
+          if (( conflicts > 0 )); then
+            exit 1
+          fi
+
+      - name: "记录实验结论"
+        if: always()
+        shell: bash
+        run: |
+          OUT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          {
+            echo "## DroidSpaces PIDs / net_prio 槽位替换 ABI 实验"
+            echo
+            echo "这是针对 CONFIG_CGROUP_PIDS 导致 7005 个 CRC 冲突的 ABI-only 研究。"
+            echo "无论结果如何，本 workflow 都不会生成 boot.img，也不会批准真机启动。"
+            for f in pids-slot-config-diff.txt pids-slot-abi-diff.txt pids-slot-safety.txt; do
+              [[ -s "$OUT/$f" ]] && { echo '~~~text'; cat "$OUT/$f"; echo '~~~'; }
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "上传 ABI 实验素材"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: NOFLASH-pandora-OS4-R62-DroidSpaces-PIDs-netprio-slot-ABI
+          path: |
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Image
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/final.config
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-slot-config-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-slot-abi-diff.txt
+            ${{ runner.temp }}/xiaomi-os4-integrated/results/pids-slot-safety.txt
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
