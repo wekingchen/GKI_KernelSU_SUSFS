@@ -88,6 +88,23 @@ safe_cat() {
     fi
   done
 
+  section "实际 net_prio v1 挂载与 priomap"
+  NETPRIO_MOUNTS=0
+  while IFS=' ' read -r dev mp fstype opts rest; do
+    [ "$fstype" = "cgroup" ] || continue
+    echo ",$opts," | grep -q ',net_prio,' || continue
+    NETPRIO_MOUNTS=$((NETPRIO_MOUNTS + 1))
+    echo "NET_PRIO_MOUNT device=$dev mountpoint=$mp options=$opts"
+    if [ -d "$mp" ]; then
+      find "$mp" -maxdepth 3 -type f \( -name 'net_prio.ifpriomap' -o -name 'net_prio.prioidx' \) 2>/dev/null | \
+        while IFS= read -r file; do
+          echo "--- $file"
+          cat "$file" 2>/dev/null || true
+        done
+    fi
+  done < /proc/mounts
+  echo "NET_PRIO_V1_MOUNT_COUNT=$NETPRIO_MOUNTS"
+
   section "Android cgroup 配置文件原文"
   FOUND_JSON=0
   for root in /system/etc /system_ext/etc /product/etc /vendor/etc /odm/etc; do
