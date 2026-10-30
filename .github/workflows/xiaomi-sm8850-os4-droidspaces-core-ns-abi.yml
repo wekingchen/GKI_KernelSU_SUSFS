@@ -1,13 +1,8 @@
 name: "小米17 Pro OS4 / DroidSpaces PID+IPC namespace kABI 实验（不可刷机）"
 
+# Validated historical stage. Keep reproducible, but do not auto-run when
+# the shared OS4 build script grows later experiments.
 on:
-  push:
-    branches:
-      - "os4/pandora-6.12.69-adaptation-20261029"
-    paths:
-      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-core-ns-abi.yml"
-      - "scripts/xiaomi-os4/build-r62-features.sh"
-      - ".github/config/xiaomi-sm8850-os4-6.12.69.env"
   workflow_dispatch:
 
 permissions:
