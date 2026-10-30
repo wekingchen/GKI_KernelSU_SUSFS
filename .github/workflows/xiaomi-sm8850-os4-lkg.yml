@@ -1,0 +1,223 @@
+name: "小米17 Pro OS4 / Full Parity LKG 复现与打包"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xiaomi-os4-pandora-full-parity-lkg
+  cancel-in-progress: true
+
+jobs:
+  reproduce:
+    name: "固定 R62 → 复现已验证 LKG → 生成测试与持久化包"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v7
+
+      - name: "载入 LKG 身份"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/pandora-os4-full-parity-lkg.env
+          for v in LKG_DEVICE LKG_SYSTEM_BUILD LKG_KERNEL_RELEASE LKG_IMAGE_SHA256 \
+                   LKG_SYMVERS_SHA256 LKG_FASTBOOT_BOOT_SHA256 LKG_BASELINE_IMAGE_SHA256 \
+                   LKG_TESTED_BASELINE_BOOT_SHA256; do
+            printf '%s=%s\n' "$v" "${!v}" >> "$GITHUB_ENV"
+          done
+
+      - name: "静态安全门禁"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/build-r62-baseline.sh
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
+          bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
+          python3 -m py_compile \
+            scripts/xiaomi-os4/susfs-task-mmu-compat.py \
+            scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            scripts/xiaomi-os4/repack-abi-verified-fastboot-boot-v4.py
+          ! grep -R -nE 'fastboot[[:space:]]+flash|dd[[:space:]].*of=/dev/block' \
+            scripts/xiaomi-os4/package-validated-anykernel3.sh \
+            scripts/xiaomi-os4/repack-abi-verified-fastboot-boot-v4.py
+
+      - name: "清理 Runner 空间"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq libdw-dev \
+            libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils \
+            zip zstd dwarves
+
+      - name: "恢复固定 R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复固定 r536225 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "恢复 LKG ccache"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-lkg-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/susfs-task-mmu-compat.py', '.github/config/xiaomi-sm8850-os4-6.12.69.env', 'security_patch/**') }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-parity-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "重建固定 R62 baseline"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-baseline.sh
+          BASE="${{ runner.temp }}/xiaomi-os4-build/results"
+          printf '%s  %s\n' "$LKG_BASELINE_IMAGE_SHA256" "$BASE/Image" | sha256sum -c -
+
+      - name: "复原真机验证 baseline boot 模板"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/xiaomi-os4-build/results"
+          TEMPLATE="${{ runner.temp }}/tested-baseline-fastboot-boot.img"
+          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            .github/config/pandora-os4-r62-tested-boot-v4-fixture.json \
+            "$BASE/Image" "$TEMPLATE"
+          printf '%s  %s\n' "$LKG_TESTED_BASELINE_BOOT_SHA256" "$TEMPLATE" | sha256sum -c -
+
+      - name: "构建 Full Parity LKG"
+        shell: bash
+        env:
+          XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO: "1"
+          XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES: "1"
+          XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS: "1"
+          XIAOMI_OS4_OS3_PARITY_EXTRAS: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "锁定已验证 LKG 身份"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          printf '%s  %s\n' "$LKG_IMAGE_SHA256" "$RES/Image" | sha256sum -c -
+          printf '%s  %s\n' "$LKG_SYMVERS_SHA256" "$RES/Module.symvers" | sha256sum -c -
+          grep -qx "KERNEL_RELEASE=$LKG_KERNEL_RELEASE" "$RES/build-metadata.txt"
+          grep -qx 'OS3_PARITY_EXTRAS=1' "$RES/build-metadata.txt"
+          grep -qx 'OS3_PARITY_CONFIG=PASS' "$RES/os3-parity-config-result.txt"
+          grep -Eq '^CVE_2026_43499_53163_STATUS=(UPSTREAM_OR_ALREADY_PRESENT|BACKPORTED_BY_REPOSITORY_CHAIN)$' "$RES/os3-parity-source.env"
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$RES/final.config"
+          grep -qx 'CONFIG_CGROUP_NET_PRIO=y' "$RES/final.config"
+          grep -qx 'CONFIG_BBG=y' "$RES/final.config"
+          grep -qx 'CONFIG_REKERNEL=y' "$RES/final.config"
+          grep -qx 'CONFIG_NTSYNC=y' "$RES/final.config"
+
+      - name: "生成 fastboot-boot-only LKG"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          OUT="${{ runner.temp }}/lkg-out"
+          mkdir -p "$OUT"
+          python3 scripts/xiaomi-os4/repack-abi-verified-fastboot-boot-v4.py \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img" \
+            "$RES/Image" \
+            "$OUT/pandora-OS4-R62-FULL-PARITY-FASTBOOT-BOOT-ONLY.img" \
+            --expected-image-sha256 "$LKG_IMAGE_SHA256" \
+            --expected-release "$LKG_KERNEL_RELEASE" | tee "$OUT/fastboot-repack-report.txt"
+          printf '%s  %s\n' "$LKG_FASTBOOT_BOOT_SHA256" \
+            "$OUT/pandora-OS4-R62-FULL-PARITY-FASTBOOT-BOOT-ONLY.img" | sha256sum -c -
+
+      - name: "生成 AnyKernel3 持久化 LKG"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          OUT="${{ runner.temp }}/lkg-out"
+          bash scripts/xiaomi-os4/package-validated-anykernel3.sh "$RES/Image" "$OUT" \
+            | tee "$OUT/package-report.txt"
+          ZIP="$OUT/Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip"
+          unzip -t "$ZIP" >/dev/null
+          unzip -p "$ZIP" Image | sha256sum | grep -q "^$LKG_IMAGE_SHA256 "
+          if unzip -Z1 "$ZIP" | grep -Eq '(^|/)(boot|init_boot|vendor_boot|vendor_kernel_boot|dtbo|vbmeta)(_[ab])?\.img$'; then
+            echo "::error::forbidden partition image found in AnyKernel3 ZIP"
+            exit 1
+          fi
+
+      - name: "整理 LKG 产物"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          OUT="${{ runner.temp }}/lkg-out"
+          cp "$RES/Image" "$OUT/Image"
+          cp "$RES/Module.symvers" "$OUT/Module.symvers"
+          cp "$RES/final.config" "$OUT/final.config"
+          cp "$RES/build-metadata.txt" "$OUT/build-metadata.txt"
+          cp "$RES/os3-parity-source.env" "$OUT/full-parity-source.env"
+          cp "$RES/os3-parity-config-result.txt" "$OUT/full-parity-config-result.txt"
+          (
+            cd "$OUT"
+            sha256sum Image Module.symvers \
+              pandora-OS4-R62-FULL-PARITY-FASTBOOT-BOOT-ONLY.img \
+              Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip \
+              > SHA256SUMS.txt
+          )
+          {
+            echo "DEVICE=$LKG_DEVICE"
+            echo "SYSTEM_BUILD=$LKG_SYSTEM_BUILD"
+            echo "KERNEL_RELEASE=$LKG_KERNEL_RELEASE"
+            echo "REFERENCE_IMAGE_SHA256=$LKG_IMAGE_SHA256"
+            echo "REFERENCE_SYMVERS_SHA256=$LKG_SYMVERS_SHA256"
+            echo "REFERENCE_FASTBOOT_BOOT_SHA256=$LKG_FASTBOOT_BOOT_SHA256"
+            echo "TRUE_DEVICE_FASTBOOT_BOOT=PASS"
+            echo "TRUE_DEVICE_PERSISTENT_BOOT=PASS"
+            echo "TRUE_DEVICE_DROIDSPACES=PASS"
+            echo "TRUE_DEVICE_BBG=PASS"
+            echo "TRUE_DEVICE_REKERNEL_11_7=PASS"
+            echo "PERSISTENT_DEVICE_VALIDATION=PASS"
+          } > "$OUT/LKG-VALIDATION.txt"
+
+      - name: "上传 LKG 产物"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OS4.0.5.0-R62-FULL-PARITY-LKG
+          path: |
+            ${{ runner.temp }}/lkg-out/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: "摘要"
+        shell: bash
+        run: |
+          OUT="${{ runner.temp }}/lkg-out"
+          {
+            echo "## Xiaomi 17 Pro OS4 Full Parity LKG"
+            echo
+            echo "- Kernel: `$LKG_KERNEL_RELEASE`"
+            echo "- Image: `$LKG_IMAGE_SHA256`"
+            echo "- Module.symvers: `$LKG_SYMVERS_SHA256`"
+            echo "- fastboot boot: `$LKG_FASTBOOT_BOOT_SHA256`"
+            echo
+            echo "本工作流复现已真机验证 LKG，不依赖历史 Actions Artifact，也不会自动刷写设备。"
+          } >> "$GITHUB_STEP_SUMMARY"
