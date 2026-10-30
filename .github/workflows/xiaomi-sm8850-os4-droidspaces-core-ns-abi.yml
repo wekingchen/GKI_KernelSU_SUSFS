@@ -180,14 +180,17 @@ jobs:
 
           mapfile -t new_names < <(awk '/^NEW_EXPORT /{print $2}' "$OUT" | sort -u)
           printf '%s\n' "${new_names[@]}" > "$RUNNER_TEMP/xiaomi-os4-integrated/results/droidspaces-core-new-exports.txt"
-          expected="$(printf '%s\n' init_ipc_ns put_ipc_ns)"
+          # put_pid_ns is an upstream EXPORT_SYMBOL_GPL that appears only when
+          # CONFIG_PID_NS=y; the other two are the explicit IPC exports needed
+          # by modular rust_binder with CONFIG_IPC_NS=y.
+          expected="$(printf '%s\n' init_ipc_ns put_ipc_ns put_pid_ns)"
           actual="$(printf '%s\n' "${new_names[@]}")"
 
           {
-            if (( conflicts == 0 && missing == 0 && added == 2 )) && [[ "$actual" == "$expected" ]]; then
-              echo "ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_2_REQUIRED_IPC_EXPORTS"
+            if (( conflicts == 0 && missing == 0 && added == 3 )) && [[ "$actual" == "$expected" ]]; then
+              echo "ABI_LAYOUT_RESULT=OLD_EXPORTS_ZERO_DIFF_PLUS_3_EXPECTED_NAMESPACE_EXPORTS"
               echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
-              echo "REASON=All pre-existing vmlinux export CRCs preserved; only init_ipc_ns and put_ipc_ns are newly exported for modular rust_binder"
+              echo "REASON=All pre-existing vmlinux export CRCs preserved; only init_ipc_ns, put_ipc_ns and upstream put_pid_ns are newly exported"
             else
               echo "ABI_LAYOUT_RESULT=FAILED"
               echo "SAFE_TO_FASTBOOT_BOOT=NO"
@@ -195,7 +198,7 @@ jobs:
             fi
           } | tee "$SAFETY"
 
-          if (( conflicts != 0 || missing != 0 || added != 2 )) || [[ "$actual" != "$expected" ]]; then
+          if (( conflicts != 0 || missing != 0 || added != 3 )) || [[ "$actual" != "$expected" ]]; then
             exit 1
           fi
 
