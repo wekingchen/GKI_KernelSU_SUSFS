@@ -15,18 +15,26 @@ mkdir -p "$STAGE" "$RESULT" "$CACHE_ROOT"
 
 DROIDSPACES_PIDS="${XIAOMI_OS4_ENABLE_CGROUP_PIDS:-0}"
 DROIDSPACES_PIDS_REUSE_NET_PRIO="${XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT:-0}"
+DROIDSPACES_PIDS_REPURPOSE_NET_PRIO="${XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO:-0}"
 [[ "$DROIDSPACES_PIDS" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::XIAOMI_OS4_ENABLE_CGROUP_PIDS must be 0 or 1"; exit 1;
 }
 [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]] || {
   echo "::error::XIAOMI_OS4_PIDS_REUSE_NET_PRIO_SLOT must be 0 or 1"; exit 1;
 }
+[[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]] || {
+  echo "::error::XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO must be 0 or 1"; exit 1;
+}
 [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "0" || "$DROIDSPACES_PIDS" == "1" ]] || {
   echo "::error::PIDs net_prio slot reuse requires XIAOMI_OS4_ENABLE_CGROUP_PIDS=1"; exit 1;
 }
+if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" && ( "$DROIDSPACES_PIDS" != "0" || "$DROIDSPACES_PIDS_REUSE_NET_PRIO" != "0" ) ]]; then
+  echo "::error::PIDs net_prio repurpose mode keeps CONFIG_CGROUP_PIDS=n and cannot be combined with other PIDs modes"; exit 1
+fi
 echo "[OS4] BakaSU/SUSFS/NoMount 实际编译，只供 ABI 分析；禁止刷机。目标 $OS4_KERNEL_VERSION / $OS4_STOCK_KMI"
 echo "[OS4] DroidSpaces PIDs controller analysis: $DROIDSPACES_PIDS"
 echo "[OS4] DroidSpaces PIDs reuse net_prio slot: $DROIDSPACES_PIDS_REUSE_NET_PRIO"
+echo "[OS4] DroidSpaces PIDs repurpose net_prio KMI identity: $DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
 [[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
@@ -168,6 +176,54 @@ git -C "$SRC" diff --check -- drivers/Kconfig drivers/Makefile fs/Kconfig fs/Mak
 [[ -L "$SRC/fs/nomount" ]] || exit 1
 echo "[OS4] SUSFS + BakaSU Built-in + NoMount 实际源码应用通过"
 
+if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+  echo "[OS4] ABI-only: repurpose net_prio cgroup KMI identity as runtime pids controller"
+  python3 - "$SRC" <<'PY'
+from pathlib import Path
+import sys
+root=Path(sys.argv[1])
+
+pids=root/"kernel/cgroup/pids.c"
+t=pids.read_text()
+if "pids_cgrp_id" not in t or "struct cgroup_subsys pids_cgrp_subsys" not in t:
+    raise SystemExit("unexpected pids.c layout")
+t=t.replace("pids_cgrp_id", "net_prio_cgrp_id")
+t=t.replace("pids_cgrp_subsys", "net_prio_cgrp_subsys")
+pids.write_text(t)
+
+mk=root/"kernel/cgroup/Makefile"
+t=mk.read_text()
+needle="obj-$(CONFIG_CGROUP_PIDS) += pids.o"
+if needle not in t:
+    raise SystemExit("kernel/cgroup/Makefile pids rule not found")
+t=t.replace(needle, "obj-$(CONFIG_CGROUP_NET_PRIO) += pids.o", 1)
+mk.write_text(t)
+
+nmk=root/"net/core/Makefile"
+t=nmk.read_text()
+needle="obj-$(CONFIG_CGROUP_NET_PRIO) += netprio_cgroup.o"
+if needle not in t:
+    raise SystemExit("net/core/Makefile netprio rule not found")
+t=t.replace(needle, "# net_prio KMI slot repurposed by OS4 DroidSpaces ABI experiment", 1)
+nmk.write_text(t)
+
+cg=root/"kernel/cgroup/cgroup.c"
+t=cg.read_text()
+needle="\tRCU_INIT_POINTER(init_task.cgroups, &init_css_set);\n\n\tfor_each_subsys(ss, i) {"
+repl="\tRCU_INIT_POINTER(init_task.cgroups, &init_css_set);\n\n\t/* KMI-preserving DroidSpaces experiment: expose net_prio slot as pids. */\n\tcgroup_subsys_name[net_prio_cgrp_id] = \"pids\";\n\n\tfor_each_subsys(ss, i) {"
+if needle not in t:
+    raise SystemExit("cgroup_init_early insertion point not found")
+t=t.replace(needle,repl,1)
+cg.write_text(t)
+PY
+  grep -qF 'obj-$(CONFIG_CGROUP_NET_PRIO) += pids.o' "$SRC/kernel/cgroup/Makefile"
+  ! grep -qF 'obj-$(CONFIG_CGROUP_NET_PRIO) += netprio_cgroup.o' "$SRC/net/core/Makefile"
+  grep -qF 'struct cgroup_subsys net_prio_cgrp_subsys' "$SRC/kernel/cgroup/pids.c"
+  ! grep -qF 'pids_cgrp_id' "$SRC/kernel/cgroup/pids.c"
+  grep -qF 'cgroup_subsys_name[net_prio_cgrp_id] = "pids";' "$SRC/kernel/cgroup/cgroup.c"
+  git -C "$SRC" diff --check -- kernel/cgroup/pids.c kernel/cgroup/Makefile net/core/Makefile kernel/cgroup/cgroup.c
+fi
+
 TOOL_BASE="https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225"
 if [[ ! -x "$TOOL_CACHE/clang19/bin/clang" || ! -x "$TOOL_CACHE/rust/bin/rustc" || ! -x "$TOOL_CACHE/build-tools/bin/pahole" || ! -f "$TOOL_CACHE/.verified" ]]; then
   rm -rf "$TOOL_CACHE"
@@ -235,7 +291,9 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
   tail -n 100 "$RESULT/config-build.log"; exit 1;
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
-if [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
+if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+  FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-kmi-4k"
+elif [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-slot-4k"
 elif [[ "$DROIDSPACES_PIDS" == "1" ]]; then
   FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-4k"
@@ -254,6 +312,9 @@ if [[ "$DROIDSPACES_PIDS" == "1" ]]; then
   fi
 else
   "$SRC/scripts/config" --file "$OUT/.config" --disable CGROUP_PIDS
+  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+    "$SRC/scripts/config" --file "$OUT/.config" --enable CGROUP_NET_PRIO
+  fi
 fi
 make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" olddefconfig >> "$RESULT/config-build.log" 2>&1 || {
   tail -n 100 "$RESULT/config-build.log"; exit 1;
@@ -285,6 +346,11 @@ else
   grep -qx '# CONFIG_CGROUP_PIDS is not set' "$OUT/.config" || {
     echo "::error::unexpected PIDs feature in baseline"; exit 1;
   }
+  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+    grep -qx 'CONFIG_CGROUP_NET_PRIO=y' "$OUT/.config" || { echo "::error::repurpose experiment requires CONFIG_CGROUP_NET_PRIO=y"; exit 1; }
+    grep -qx 'CONFIG_CGROUP_NET_CLASSID=y' "$OUT/.config" || { echo "::error::CONFIG_CGROUP_NET_CLASSID must stay enabled"; exit 1; }
+    grep -qx 'CONFIG_SOCK_CGROUP_DATA=y' "$OUT/.config" || { echo "::error::CONFIG_SOCK_CGROUP_DATA must stay enabled"; exit 1; }
+  fi
 fi
 echo "[OS4] Building R62 Image with BakaSU + SUSFS + NoMount (not flashable)"
 start="$(date +%s)"
@@ -359,7 +425,9 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_USER=$KBUILD_BUILD_USER"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
-  if [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
+  if [[ "$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO" == "1" ]]; then
+    echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS"
+  elif [[ "$DROIDSPACES_PIDS_REUSE_NET_PRIO" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_NETPRIO_SLOT_ANALYSIS"
   elif [[ "$DROIDSPACES_PIDS" == "1" ]]; then
     echo "BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_PIDS_ANALYSIS"
@@ -368,6 +436,7 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   fi
   echo "DROIDSPACES_CGROUP_PIDS=$DROIDSPACES_PIDS"
   echo "DROIDSPACES_PIDS_REUSE_NET_PRIO_SLOT=$DROIDSPACES_PIDS_REUSE_NET_PRIO"
+  echo "DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=$DROIDSPACES_PIDS_REPURPOSE_NET_PRIO"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
