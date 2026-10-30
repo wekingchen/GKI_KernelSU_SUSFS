@@ -94,9 +94,9 @@ OS3 曾出现：
 
 ## 当前下一步
 
-正在执行：**OS4 / R62 DroidSpaces PIDs 专项 ABI 分析**。
+正在执行：**OS4 / R62 DroidSpaces PIDs KMI 身份保留方案真机临时启动验证**。
 
-只有 `CONFIG_CGROUP_PIDS=y` 的 ABI 风险被量化并通过门禁后，才进入下一张临时启动镜像。
+直接 `CONFIG_CGROUP_PIDS=y` 与简单槽位互换均已判定失败；当前仅推进第三轮 ZERO_DIFF 的 net_prio KMI 身份保留方案。
 
 
 ## DroidSpaces PIDs / R62 实测 ABI 结论
@@ -254,3 +254,68 @@ su -c 'sh /sdcard/Download/collect-cgroup-netprio-audit.sh'
 `SAFE_TO_FASTBOOT_BOOT=NO`；如果未发现阻断性 net_prio 依赖，再生成仅供
 `fastboot boot` 的实验镜像，并在真机验证 `pids.max` / `pids.current` /
 `pids.events` 与 DroidSpaces Process limit。
+
+
+### PIDs 实验 3A 真机原厂用户态审计结果（2026-10-30）
+
+在原厂 OS4.0.5.0.XBLCNXM / 原厂 6.12.69 内核上完成只读采集。
+
+关键结果：
+
+```text
+android_release=17
+/proc/cgroups:
+net_cls   hierarchy=0 enabled=1
+net_prio  hierarchy=0 enabled=1
+
+实际 cgroup v1 mounts:
+blkio -> /dev/blkio
+cpu -> /dev/cpuctl
+cpuset -> /dev/cpuset
+memory -> /dev/memcg
+
+NET_PRIO_V1_MOUNT_COUNT=0
+
+cgroup2 root:
+pids.current = ABSENT
+pids.events  = ABSENT
+pids.max     = ABSENT
+pids.peak    = ABSENT
+```
+
+`/system/etc/cgroups.json` 只显式配置 `blkio`、`cpu`、`cpuset`、`memory`；
+cgroup2 只配置 `freezer`。`/vendor/etc/cgroups.json` 同样只配置 cgroup2/freezer。
+`task_profiles.json` 与扫描到的 system/vendor/product/system_ext/odm 文本配置中没有
+`net_prio` controller 或 `pids.max` 的实际依赖。
+
+因此：
+
+- 原厂内核虽然编译了 `CONFIG_CGROUP_NET_PRIO=y`，但 HyperOS 4 当前没有挂载/使用 net_prio hierarchy；
+- 没有发现 `net_prio.ifpriomap` 的运行时挂载点，故原 net_prio 数据包优先级路径没有用户态配置来源；
+- 结合现有 505 个 OEM 模块审计未发现 net_prio/cgroup 相关直接导入，当前没有发现阻断第三轮临时启动的依赖；
+- DroidSpaces 实际能力检查依赖运行中的 `cgroup.controllers` 是否出现 `pids`，并在容器 cgroup 写入 `pids.max`，第三轮方案正是针对这一运行接口；
+- OS4 userspace 为 Android 17，而 GKI/KMI 仍是 `android16-6`，后续文档需继续区分 userspace 版本与 kernel KMI 分支。
+
+门禁状态更新：
+
+```text
+ABI_LAYOUT_RESULT=ZERO_DIFF
+OEM_NET_PRIO_DIRECT_IMPORT=NOT_FOUND
+OS4_NET_PRIO_V1_MOUNT_COUNT=0
+OS4_NET_PRIO_USERSPACE_CONFIG=NOT_FOUND
+SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL
+SAFE_TO_FLASH=NO
+```
+
+下一步批准生成**仅供 `fastboot boot`** 的第三轮实验 boot-v4。真机通过前不得写入任何分区，
+也不得作为日用包或 AnyKernel3 发布。
+
+首轮真机重点：
+
+1. Android 是否正常进入桌面、`sys.boot_completed=1`；
+2. `uname -r` 必须为 `6.12.69-android16-6-os4r62-dspids-kmi-4k`；
+3. Root / BakaSU / SUSFS / NoMount 基本功能；
+4. cgroup2 `cgroup.controllers` 是否出现 `pids`；
+5. DroidSpaces `Process limit support` 是否变为 PASS；
+6. 实际创建带 process limit 的容器并验证 `pids.max`；
+7. Wi-Fi、蜂窝数据、IMS/VoLTE、通话、蓝牙、相机等基础回归，尤其关注网络路径是否出现异常。
