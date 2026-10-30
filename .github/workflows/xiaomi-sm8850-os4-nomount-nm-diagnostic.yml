@@ -1,0 +1,122 @@
+name: "小米17 Pro OS4 / NoMount nm errno 诊断工具"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-nomount-nm-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: "编译与锁定 NoMount 提交一致的 arm64 nm-diagnostic"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "检出锁定 NoMount 源码"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q https://github.com/maxsteeel/nomount.git "${{ runner.temp }}/nomount"
+          git -C "${{ runner.temp }}/nomount" checkout -q --detach 9c69668eefdc524c6155f7925cc7649200c6d737
+          test "$(git -C "${{ runner.temp }}/nomount" rev-parse HEAD)" = "9c69668eefdc524c6155f7925cc7649200c6d737"
+
+      - name: "给 nm 增加内核 errno 输出"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${{ runner.temp }}/nomount/userspace/src/nm.h" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1])
+          s=p.read_text()
+          needle='''static noinline void print_strn(const char *s, unsigned long len) {
+              if (len > 0) sys3(SYS_WRITE, 1, (long)s, len);
+          }
+
+          #define print_literal(s) print_strn((s), sizeof(s) - 1)
+          '''
+          repl='''static noinline void print_strn(const char *s, unsigned long len) {
+              if (len > 0) sys3(SYS_WRITE, 1, (long)s, len);
+          }
+
+          #define print_literal(s) print_strn((s), sizeof(s) - 1)
+
+          static noinline void print_signed_int(int n) {
+              char buf[16];
+              unsigned int v;
+              int i = sizeof(buf);
+              if (n < 0) v = (unsigned int)(-(long)n);
+              else v = (unsigned int)n;
+              do {
+                  buf[--i] = (char)('0' + (v % 10));
+                  v /= 10;
+              } while (v && i > 1);
+              if (n < 0) buf[--i] = '-';
+              print_strn(buf + i, sizeof(buf) - i);
+          }
+          '''
+          if needle not in s:
+              raise SystemExit("unexpected nm.h layout")
+          p.write_text(s.replace(needle,repl,1))
+          PY
+
+          python3 - "${{ runner.temp }}/nomount/userspace/src/nm.h" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path(sys.argv[1])
+          s=p.read_text()
+          needle='''static noinline int nm_send_payload(struct nm_payload *payload) {
+              payload->status = -1; 
+              unsigned long ptr = (unsigned long)payload;
+              sys5(SYS_ADD_KEY, (long)"nomount", (long)"trigger", (long)&ptr, sizeof(ptr), -1);
+              return payload->status;
+          }
+          '''
+          repl='''static noinline int nm_send_payload(struct nm_payload *payload) {
+              payload->status = -1;
+              unsigned long ptr = (unsigned long)payload;
+              sys5(SYS_ADD_KEY, (long)"nomount", (long)"trigger", (long)&ptr, sizeof(ptr), -1);
+              if (payload->status < 0) {
+                  print_literal("nm-diagnostic: kernel_status=");
+                  print_signed_int(payload->status);
+                  print_literal("\\n");
+              }
+              return payload->status;
+          }
+          '''
+          if needle not in s:
+              raise SystemExit("unexpected nm_send_payload layout")
+          p.write_text(s.replace(needle,repl,1))
+          PY
+
+      - name: "安装 Zig"
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.15.2"
+
+      - name: "编译 arm64 静态诊断工具"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ runner.temp }}/nomount/userspace/src"
+          zig cc -target aarch64-linux -Oz -mcmodel=tiny -static -nostdlib -ffreestanding             -fno-unwind-tables -fno-ident -Wno-invalid-noreturn             -Wl,--entry=_start nm.c -o "${{ runner.temp }}/nm-diagnostic-arm64"
+          test -s "${{ runner.temp }}/nm-diagnostic-arm64"
+          file "${{ runner.temp }}/nm-diagnostic-arm64"
+          sha256sum "${{ runner.temp }}/nm-diagnostic-arm64" | tee "${{ runner.temp }}/SHA256SUMS.txt"
+
+      - name: "上传诊断工具"
+        uses: actions/upload-artifact@v6
+        with:
+          name: NoMount-nm-diagnostic-arm64
+          path: |
+            ${{ runner.temp }}/nm-diagnostic-arm64
+            ${{ runner.temp }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
