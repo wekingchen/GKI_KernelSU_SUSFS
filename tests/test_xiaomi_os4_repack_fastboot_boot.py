@@ -65,6 +65,33 @@ class RepackFastbootBootV4Test(unittest.TestCase):
             cmdline = data[44:44 + 1536].split(b"\0", 1)[0]
             self.assertEqual(cmdline, b"console=tty0 module_blacklist=kernelsu")
 
+    def test_repack_accepts_exact_droidspaces_corens_kernel(self):
+        mod = load_tool()
+        old = b"old-" + b"x" * 7000 + mod.EXPECTED_TEMPLATE_RELEASE
+        new = b"core-" + b"z" * 9000 + mod.EXPECTED_DROIDSPACES_CORENS_RELEASE
+        signature = b"R" * 16384
+        mod.EXPECTED_TEMPLATE_KERNEL_SHA256 = hashlib.sha256(old).hexdigest()
+        mod.EXPECTED_DROIDSPACES_CORENS_KERNEL_SHA256 = hashlib.sha256(new).hexdigest()
+
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            template = td / "template.img"
+            image = td / "Image"
+            output = td / "out.img"
+            boot = make_boot(old, signature)
+            mod.EXPECTED_TEMPLATE_BOOT_SHA256 = hashlib.sha256(boot).hexdigest()
+            template.write_bytes(boot)
+            image.write_bytes(new)
+
+            with patch.object(sys, "argv", [str(SCRIPT), str(template), str(image), str(output)]):
+                mod.main()
+
+            data = output.read_bytes()
+            self.assertEqual(data[4096:4096 + len(new)], new)
+            self.assertEqual(data[-len(signature):], signature)
+            cmdline = data[44:44 + 1536].split(b"\0", 1)[0]
+            self.assertIn(b"module_blacklist=kernelsu", cmdline.split())
+
     def test_existing_unreviewed_module_blacklist_is_rejected(self):
         mod = load_tool()
         old = b"old-" + b"x" * 7000 + mod.EXPECTED_TEMPLATE_RELEASE
