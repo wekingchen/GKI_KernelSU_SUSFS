@@ -1037,3 +1037,62 @@ SAFE_TO_PERSISTENT_CANDIDATE=YES
 
 说明：`SAFE_TO_PERSISTENT_CANDIDATE=YES` 表示允许生成已验证 Image 的
 持久化 AnyKernel3 候选包，不代表自动刷机。实际持久刷写仍由用户手动执行。
+
+
+### OS4 Full 持久化 AnyKernel3 候选生成：PASS（2026-10-30）
+
+专用打包 Run：
+
+```text
+RUN_ID=41045942378
+HEAD_SHA=5dc96f99d2c9cca73c83fead579bcf897d36026d
+CONCLUSION=success
+```
+
+该工作流没有重新编译内核，而是从已经真机验证的 Full Extras
+fastboot artifact 中精确提取同一个 Image，并重新校验：
+
+```text
+EXTRACTED_IMAGE_SHA256=9b47f40a172ebe2ff0d7c5f6d2834db3fce2535379ea11277fcf010042f2db24
+EXTRACTED_IMAGE_SIZE=42498560
+KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-full-kmi-4k
+TARGET_BUILD=OS4.0.5.0.XBLCNXM
+```
+
+最终 AnyKernel3：
+
+```text
+Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-AnyKernel3.zip
+SHA256=ab38fda26bc4a6023e75ddb00409a5c6d298fc43d318ab15d69766642db2461f
+```
+
+GitHub Artifact：
+
+```text
+name=PERSISTENT-CANDIDATE-pandora-OS4.0.5.0-R62-FULL-AnyKernel3
+artifact_id=12971633767
+artifact_zip_digest=sha256:d3e283215f0fdbec4efd7860777417a1567db0d645d53b192dd4af7f1383f0e3
+```
+
+最终内容审计通过：
+
+- ZIP 完整性测试 PASS；
+- 内部 `Image` SHA 与已真机验证 Image 完全一致；
+- 不包含 boot/init_boot/vendor_boot/vendor_kernel_boot/dtbo/vbmeta 分区镜像；
+- AnyKernel3 只替换 active boot 的 kernel payload；
+- 保留现有 ramdisk；
+- 安装脚本会确保 `module_blacklist` 包含 `kernelsu`；
+- 自动刷机为 NO，持久化只允许用户手动执行。
+
+生成后已将专用工作流恢复为 `workflow_dispatch` 手动触发，避免后续仓库修改时误打包。
+
+当前状态：
+
+```text
+DROIDSPACES_CONTAINER_LIFECYCLE=PASS
+FULL_EXTRAS_TRUE_DEVICE_VALIDATION=PASS
+HARDWARE_REGRESSION=PASS
+PERSISTENT_PACKAGE_AUDIT=PASS
+SAFE_TO_PERSISTENT_CANDIDATE=YES
+AUTO_FLASH=NO
+```
