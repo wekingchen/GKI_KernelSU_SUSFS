@@ -957,3 +957,50 @@ NOMOUNT_METAMODULE_HYPEROS4_FLOCK=KNOWN_NONBLOCKING_ISSUE
 持久化前只保留最后一个低风险检查：
 停止并删除 DroidSpaces 测试容器后，确认
 `/sys/fs/cgroup/droidspaces/test` 已清理。该检查不需要重新编译内核。
+
+
+### 持久化候选准备（2026-10-30）
+
+Full Extras 已通过 DroidSpaces Requirements、实际容器 namespace/PIDs、以及
+Wi-Fi/蜂窝/双卡/VoLTE-IMS/蓝牙/相机真机回归后，开始准备持久化候选。
+
+为避免再次完整编译，持久化包固定复用已验证的 Full Extras：
+
+```text
+SOURCE_RUN_ID=41027979653
+KERNEL_RELEASE=6.12.69-android16-6-os4r62-dspids-dscore-full-kmi-4k
+IMAGE_SHA256=9b47f40a172ebe2ff0d7c5f6d2834db3fce2535379ea11277fcf010042f2db24
+FASTBOOT_BOOT_SHA256=6298fb802d543f1ff2a9f82ccb953b95e44ce6cf6e91d4469735c6bb892b3086
+```
+
+新增：
+
+```text
+scripts/xiaomi-os4/check-droidspaces-container-cleanup.cmd
+scripts/xiaomi-os4/package-validated-anykernel3.sh
+.github/workflows/xiaomi-sm8850-os4-validated-full-anykernel3.yml
+```
+
+日用打包工作流只做：
+
+1. 下载固定 Run #3 artifact；
+2. 校验 boot.img / ABI safety / build metadata；
+3. 从已真机验证 boot-v4 精确提取同一个 Image；
+4. 再次验证 Image SHA 与 kernel release；
+5. 用固定 AnyKernel3 commit 打包，不重新编译；
+6. 只替换 active boot 的 kernel payload，保留当前 ramdisk；
+7. 确保 cmdline 的 `module_blacklist` 包含 `kernelsu`，防止旧 KernelSU LKM
+   与 Built-in BakaSU 同时加载；
+8. 不携带 boot/init_boot/vendor_boot/dtbo/vbmeta 等分区镜像；
+9. 不自动刷机。
+
+当前最后门禁：
+
+```text
+DROIDSPACES_CGROUP_CLEANUP=PENDING
+SAFE_TO_FLASH=PENDING_CGROUP_CLEANUP
+```
+
+停止并删除测试容器 `test` 后，若
+`/sys/fs/cgroup/droidspaces/test` 不再存在，则 Full Extras 运行时生命周期
+完成最终闭环，可生成持久化 AnyKernel3 候选。
