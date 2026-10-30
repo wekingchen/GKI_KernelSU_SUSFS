@@ -97,3 +97,43 @@ OS3 曾出现：
 正在执行：**OS4 / R62 DroidSpaces PIDs 专项 ABI 分析**。
 
 只有 `CONFIG_CGROUP_PIDS=y` 的 ABI 风险被量化并通过门禁后，才进入下一张临时启动镜像。
+
+
+## DroidSpaces PIDs / R62 实测 ABI 结论
+
+2026-10-30 已完成只相对 #12 已验证功能基线增加 `CONFIG_CGROUP_PIDS=y` 的专项编译。
+
+Kconfig 差异严格只有：
+
+```text
+ONLY_BASE:
+# CONFIG_CGROUP_PIDS is not set
+
+ONLY_PIDS:
+CONFIG_CGROUP_PIDS=y
+```
+
+导出 ABI：
+
+```text
+BASE_VMLINUX_EXPORTS=18725
+MATCHED_SYMBOL_NAMES=18725
+NEW_EXPORTS=2
+MISSING_EXPORTS=0
+CRC_CONFLICTS=7005
+SAFE_TO_FASTBOOT_BOOT=NO
+```
+
+新增导出：
+- `pids_cgrp_subsys_enabled_key`
+- `pids_cgrp_subsys_on_dfl_key`
+
+结论：
+
+- 直接启用 `CONFIG_CGROUP_PIDS=y` **禁止进入真机测试**；
+- 7005 个 CRC 冲突足以造成大面积 stock vendor module KMI 拒绝加载；
+- 结果与 OS3 阶段开启 PIDs 后出现 bootloop 的历史现象一致；
+- DroidSpaces 上游 v7.1.0 对 GKI 的警告在 pandora / R62 上得到实测验证；
+- 当前 #12 继续作为 LKG，不修改、不生成带 PIDs 的 boot 镜像。
+
+后续如果继续攻克 Process limit，必须研究 **保持 `CGROUP_SUBSYS_COUNT` 和核心 cgroup 结构尺寸不变** 的 6.12 专项方案；任何实验先做 ABI-only，不直接进入手机。
