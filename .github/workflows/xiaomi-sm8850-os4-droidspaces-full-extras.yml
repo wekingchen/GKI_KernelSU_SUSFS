@@ -1,0 +1,377 @@
+name: "小米17 Pro OS4 / DroidSpaces Full Extras 一次性收尾（不可刷机）"
+
+on:
+  push:
+    branches:
+      - "os4/pandora-6.12.69-adaptation-20261029"
+    paths:
+      - ".github/workflows/xiaomi-sm8850-os4-droidspaces-full-extras.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# Deliberately reuse the previous Macvlan experiment's group so this full batch
+# supersedes/cancels the one-feature-at-a-time run.
+concurrency:
+  group: xiaomi-os4-r62-droidspaces-macvlan-abi
+  cancel-in-progress: true
+
+env:
+  CORE_BASE_RUN_ID: "41020166839"
+  CORE_BASE_ARTIFACT: "NOFLASH-pandora-OS4-R62-DroidSpaces-CoreNS-PIDs-KMI"
+  CORE_BASE_SYMVERS_SHA256: "f99c78ff1951657743df23f03566812ed6ca5a5f7ffbc6dff67ae34048a20603"
+
+  BASELINE_RUN_ID: "40853513946"
+  BASELINE_ARTIFACT: "NOFLASH-pandora-OS4-R62-baseline-Image-ABI"
+  BASELINE_IMAGE_SHA256: "f02d7b150783d4fcfd7271fb1d1b85b9effd211609a59b008c67527c685725f8"
+  TESTED_BASELINE_BOOT_SHA256: "3faeffbb6a8fd4a56e81760e226da5e3822a4e282b5b65bcd168fcf77496c8e0"
+
+  FIXTURE: ".github/config/pandora-os4-r62-tested-boot-v4-fixture.json"
+  STOCK_BOOT_SHA256: "4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653"
+  STOCK_HEADER_SHA256: "946575ca66cdc3ede85ce96c59a2a75a286335d4cf5e47f9541a28244d567d90"
+
+  FULL_RELEASE: "6.12.69-android16-6-os4r62-dspids-dscore-full-kmi-4k"
+  OUTPUT_IMG: "pandora-OS4-R62-DroidSpaces-FULL-FASTBOOT-BOOT-ONLY.img"
+
+jobs:
+  full-extras:
+    name: "CoreNS/PIDs 真机基线 + devtmpfs + Macvlan + IPv6 NAT + USER_NS"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: "检出 OS4 隔离分支"
+        uses: actions/checkout@v7
+
+      - name: "安全与语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "os4/pandora-6.12.69-adaptation-20261029"
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          python3 -m py_compile \
+            scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            scripts/xiaomi-os4/repack-abi-verified-fastboot-boot-v4.py
+          ! grep -Eq 'fastboot[[:space:]]+flash|flashall|erase[[:space:]]+boot|AnyKernel3.zip' \
+            .github/workflows/xiaomi-sm8850-os4-droidspaces-full-extras.yml
+          echo "这一轮只生成 fastboot boot 临时测试镜像，不允许持久刷写。"
+
+      - name: "清理 Runner 预装冗余工具"
+        shell: bash
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: "安装构建依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache \
+            cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 \
+            rsync tar unzip xz-utils zip zstd dwarves
+
+      - name: "恢复固定 Google R62 源码缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/common-r62.git
+          key: xiaomi-pandora-os4-common-e2b8ca7c8d05-v1
+
+      - name: "恢复已验证 Android r536225 Clang/Rust 工具链"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "复用 CoreNS / Macvlan 热缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: xiaomi-pandora-os4-ccache-r62-dsfull-${{ github.sha }}
+          restore-keys: |
+            xiaomi-pandora-os4-ccache-r62-dscore-macvlan-
+            xiaomi-pandora-os4-ccache-r62-dscore-ns-
+            xiaomi-pandora-os4-ccache-r62-dspids-kmi-
+            xiaomi-pandora-os4-ccache-r62-features-
+            xiaomi-pandora-os4-ccache-r62-
+
+      - name: "一次性构建 DroidSpaces Full Extras"
+        shell: bash
+        env:
+          XIAOMI_OS4_PIDS_REPURPOSE_NET_PRIO: "1"
+          XIAOMI_OS4_DROIDSPACES_CORE_NAMESPACES: "1"
+          XIAOMI_OS4_DROIDSPACES_FULL_EXTRAS: "1"
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+
+      - name: "下载已真机闭环的 CoreNS 基线"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.CORE_BASE_ARTIFACT }}
+          run-id: ${{ env.CORE_BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/core-base
+
+      - name: "核对 Full Extras Kconfig"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/core-base/final.config"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/final.config"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-full-config-diff.txt"
+          test -s "$BASE" && test -s "$NEW"
+
+          # Existing validated core/PIDs features must remain.
+          for cfg in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS CONFIG_PID_NS \
+                     CONFIG_CGROUP_NET_PRIO CONFIG_CGROUP_NET_CLASSID CONFIG_SOCK_CGROUP_DATA \
+                     CONFIG_KSU CONFIG_KSU_SUSFS CONFIG_KSU_SUSFS_SUS_MAP CONFIG_NOMOUNT; do
+            grep -qx "$cfg=y" "$NEW"
+          done
+          grep -qx '# CONFIG_CGROUP_PIDS is not set' "$NEW"
+
+          # All remaining DroidSpaces red crosses in one build.
+          for cfg in CONFIG_DEVTMPFS CONFIG_MACVLAN CONFIG_IP6_NF_NAT \
+                     CONFIG_IP6_NF_TARGET_MASQUERADE CONFIG_USER_NS; do
+            grep -qx "$cfg=y" "$NEW" || {
+              echo "::error::Full Extras option did not resolve: $cfg"; exit 1;
+            }
+          done
+
+          python3 - "$BASE" "$NEW" "$OUT" <<'PY'
+          from pathlib import Path
+          import sys
+          a=Path(sys.argv[1]).read_text().splitlines()
+          b=Path(sys.argv[2]).read_text().splitlines()
+          def norm(lines):
+              return {x for x in lines if not x.startswith("CONFIG_LOCALVERSION=")}
+          only_a=sorted(norm(a)-norm(b))
+          only_b=sorted(norm(b)-norm(a))
+          Path(sys.argv[3]).write_text(
+              "ONLY_CORE_BASE:\n"+"\n".join(only_a)+"\n\nONLY_FULL_EXTRAS:\n"+"\n".join(only_b)+"\n"
+          )
+          print("ONLY_CORE_BASE:")
+          print("\n".join(only_a))
+          print("\nONLY_FULL_EXTRAS:")
+          print("\n".join(only_b))
+          PY
+
+      - name: "全量比较 CoreNS 既有导出 ABI"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ runner.temp }}/core-base/Module.symvers"
+          NEW="${{ runner.temp }}/xiaomi-os4-integrated/results/Module.symvers"
+          OUT="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-full-abi-diff.txt"
+          NEWLIST="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-full-new-exports.txt"
+          SAFETY="${{ runner.temp }}/xiaomi-os4-integrated/results/droidspaces-full-safety.txt"
+          test -s "$BASE" && test -s "$NEW"
+          printf '%s  %s\n' "$CORE_BASE_SYMVERS_SHA256" "$BASE" | sha256sum -c -
+
+          awk -F '\t' '
+            NR==FNR {
+              base[$2]=$1
+              provider[$2]=$3
+              base_count++
+              if ($3=="vmlinux") base_vmlinux++
+              next
+            }
+            {
+              if ($2 in base) {
+                matched++
+                if ($1 != base[$2]) {
+                  conflicts++
+                  if (conflicts <= 300)
+                    print "CRC_CHANGED " $2 " provider=" provider[$2] " old=" base[$2] " new=" $1
+                }
+                delete base[$2]
+                delete provider[$2]
+              } else {
+                added++
+                if (added <= 500)
+                  print "NEW_EXPORT " $2 " crc=" $1 " provider=" $3
+              }
+            }
+            END {
+              for (name in base) {
+                missing++
+                if (missing <= 300)
+                  print "MISSING_EXPORT " name " provider=" provider[name]
+              }
+              print "BASE_ALL_EXPORTS=" base_count
+              print "BASE_VMLINUX_EXPORTS=" base_vmlinux
+              print "MATCHED_EXISTING_EXPORTS=" matched
+              print "NEW_EXPORTS=" (added+0)
+              print "MISSING_EXPORTS=" (missing+0)
+              print "CRC_CONFLICTS=" (conflicts+0)
+            }
+          ' "$BASE" "$NEW" | tee "$OUT"
+
+          awk '/^NEW_EXPORT /{print}' "$OUT" > "$NEWLIST"
+
+          base_all="$(sed -n 's/^BASE_ALL_EXPORTS=//p' "$OUT")"
+          base_vmlinux="$(sed -n 's/^BASE_VMLINUX_EXPORTS=//p' "$OUT")"
+          matched="$(sed -n 's/^MATCHED_EXISTING_EXPORTS=//p' "$OUT")"
+          missing="$(sed -n 's/^MISSING_EXPORTS=//p' "$OUT")"
+          conflicts="$(sed -n 's/^CRC_CONFLICTS=//p' "$OUT")"
+
+          [[ "$base_all" = "19326" ]] || {
+            echo "::error::Unexpected CoreNS baseline export count: $base_all"; exit 1;
+          }
+          [[ "$base_vmlinux" = "18728" ]] || {
+            echo "::error::Unexpected CoreNS baseline vmlinux export count: $base_vmlinux"; exit 1;
+          }
+
+          {
+            if (( missing == 0 && conflicts == 0 && matched == base_all )); then
+              echo "ABI_LAYOUT_RESULT=ALL_EXISTING_EXPORTS_ZERO_DIFF_NEW_EXPORTS_ALLOWED"
+              echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+              echo "REASON=Every existing CoreNS vmlinux/module export name and CRC is preserved; only additive exports are allowed"
+            else
+              echo "ABI_LAYOUT_RESULT=FAILED"
+              echo "SAFE_TO_FASTBOOT_BOOT=NO"
+              echo "REASON=At least one existing CoreNS export disappeared or changed CRC"
+            fi
+          } | tee "$SAFETY"
+
+          (( missing == 0 && conflicts == 0 && matched == base_all )) || exit 1
+
+      - name: "核对 Full Extras 构建身份"
+        shell: bash
+        run: |
+          set -euo pipefail
+          META="${{ runner.temp }}/xiaomi-os4-integrated/results/build-metadata.txt"
+          grep -qx 'DROIDSPACES_PIDS_REPURPOSE_NET_PRIO=1' "$META"
+          grep -qx 'DROIDSPACES_CORE_NAMESPACES=1' "$META"
+          grep -qx 'DROIDSPACES_MACVLAN=1' "$META"
+          grep -qx 'DROIDSPACES_FULL_EXTRAS=1' "$META"
+          grep -qx 'BUILD_KIND=R62_BAKASU_SUSFS_NOMOUNT_DROIDSPACES_FULL_PIDS_NETPRIO_KMI_REPURPOSE_ANALYSIS' "$META"
+          grep -qx "KERNEL_RELEASE=$FULL_RELEASE" "$META"
+
+      - name: "下载已真机启动的 R62 #7 baseline"
+        uses: actions/download-artifact@v6
+        with:
+          name: ${{ env.BASELINE_ARTIFACT }}
+          run-id: ${{ env.BASELINE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/baseline7
+
+      - name: "从固定 fixture 重建真机成功 #7 boot"
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$FIXTURE"
+          python3 - "$FIXTURE" "$STOCK_BOOT_SHA256" "$STOCK_HEADER_SHA256" <<'PY'
+          import json, sys
+          f=json.load(open(sys.argv[1], encoding="utf-8"))
+          assert f["stock_boot_sha256"] == sys.argv[2]
+          assert f["stock_header_sha256"] == sys.argv[3]
+          assert f["stock_build"] == "OS4.0.5.0.XBLCNXM"
+          assert f["safe_to_flash"] is False
+          PY
+          printf '%s  %s\n' "$BASELINE_IMAGE_SHA256" "${{ runner.temp }}/baseline7/Image" | sha256sum -c -
+          python3 scripts/xiaomi-os4/rebuild-tested-r62-baseline-from-fixture.py \
+            "$FIXTURE" \
+            "${{ runner.temp }}/baseline7/Image" \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img"
+          printf '%s  %s\n' "$TESTED_BASELINE_BOOT_SHA256" \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img" | sha256sum -c -
+
+      - name: "ABI 通过后同轮生成 Full Extras 临时 boot"
+        shell: bash
+        run: |
+          set -euo pipefail
+          RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
+          OUT="${{ runner.temp }}/full-out"
+          mkdir -p "$OUT"
+
+          grep -qx 'SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL' "$RES/droidspaces-full-safety.txt"
+          IMAGE_SHA="$(sed -n 's/^IMAGE_SHA256=//p' "$RES/build-metadata.txt")"
+          test -n "$IMAGE_SHA"
+
+          python3 scripts/xiaomi-os4/repack-abi-verified-fastboot-boot-v4.py \
+            "${{ runner.temp }}/tested-baseline-fastboot-boot.img" \
+            "$RES/Image" \
+            "$OUT/$OUTPUT_IMG" \
+            --expected-image-sha256 "$IMAGE_SHA" \
+            --expected-release "$FULL_RELEASE" | tee "$OUT/repack-report.txt"
+
+          grep -Fq 'FINAL_BOOT_V4_AUDIT=PASS' "$OUT/repack-report.txt"
+          grep -Fq 'FLASHABLE=NO' "$OUT/repack-report.txt"
+          (cd "$OUT" && sha256sum "$OUTPUT_IMG" > SHA256SUMS.txt)
+
+          cp "$RES/droidspaces-full-config-diff.txt" "$OUT/"
+          cp "$RES/droidspaces-full-abi-diff.txt" "$OUT/"
+          cp "$RES/droidspaces-full-new-exports.txt" "$OUT/"
+          cp "$RES/droidspaces-full-safety.txt" "$OUT/"
+          cp "$RES/build-metadata.txt" "$OUT/"
+
+          cat > "$OUT/README.txt" <<EOF
+          Xiaomi 17 Pro / pandora / OS4.0.5.0.XBLCNXM
+          Full DroidSpaces kernel candidate in ONE build:
+          - Built-in BakaSU + SUSFS + NoMount
+          - PIDs KMI-preserving controller
+          - PID namespace
+          - IPC namespace / SYSVIPC / POSIX_MQUEUE
+          - devtmpfs
+          - Macvlan
+          - IPv6 NAT / IPv6 MASQUERADE
+          - USER_NS sandboxing
+
+          ABI rule:
+          every pre-existing CoreNS export (vmlinux + module providers) must
+          retain the same name and CRC. Additive exports are allowed and logged.
+
+          TEST MODE ONLY
+          safe_to_fastboot_boot=true (experimental)
+          safe_to_flash=false
+
+          ONLY allowed boot command:
+          fastboot boot $OUTPUT_IMG
+
+          After boot, rerun DroidSpaces v7.1.0 Requirements.
+          Expected result: every MUST HAVE / RECOMMENDED / OPTIONAL line that
+          depends on these kernel configs should be PASS, including devtmpfs,
+          Macvlan, IPv6 NAT and Sandboxing (user namespaces).
+          EOF
+
+      - name: "上传 Full Extras ABI + fastboot-only 测试包"
+        uses: actions/upload-artifact@v6
+        with:
+          name: FASTBOOT-BOOT-ONLY-pandora-OS4-R62-DroidSpaces-FULL
+          path: |
+            ${{ runner.temp }}/full-out/${{ env.OUTPUT_IMG }}
+            ${{ runner.temp }}/full-out/SHA256SUMS.txt
+            ${{ runner.temp }}/full-out/repack-report.txt
+            ${{ runner.temp }}/full-out/README.txt
+            ${{ runner.temp }}/full-out/build-metadata.txt
+            ${{ runner.temp }}/full-out/droidspaces-full-config-diff.txt
+            ${{ runner.temp }}/full-out/droidspaces-full-abi-diff.txt
+            ${{ runner.temp }}/full-out/droidspaces-full-new-exports.txt
+            ${{ runner.temp }}/full-out/droidspaces-full-safety.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: "运行摘要"
+        if: always()
+        shell: bash
+        run: |
+          RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          OUT="$RUNNER_TEMP/full-out"
+          {
+            echo "## DroidSpaces Full Extras 一次性收尾"
+            echo
+            echo "目标：devtmpfs + Macvlan + IPv6 NAT + USER_NS，一轮完整编译。"
+            [[ -s "$RES/droidspaces-full-config-diff.txt" ]] && { echo '~~~text'; cat "$RES/droidspaces-full-config-diff.txt"; echo '~~~'; }
+            [[ -s "$RES/droidspaces-full-abi-diff.txt" ]] && { echo '~~~text'; cat "$RES/droidspaces-full-abi-diff.txt"; echo '~~~'; }
+            [[ -s "$RES/droidspaces-full-safety.txt" ]] && { echo '~~~text'; cat "$RES/droidspaces-full-safety.txt"; echo '~~~'; }
+            if [[ -s "$OUT/SHA256SUMS.txt" ]]; then
+              echo
+              echo "FASTBOOT_BOOT_IMG_SHA256=$(cut -d' ' -f1 "$OUT/SHA256SUMS.txt")"
+              echo "SAFE_TO_FASTBOOT_BOOT=YES_EXPERIMENTAL"
+              echo "SAFE_TO_FLASH=NO"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
