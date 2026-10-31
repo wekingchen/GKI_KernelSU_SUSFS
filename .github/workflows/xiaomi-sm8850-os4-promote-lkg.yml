@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   promote:
-    name: "验证候选 → 归档旧 LKG → 创建晋升 PR"
+    name: "验证候选 → 上游隔离 → 自动合并新 LKG"
     if: ${{ inputs.confirm_stable }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -239,15 +239,18 @@ jobs:
           # A normal committed-only PR diff would silently miss these changes.
           bash scripts/xiaomi-os4/check-upstream-isolation.sh HEAD --worktree
 
-      - name: "创建 LKG 晋升 PR"
+      - name: "创建 LKG 晋升 PR 并自动合并"
         id: pr
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           NOTE: ${{ inputs.note }}
+          GENERATION: ${{ steps.render.outputs.generation }}
+          HISTORY: ${{ steps.render.outputs.history }}
         run: |
           set -euo pipefail
+          BASE_SHA="$(git rev-parse HEAD)"
           BRANCH="lkg/promote-run-${SOURCE_RUN_ID}-${GITHUB_RUN_ID}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -255,29 +258,107 @@ jobs:
           git add \
             .github/config/pandora-os4-full-parity-lkg.env \
             .github/config/lkg-history/
+
+          # Fail closed: this automation must never commit arbitrary files.
+          mapfile -t STAGED < <(git diff --cached --name-only)
+          [[ "${#STAGED[@]}" -eq 2 ]] || {
+            echo "::error::晋升必须只修改 LKG 当前指针和一份历史快照"
+            exit 1
+          }
+          printf '%s\n' "${STAGED[@]}" | grep -Fxq '.github/config/pandora-os4-full-parity-lkg.env'
+          printf '%s\n' "${STAGED[@]}" | grep -Fxq "$HISTORY"
+
           git commit -m "xiaomi(os4): promote run $SOURCE_RUN_ID to current LKG"
+
+          # Re-check the exact committed PR diff; do not depend on a
+          # secondary workflow triggered by this job's GITHUB_TOKEN.
+          bash scripts/xiaomi-os4/check-upstream-isolation.sh "$BASE_SHA" --committed
           git push origin "$BRANCH"
+          HEAD_SHA="$(git rev-parse HEAD)"
 
           PR_URL="$(gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base dev \
             --head "$BRANCH" \
-            --draft \
             --title "xiaomi(os4): promote run $SOURCE_RUN_ID to current LKG" \
-            --body "User-confirmed real-device stable candidate. Source run: $SOURCE_RUN_ID. Promotion generation: ${{ steps.render.outputs.generation }}. Note: $NOTE. Old LKG archived at ${{ steps.render.outputs.history }}. DRAFT: Bot-created PR checks may require clicking Approve workflows to run. Wait for Xiaomi isolation PASS, then mark Ready for review and merge.")"
+            --body "User-confirmed real-device stable candidate. Source run: $SOURCE_RUN_ID. Promotion generation: $GENERATION. Note: $NOTE. Old LKG archived at $HISTORY. Source artifact, ABI/KMI, worktree isolation and committed isolation were checked in this promotion workflow. Auto merge is allowed only after all checks pass.")"
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
-          echo "$PR_URL"
+          PR_NUMBER="${PR_URL##*/}"
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::PR 编号异常"; exit 1; }
+
+          PR_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e --arg branch "$BRANCH" --arg sha "$HEAD_SHA" '
+            .state == "open" and .draft == false and
+            .base.ref == "dev" and .head.ref == $branch and .head.sha == $sha
+          ' <<<"$PR_JSON" >/dev/null || {
+            echo "::error::PR head/base 不符合本次晋升，禁止合并"
+            exit 1
+          }
+
+          # Verify the server-side PR diff, not merely the local git index.
+          mapfile -t PR_PATHS < <(
+            gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+              --jq '.[].filename'
+          )
+          [[ "${#PR_PATHS[@]}" -eq 2 ]] || {
+            echo "::error::PR 文件数不为 2，禁止合并"
+            exit 1
+          }
+          printf '%s\n' "${PR_PATHS[@]}" | grep -Fxq '.github/config/pandora-os4-full-parity-lkg.env'
+          printf '%s\n' "${PR_PATHS[@]}" | grep -Fxq "$HISTORY"
+
+          # The source branch must not silently change during validation.
+          CURRENT_DEV="$(gh api "/repos/$GITHUB_REPOSITORY/branches/dev" --jq '.commit.sha')"
+          [[ "$CURRENT_DEV" == "$BASE_SHA" ]] || {
+            echo "::error::dev 在晋升期间已更新，保留 PR 但拒绝自动合并；请重新晋升"
+            exit 1
+          }
+
+          # GitHub may need a moment to calculate PR mergeability.
+          MERGEABLE=null
+          for attempt in {1..12}; do
+            PR_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+            MERGEABLE="$(jq -r '.mergeable' <<<"$PR_JSON")"
+            [[ "$MERGEABLE" != "null" ]] && break
+            sleep 3
+          done
+          [[ "$MERGEABLE" == "true" ]] || {
+            echo "::error::PR 存在合并冲突或合并状态未就绪，禁止自动合并"
+            exit 1
+          }
+
+          # GitHub enforces branch protection. Never bypass rules/checks.
+          MERGE_JSON="$(gh api --method PUT \
+            "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/merge" \
+            -f merge_method=squash \
+            -f sha="$HEAD_SHA" \
+            -f commit_title="xiaomi(os4): promote run $SOURCE_RUN_ID to LKG generation $GENERATION")"
+          jq -e '.merged == true and (.sha | length) == 40' <<<"$MERGE_JSON" >/dev/null || {
+            echo "::error::GitHub 未确认合并成功"
+            exit 1
+          }
+          MERGE_SHA="$(jq -r '.sha' <<<"$MERGE_JSON")"
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+          echo "XIAOMI_LKG_PROMOTION=AUTO_MERGED"
+          echo "LKG_MERGE_SHA=$MERGE_SHA"
+
+          # Cleanup occurs only after GitHub has confirmed a successful merge.
+          if ! gh api --method DELETE \
+            "/repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null; then
+            echo "::warning::LKG 已成功合并，但临时分支未自动删除：$BRANCH"
+          fi
 
       - name: "摘要"
         shell: bash
         run: |
           {
-            echo "## LKG 晋升候选已生成"
+            echo "## 当前 LKG 自动晋升成功"
             echo
             echo "- 来源 Run ID: ${{ inputs.source_run_id }}"
             echo "- 新 LKG 代次: ${{ steps.render.outputs.generation }}"
             echo "- 旧 LKG 归档: ${{ steps.render.outputs.history }}"
-            echo "- PR: ${{ steps.pr.outputs.url }}"
+            echo "- 已合并 PR: ${{ steps.pr.outputs.url }}"
+            echo "- dev 合并提交: ${{ steps.pr.outputs.merge_sha }}"
             echo
-            echo "晋升前已经执行上游隔离预检。PR 默认草稿；机器人创建的 PR 可能需要点击 Approve workflows to run，等待隔离门禁成功，再标记 Ready for review 并合并。不可提前合并。"
+            echo "来源产物、ABI/KMI、工作区及提交后的上游隔离检查均已通过，GitHub 已确认合并。无需人工再次合并。"
           } >> "$GITHUB_STEP_SUMMARY"
