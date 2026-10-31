@@ -199,6 +199,7 @@ jobs:
             --abi-report "$RUNNER_TEMP/ota-test/ota-abi-report.json" \
             --metadata "$DIR/build-metadata.txt" \
             --image "$DIR/Image" \
+            --symvers "$DIR/Module.symvers" \
             --testboot "$TEST_BOOT" \
             --output-dir "$RUNNER_TEMP/verified-ota" \
             --source-run-id "$SOURCE_RUN_ID" --source-head-sha "$SOURCE_HEAD" \
