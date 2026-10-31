@@ -1,38 +1,26 @@
-name: "临时：验证通用自定义内核隔离修复真实构建"
+name: "临时：清理隔离修复分支"
 on:
   push:
     paths:
       - ".github/workflows/generic-custom-onetime-dispatch-20261101.yml"
 permissions:
-  contents: read
-  actions: write
+  contents: write
+  pull-requests: read
 jobs:
-  dispatch:
+  cleanup:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: "按失败 Run #40112987860 的选项重新发起一次构建"
+      - name: "验证 PR #43 已合并和分支 SHA 后删除"
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" ]] || exit 1
-          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/43" --jq .merged)" == "true" ]] || exit 1
-          gh workflow run kernel-custom-fork.yml --repo "$GITHUB_REPOSITORY" --ref dev \
-            -f kernel_version="5.10" \
-            -f os_patch_level="2024-05" \
-            -f kernelsu_variant="BakaSU" \
-            -f ksu_mode="关闭" \
-            -f use_kpm="disabled (关闭)" \
-            -f use_zram="true" \
-            -f use_bbg="true" \
-            -f use_rekernel="true" \
-            -f use_nomount="true" \
-            -f use_networking="true" \
-            -f cve_2026_43499_patch="true" \
-            -f droidspaces="678" \
-            -f droidspaces_ntsync="false" \
-            -f supp_op="false" \
-            -f artifact_upload_mode="仅上传 AnyKernel3.zip"
-          echo "已发起隔离修复的真实 Android12 / 5.10.209 编译；构建结果仍以目标工作流为准" >> "$GITHUB_STEP_SUMMARY"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/43" --jq .merged)" == true ]] || exit 1
+          REF="fix/generic-custom-5.10-runner-host-linker-20261101"
+          WANT="600ab671f2083b3691f4e96ea5711da6be61c82c"
+          GOT="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$REF" --jq .object.sha)"
+          [[ "$GOT" == "$WANT" ]] || { echo "::error::开发分支已更改，拒绝删除"; exit 1; }
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$REF" >/dev/null
+          echo "本仓隔离修复已经合并，实验分支已清理；真实构建 Run #41239924766 保留" >> "$GITHUB_STEP_SUMMARY"
