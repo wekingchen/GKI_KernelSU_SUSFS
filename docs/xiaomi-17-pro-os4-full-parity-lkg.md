@@ -145,9 +145,11 @@ Generic Netlink family: rekernel
 3. 把旧 LKG 自动归档至 `.github/config/lkg-history/`；
 4. 生成下一代当前 LKG 文件；
 5. 创建 PR 之前**强制执行上游隔离预检**（包括未提交的 LKG 文件和历史快照）；
-6. 创建专用**草稿 PR**。机器人创建的 PR 可能需要在 GitHub 点击 **Approve workflows to run** 才会启动 CI；确认隔离检查成功后，将草稿标记为 **Ready for review**，再合入 `dev`。
+6. 提交 LKG 配置到专用分支，再次对**已提交的准确差异**执行上游隔离门禁；仅允许当前 LKG 指针与一份旧 LKG 历史快照；
+7. 自动创建非草稿 PR，并核对 PR head/base、服务器侧变更文件清单、当前 `dev` 的基线 SHA、GitHub 可合并状态；
+8. 上述所有校验成功才由 GitHub 自动 squash 合并到 `dev`，更新当前 LKG，并清理临时分支。若任何检查失败或分支保护禁止合并，则停止并保留 PR 供排查，**不会擅自更新当前 LKG**。
 
-禁止在隔离检查仍在等待批准、排队或者失败时提前合并晋升 PR。
+**不需要人工合并 LKG 晋升 PR**。机器人创建 PR 时 GitHub 可能要求人工批准其独立 CI；因此晋升所需的校验全部在本工作流内完成，不依赖该异步 CI。独立隔离 Workflow 仍用于 `os4-*`、`xiaomi-*`、`pandora-*` 开发分支及开发 PR；仅包含 LKG 指针和历史快照变更的 PR 不触发它。
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
