@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/xiaomi-os4/finalize-ota-baseline.py scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
-          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test-ota-baseline-feedback.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_baseline_feedback.py' -v
 
       - name: "强制校验用户输入、来源工作流与候选 Artifact"
         id: source
