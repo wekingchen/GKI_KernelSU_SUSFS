@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
           [[ "$TESTED_SHA" =~ ^[a-f0-9]{64}$ ]] || exit 1
-          ${{ "$TEST_RESULT" == pass || "$TEST_RESULT" == fail }} || exit 1
+          [[ "$TEST_RESULT" == pass || "$TEST_RESULT" == fail ]] || exit 1
           [[ "$OBSERVED_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]] || exit 1
           [[ "$OBSERVED_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || exit 1
           RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
@@ -99,13 +99,13 @@ jobs:
           ARTIFACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
           BASE_FILTER='[.artifacts[] | select(.expired == false) | .name | select(startswith("pandora-OTA-UNVERIFIED-GKI-") and endswith("-" + $id))]'
           BOOT_FILTER='[.artifacts[] | select(.expired == false) | .name | select(startswith("pandora-OTA-OEM-ABI-TESTBOOT-") and endswith("-" + $id))]'
-          ${{ "$(jq --arg id "$SOURCE_RUN_ID" "$BASE_FILTER | length" <<<"$ARTIFACTS")" == 1 }} || exit 1
-          ${{ "$(jq --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | length" <<<"$ARTIFACTS")" == 1 }} || exit 1
+          [[ "$(jq --arg id "$SOURCE_RUN_ID" "$BASE_FILTER | length" <<<"$ARTIFACTS")" == 1 ]] || exit 1
+          [[ "$(jq --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | length" <<<"$ARTIFACTS")" == 1 ]] || exit 1
           BASE="$(jq -r --arg id "$SOURCE_RUN_ID" "$BASE_FILTER | .[0]" <<<"$ARTIFACTS")"
           TEST="$(jq -r --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | .[0]" <<<"$ARTIFACTS")"
           BASE_BUILD="$(echo "$BASE" | sed -e 's/^pandora-OTA-UNVERIFIED-GKI-//' -e "s/-$SOURCE_RUN_ID$//")"
           TEST_BUILD="$(echo "$TEST" | sed -e 's/^pandora-OTA-OEM-ABI-TESTBOOT-//' -e "s/-$SOURCE_RUN_ID$//")"
-          ${{ "$BASE_BUILD" == "$OBSERVED_BUILD" && "$TEST_BUILD" == "$OBSERVED_BUILD" }} || {
+          [[ "$BASE_BUILD" == "$OBSERVED_BUILD" && "$TEST_BUILD" == "$OBSERVED_BUILD" ]] || {
             echo "::error::两个 Artifact 对应版本与真机版本不同"; exit 1;
           }
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
@@ -145,7 +145,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ${{ "$CONFIRM_BOOT" == true && "$CONFIRM_MODULES" == true }} || {
+          [[ "$CONFIRM_BOOT" == true && "$CONFIRM_MODULES" == true ]] || {
             echo "::error::通过测试必须确认 Android 启动完成和关键模块正常"; exit 1;
           }
 
@@ -162,14 +162,14 @@ jobs:
           STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
           IDS="$(jq -r '[.assets[] | select(.name | endswith("xm.zip"))] | if length == 1 then .[0].id else empty end' <<<"$STOCK")"
           [[ "$IDS" =~ ^[0-9]+$ ]] || exit 1
-          ${{ "$(jq -r .github_asset_id "$RUNNER_TEMP/ota-base/stock-report.json")" == "$IDS" }} || {
+          [[ "$(jq -r .github_asset_id "$RUNNER_TEMP/ota-base/stock-report.json")" == "$IDS" ]] || {
             echo "::error::Release 已换到不同的 OTA 输入"; exit 1;
           }
           echo "ASSET_ID=$IDS" >> "$GITHUB_ENV"
           gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
             --pattern '*xm.zip' --dir "$RUNNER_TEMP/ota-stock"
-          ${{ "$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip' | wc -l)" -eq 1 }} || exit 1
-          ${{ "$(find "$RUNNER_TEMP/ota-test" -maxdepth 1 -type f -name '*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img' | wc -l)" -eq 1 }} || exit 1
+          [[ "$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip' | wc -l)" -eq 1 ]] || exit 1
+          [[ "$(find "$RUNNER_TEMP/ota-test" -maxdepth 1 -type f -name '*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img' | wc -l)" -eq 1 ]] || exit 1
           ZIP="$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip')"
           IMG="$(find "$RUNNER_TEMP/ota-test" -maxdepth 1 -type f -name '*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img')"
           echo "STOCK_ZIP=$ZIP" >> "$GITHUB_ENV"
@@ -180,8 +180,8 @@ jobs:
           test -s "$RUNNER_TEMP/ota-test/ota-abi-report.json"
           test -s "$RUNNER_TEMP/ota-test/TESTBOOT-SHA256SUMS.txt"
           RECORDED="$(awk 'NR==1 {print $1}' "$RUNNER_TEMP/ota-test/TESTBOOT-SHA256SUMS.txt")"
-          ${{ "$RECORDED" == "$TESTED_SHA" }} || exit 1
-          ${{ "$(sha256sum "$IMG" | cut -d' ' -f1)" == "$RECORDED" }} || exit 1
+          [[ "$RECORDED" == "$TESTED_SHA" ]] || exit 1
+          [[ "$(sha256sum "$IMG" | cut -d' ' -f1)" == "$RECORDED" ]] || exit 1
 
       - name: "重新生成完全相同的 boot，固化隔离的新 OTA fixture"
         id: fixture
@@ -219,8 +219,8 @@ jobs:
           set -euo pipefail
           BASE_SHA="$(git rev-parse HEAD)"
           DEST=".github/config/ota-verified/$VERIFIED_BUILD"
-          ${{ "$VERIFIED_BUILD" == "$OBSERVED_BUILD" }} || exit 1
-          ${{ ! -e "$DEST" }} || {
+          [[ "$VERIFIED_BUILD" == "$OBSERVED_BUILD" ]] || exit 1
+          [[ ! -e "$DEST" ]] || {
             echo "::error::该固件已存在人工验证记录，拒绝重复覆盖"; exit 1;
           }
           mkdir -p "$DEST"
@@ -231,7 +231,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git add "$DEST/fixture.json" "$DEST/verification.json"
-          ${{ "$(git diff --cached --name-only | wc -l)" -eq 2 }} || exit 1
+          [[ "$(git diff --cached --name-only | wc -l)" -eq 2 ]] || exit 1
           git diff --cached --name-only | grep -Fxq "$DEST/fixture.json"
           git diff --cached --name-only | grep -Fxq "$DEST/verification.json"
           git commit -m "xiaomi(os4): verify OTA $VERIFIED_BUILD GKI baseline"
@@ -256,19 +256,19 @@ jobs:
           jq -e --arg b "$BRANCH" --arg sha "$HEAD_SHA" \
             '.state == "open" and .draft == false and .base.ref == "dev" and .head.ref == $b and .head.sha == $sha' <<<"$PR" >/dev/null
           FILES="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files?per_page=100" --jq '.[].filename')"
-          ${{ "$(wc -l <<<"$FILES")" -eq 2 }} || exit 1
+          [[ "$(wc -l <<<"$FILES")" -eq 2 ]] || exit 1
           grep -Fxq "$DEST/fixture.json" <<<"$FILES"
           grep -Fxq "$DEST/verification.json" <<<"$FILES"
-          ${{ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" }} || {
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
             echo "::error::dev 已变化，保留 PR 请重新审核"; exit 1;
           }
           MERGEABLE=null
           for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
             MERGEABLE="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER" --jq .mergeable)"
-            ${{ "$MERGEABLE" != null }} && break
+            [[ "$MERGEABLE" != null ]] && break
             sleep 3
           done
-          ${{ "$MERGEABLE" == true }} || { echo "::error::PR 不能安全自动合并：$URL"; exit 1; }
+          [[ "$MERGEABLE" == true ]] || { echo "::error::PR 不能安全自动合并：$URL"; exit 1; }
           MERGE="$(gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/merge" \
             -f merge_method=squash -f sha="$HEAD_SHA" \
             -f commit_title="xiaomi(os4): verify new OTA $VERIFIED_BUILD baseline")"
