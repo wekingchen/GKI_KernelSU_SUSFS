@@ -67,6 +67,9 @@ jobs:
           REPAIR_DRAFT: ${{ inputs.repair_draft_release }}
         run: |
           set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == dev && "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || {
+            echo "::error::唯一 LKG 晋升入口必须从 dev 的 Run workflow 手动触发"; exit 1;
+          }
           ARGS=(--source-run-id "$SOURCE_RUN_ID" --pointer ".github/config/ota-lkg-current.json")
           if [[ "$REPAIR_DRAFT" == true ]]; then
             python3 scripts/xiaomi-os4/select-lkg-promotion-route.py "${ARGS[@]}" --repair >> "$GITHUB_OUTPUT"
