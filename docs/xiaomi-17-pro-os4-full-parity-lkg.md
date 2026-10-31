@@ -175,28 +175,27 @@ boot 测试镜像直接由已真机验证 fixture 与 candidate Image 重建，�
 
 ### BakaSU Manager 与上游跟进
 
-OS4 正式自定义工作流恢复旧 OS3 的两项使用能力：
+OS4 正式自定义工作流恢复旧 OS3 的上游跟随方式，并进一步保证同一次构建的内核与 Manager 来源一致：
 
-- 当 `root_mode` 为 `bakasu` 或 `bakasu-susfs` 时，与内核构建并行获取 BakaSU Manager；
-- Manager 不直接追 BakaSU 最新 HEAD，而是以当前 OS4 已验证的 `OS4_BAKASU_COMMIT` 计算内核 KSU 版本，只选择 **KSU 版本不高于本次内核** 的最新成功 Manager 构建；
-- 当 `root_mode=none` 时自动跳过 Manager；
-- Manager APK、版本元数据和 SHA256 作为同一次 Actions run 的独立 Artifact 上传；
-- 每次 OS4 自定义构建都会只读检查 `zzh20188/GKI_KernelSU_SUSFS:dev` 最新状态和 `kernel-custom.yml` 的输入项变化；
-- 上游出现新功能或 fork 尚未包含最新上游提交时只报警提示，**绝不自动覆盖 Xiaomi 专用路径，也不自动替换已验证的 OS4 依赖 pin**。
+- 每次 workflow 启动时先解析 `Baka-SU/BakaSU:main` 当前最新 SHA，并把这个 SHA 锁定为本次 run 的统一 BakaSU 来源；
+- `bakasu` / `bakasu-susfs` 内核直接集成这个最新 `main` 提交，不再长期固定在历史 `OS4_BAKASU_COMMIT`；
+- Manager 同样只接受 **与本次内核完全同一个 BakaSU SHA、同一个 KSU_VERSION** 的 BakaSU 官方成功构建产物，禁止 Manager / 内核版本错位；
+- 如果 BakaSU 官方 Manager CI 在当前 main 提交刚推送时尚未完成，OS4 workflow 会轮询等待同 SHA 的 Manager，而不是回退到旧 APK；
+- `OS4_BAKASU_COMMIT` 继续保留为“已完成真机验证的参考提交”，只用于判断最新 main 的 `kernel/` 子树是否变化；
+- BakaSU 的 Kbuild 会把整个仓库 HEAD 的 commit count / SHA 编入 KSU_VERSION 与版本字符串，因此只要 `main` SHA 前进，即使 `kernel/` 文件本身未变化，也视为新的内核身份；
+- 只要最新 `main` SHA 不等于已验证参考，仍然直接构建最新内核，但自动标记为 `CUSTOM-UNVERIFIED`；`kernel/` tree 是否变化会额外写入元数据，ABI/KMI 安全门禁继续生效，并照常输出 AnyKernel3，直到该新 BakaSU revision 完成真机验证；
+- `root_mode=none` 时自动跳过 BakaSU Manager；
+- 每次 OS4 自定义构建仍会只读检查 `zzh20188/GKI_KernelSU_SUSFS:dev` 和 `kernel-custom.yml` 的新功能变化，绝不自动覆盖 Xiaomi 专用路径。
 
-2026-10-31 一次性验证中：
+历史已验证参考：
 
 ```text
-BAKASU_KERNEL_PIN=d5e9e025b8b49155f8014684d64c91742b465f65
-BAKASU_KERNEL_KSU_VERSION=35252
-MANAGER_KSU_VERSION=35252
-MANAGER_APK=BakaSU_v4.2.0-rc3_35252-arm64-v8a-release.apk
-UPSTREAM_SYNC_STATUS=UP_TO_DATE_OR_AHEAD
-UPSTREAM_UNKNOWN_INPUTS=
-UPSTREAM_PENDING_MAPPED_INPUTS=use_zram
+VALIDATED_BAKASU_REFERENCE=d5e9e025b8b49155f8014684d64c91742b465f65
+VALIDATED_KSU_VERSION=35252
+VALIDATED_MANAGER=BakaSU_v4.2.0-rc3_35252-arm64-v8a-release.apk
 ```
 
-验证 run：`41194834840`。
+从本策略生效后，上述提交只代表最后一个已验证参考点，不再代表每次构建固定使用的 BakaSU 版本。
 
 ### 暂未加入菜单
 

@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
 
 OUTDIR="${1:-${RUNNER_TEMP:-/tmp}/bakasu-manager-out}"
+TARGET_COMMIT="${2:-${XIAOMI_OS4_BAKASU_COMMIT:-}}"
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 API_ROOT="https://api.github.com/repos/Baka-SU/BakaSU"
 WORKDIR="$(mktemp -d)"
@@ -27,21 +28,24 @@ curl_api() {
   curl "${args[@]}" "$url"
 }
 
-echo "[BakaSU Manager] kernel source pin: $OS4_BAKASU_COMMIT"
 git clone -q --filter=blob:none "$OS4_BAKASU_REPO" "$WORKDIR/BakaSU"
-if ! git -C "$WORKDIR/BakaSU" cat-file -e "$OS4_BAKASU_COMMIT^{commit}" 2>/dev/null; then
-  git -C "$WORKDIR/BakaSU" fetch -q --no-tags origin "$OS4_BAKASU_COMMIT"
+LATEST_SHA="$(git -C "$WORKDIR/BakaSU" rev-parse "origin/$OS4_BAKASU_REF")"
+if [[ -z "$TARGET_COMMIT" ]]; then
+  TARGET_COMMIT="$LATEST_SHA"
 fi
-git -C "$WORKDIR/BakaSU" cat-file -e "$OS4_BAKASU_COMMIT^{commit}" 2>/dev/null || {
-  echo "::error::无法取得 OS4 固定 BakaSU 提交 $OS4_BAKASU_COMMIT"
+if ! git -C "$WORKDIR/BakaSU" cat-file -e "$TARGET_COMMIT^{commit}" 2>/dev/null; then
+  git -C "$WORKDIR/BakaSU" fetch -q --no-tags origin "$TARGET_COMMIT"
+fi
+git -C "$WORKDIR/BakaSU" cat-file -e "$TARGET_COMMIT^{commit}" 2>/dev/null || {
+  echo "::error::无法取得 BakaSU 目标提交 $TARGET_COMMIT"
   exit 1
 }
 
-TARGET_GIT_COUNT="$(git -C "$WORKDIR/BakaSU" rev-list --count "$OS4_BAKASU_COMMIT")"
+TARGET_GIT_COUNT="$(git -C "$WORKDIR/BakaSU" rev-list --count "$TARGET_COMMIT")"
 TARGET_KSU_VERSION="$((30700 + TARGET_GIT_COUNT))"
-LATEST_SHA="$(git -C "$WORKDIR/BakaSU" rev-parse "origin/$OS4_BAKASU_REF")"
 
-echo "[BakaSU Manager] pinned KSU version: $TARGET_KSU_VERSION"
+echo "[BakaSU Manager] target commit: $TARGET_COMMIT"
+echo "[BakaSU Manager] target KSU version: $TARGET_KSU_VERSION"
 echo "[BakaSU Manager] latest upstream: $LATEST_SHA"
 
 calculate_version() {
@@ -60,51 +64,67 @@ BEST_HEAD_SHA=""
 BEST_HEAD_BRANCH=""
 BEST_ARTIFACTS=""
 
-for PAGE in $(seq 1 10); do
-  RUNS="$(curl_api "$API_ROOT/actions/workflows/build-manager.yml/runs?status=success&per_page=30&page=$PAGE")"
-  RUN_COUNT="$(jq '.workflow_runs | length' <<<"$RUNS")"
-  [[ "$RUN_COUNT" -gt 0 ]] || break
+# The exact main commit may have been pushed seconds before this Xiaomi run.
+# Wait for BakaSU's own signed Manager workflow to finish so the APK and kernel
+# always come from the exact same source commit.
+for ATTEMPT in $(seq 1 40); do
+  echo "[BakaSU Manager] 查找与 $TARGET_COMMIT 完全匹配的成功构建（$ATTEMPT/40）"
+  BEST_VERSION=0
+  BEST_RUN_ID=""
+  BEST_HEAD_SHA=""
+  BEST_HEAD_BRANCH=""
+  BEST_ARTIFACTS=""
 
-  for INDEX in $(seq 0 $((RUN_COUNT - 1))); do
-    RUN_ID="$(jq -r ".workflow_runs[$INDEX].id" <<<"$RUNS")"
-    HEAD_SHA="$(jq -r ".workflow_runs[$INDEX].head_sha" <<<"$RUNS")"
-    HEAD_BRANCH="$(jq -r ".workflow_runs[$INDEX].head_branch // \"\"" <<<"$RUNS")"
-    RUN_EVENT="$(jq -r ".workflow_runs[$INDEX].event // \"\"" <<<"$RUNS")"
+  for PAGE in $(seq 1 10); do
+    RUNS="$(curl_api "$API_ROOT/actions/workflows/build-manager.yml/runs?status=success&per_page=30&page=$PAGE")"
+    RUN_COUNT="$(jq '.workflow_runs | length' <<<"$RUNS")"
+    [[ "$RUN_COUNT" -gt 0 ]] || break
 
-    # PR workflows may build refs/pull/<n>/merge while exposing the PR head SHA.
-    # That makes the APK version impossible to prove from head_sha alone.
-    if [[ "$RUN_EVENT" == "pull_request" ]]; then
-      continue
-    fi
+    for INDEX in $(seq 0 $((RUN_COUNT - 1))); do
+      RUN_ID="$(jq -r ".workflow_runs[$INDEX].id" <<<"$RUNS")"
+      HEAD_SHA="$(jq -r ".workflow_runs[$INDEX].head_sha" <<<"$RUNS")"
+      HEAD_BRANCH="$(jq -r ".workflow_runs[$INDEX].head_branch // \"\"" <<<"$RUNS")"
+      RUN_EVENT="$(jq -r ".workflow_runs[$INDEX].event // \"\"" <<<"$RUNS")"
 
-    RUN_VERSION="$(calculate_version "$HEAD_SHA" || true)"
-    [[ "$RUN_VERSION" =~ ^[0-9]+$ ]] || continue
-    (( RUN_VERSION <= TARGET_KSU_VERSION )) || continue
-    (( RUN_VERSION >= BEST_VERSION )) || continue
+      # PR workflows may build refs/pull/<n>/merge while exposing the PR head
+      # SHA, so only use normal main/push/manual runs whose exposed SHA is the
+      # actual source commit.
+      if [[ "$RUN_EVENT" == "pull_request" ]]; then
+        continue
+      fi
+      [[ "$HEAD_SHA" == "$TARGET_COMMIT" ]] || continue
 
-    ARTIFACTS="$(curl_api "$API_ROOT/actions/runs/$RUN_ID/artifacts?per_page=100")"
-    CANDIDATES="$(jq -c '
-      [.artifacts[]
-       | select(.expired == false)
-       | select(.name == "Manager-release" or .name == "Spoofed-Manager-release")
-       | {name, archive_download_url}]
-    ' <<<"$ARTIFACTS")"
-    [[ "$(jq 'length' <<<"$CANDIDATES")" -gt 0 ]] || continue
+      RUN_VERSION="$(calculate_version "$HEAD_SHA" || true)"
+      [[ "$RUN_VERSION" =~ ^[0-9]+$ ]] || continue
+      (( RUN_VERSION == TARGET_KSU_VERSION )) || continue
 
-    BEST_VERSION="$RUN_VERSION"
-    BEST_RUN_ID="$RUN_ID"
-    BEST_HEAD_SHA="$HEAD_SHA"
-    BEST_HEAD_BRANCH="$HEAD_BRANCH"
-    BEST_ARTIFACTS="$CANDIDATES"
+      ARTIFACTS="$(curl_api "$API_ROOT/actions/runs/$RUN_ID/artifacts?per_page=100")"
+      CANDIDATES="$(jq -c '
+        [.artifacts[]
+         | select(.expired == false)
+         | select(.name == "Manager-release" or .name == "Spoofed-Manager-release")
+         | {name, archive_download_url}]
+      ' <<<"$ARTIFACTS")"
+      [[ "$(jq 'length' <<<"$CANDIDATES")" -gt 0 ]] || continue
 
-    if (( BEST_VERSION == TARGET_KSU_VERSION )); then
+      BEST_VERSION="$RUN_VERSION"
+      BEST_RUN_ID="$RUN_ID"
+      BEST_HEAD_SHA="$HEAD_SHA"
+      BEST_HEAD_BRANCH="$HEAD_BRANCH"
+      BEST_ARTIFACTS="$CANDIDATES"
       break 2
-    fi
+    done
   done
+
+  [[ -n "$BEST_RUN_ID" ]] && break
+  if (( ATTEMPT < 40 )); then
+    echo "[BakaSU Manager] 精确提交的官方 Manager 尚未完成，30 秒后重试"
+    sleep 30
+  fi
 done
 
 [[ -n "$BEST_RUN_ID" && -n "$BEST_ARTIFACTS" ]] || {
-  echo "::error::未找到 KSU 版本 <= $TARGET_KSU_VERSION 的 BakaSU Manager 成功构建"
+  echo "::error::未找到与 BakaSU 提交 $TARGET_COMMIT / KSU $TARGET_KSU_VERSION 完全匹配的成功 Manager 构建"
   exit 1
 }
 
@@ -142,13 +162,17 @@ while IFS=$'\t' read -r NAME URL; do
       echo "::error::无法从 BakaSU Manager 文件名解析 KSU 版本: $APK_NAME"
       exit 1
     fi
-    (( APK_KSU_VERSION <= TARGET_KSU_VERSION )) || {
-      echo "::error::Manager KSU $APK_KSU_VERSION 高于 OS4 内核 KSU $TARGET_KSU_VERSION: $APK_NAME"
+    (( APK_KSU_VERSION == TARGET_KSU_VERSION )) || {
+      echo "::error::Manager KSU $APK_KSU_VERSION 与目标内核 KSU $TARGET_KSU_VERSION 不一致: $APK_NAME"
       exit 1
     }
 
-    cp -f "$APK" "$OUTDIR/$APK_NAME"
-    echo "[BakaSU Manager] keep: $APK_NAME"
+    OUTPUT_NAME="$APK_NAME"
+    if [[ "$NAME" == "Spoofed-Manager-release" ]]; then
+      OUTPUT_NAME="Spoofed-$APK_NAME"
+    fi
+    cp -f "$APK" "$OUTDIR/$OUTPUT_NAME"
+    echo "[BakaSU Manager] keep: $OUTPUT_NAME"
   done < <(find "$EXTRACT" -type f -name '*.apk' -print)
 done < <(jq -r '.[] | [.name, .archive_download_url] | @tsv' <<<"$BEST_ARTIFACTS")
 
@@ -169,7 +193,8 @@ if [[ "$LATEST_SHA" != "$OS4_BAKASU_COMMIT" ]]; then
 fi
 
 {
-  echo "BAKASU_KERNEL_PIN=$OS4_BAKASU_COMMIT"
+  echo "BAKASU_TARGET_COMMIT=$TARGET_COMMIT"
+  echo "BAKASU_VALIDATED_REFERENCE=$OS4_BAKASU_COMMIT"
   echo "BAKASU_KERNEL_KSU_VERSION=$TARGET_KSU_VERSION"
   echo "BAKASU_UPSTREAM_HEAD=$LATEST_SHA"
   echo "BAKASU_UPSTREAM_STATUS=$UPSTREAM_STATUS"
