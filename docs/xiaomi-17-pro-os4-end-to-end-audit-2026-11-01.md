@@ -26,9 +26,9 @@
 | `xiaomi-sm8850-os4-ota-auto-candidate.yml` | 监听固定 Release 的 published/edited、每日补查或可手动触发；只读分析 ZIP；解析官方 GKI；编译候选；OEM CRC/KMI 全绿才生成临时待测 IMG | OTA 后更新固定 Release 的唯一 `*xm.zip`；正常不需另点运行，若立即处理可 Run workflow |
 | `xiaomi-sm8850-os4-ota-test-feedback.yml` | 对通过/失败的临时启动提交人工结果；通过则校验 Run / SHA / ABI / 重现 fixture，自动 PR 固化三份开发记录；失败建立 Issue | **新 OTA 纯 GKI 基线通常只提交一次真实测试结果**；失败开不了机时不要求填写无法读取的实际 uname |
 | `xiaomi-sm8850-os4-custom.yml` | 首先读取当前 stock-input；旧输入走 R62，新 OTA 已验证走新版本源码；各组件按本次上游快照构建；新 OTA 通过门禁后同次输出 IMG 与 UNVERIFIED AnyKernel3 | 选择功能并运行；拿到两个格式不需再次提交结果 |
-| `xiaomi-sm8850-os4-promote-lkg.yml` | 用户明确确认后，把**当前 R62 自定义 Run** 的身份/ABI/产物晋升稳定 LKG | **目前仅 R62 路径支持**；新 OTA 不要输入其 Run ID |
-| `xiaomi-sm8850-os4-lkg.yml` | 晋升成功后重建/校验当前稳定 LKG，并提供 boot 与 AnyKernel3 | 为目前 R62/Gen 3 布局服务；不是新 OTA 全版本复现器 |
-| `xiaomi-sm8850-os4-archive-lkg-release.yml` | LKG 严格复现成功后归档长期 Release，也提供故障时手动补救入口 | 当前历史 Gen 3 已归档；新 OTA 不能直接依赖此旧版归档链 |
+| `xiaomi-sm8850-os4-promote-lkg.yml` | 历史 R62 自定义 Run 的固定版本晋升 | **仅 R62**；新 OTA 改用独立入口，首次新 OTA 晋升后旧 R62 晋升被禁止 |
+| `xiaomi-sm8850-os4-lkg.yml` | 历史 R62 稳定 LKG 重建与打包 | 新 OTA 在跨版本单一交易工作流中按原始 Run SHA 严格复现 |
+| `xiaomi-sm8850-os4-archive-lkg-release.yml` | 历史 R62 LKG Release 长期归档 | 新 OTA 由新工作流独立归档同一代 Release；无须额外执行此旧入口 |
 | `xiaomi-upstream-isolation-guard.yml` | 检查 Xiaomi 特有修改不能覆盖上游共享文件，执行 Python 回归、Shell 语法和 Windows 采集器静态完整性检查 | 不需要手动运行；PR 检查自动触发 |
 
 不存在“必须每次功能编译后重新填写一次真机测试，才能获得 AnyKernel3”的要求。**纯 GKI 基线确认**、**功能版编译与打包**、**用户主动晋升稳定 LKG**是三种不同操作。
@@ -45,7 +45,7 @@
 8. **开发指针自动切换**：成功时 GitHub PR 只提交该版本独立的 `fixture.json`、`verification.json` 和 `.github/config/ota-development-current.json` 指针，合并后**下一次自定义内核默认选择这个新 OTA**。此变更不触动 Gen 3 LKG。
 9. **日常自定义编译**：仍运行现有 `小米17 Pro OS4 / 自定义内核`。BakaSU/SUSFS/NoMount/DroidSpaces/NTSync/BBG/Re-Kernel/网络增强等按菜单选择；每轮按定义的稳定渠道获取新上游快照。在该 OTA 的 GKI commit 上尝试补丁，检查 Kconfig、Module.symvers 核心 CRC 和内核 release。失败不会悄悄回退 R62。
 10. **同次得到两个产物**：若本轮编译与静态门禁全绿，同一个 `pandora-OTA-CUSTOM-<build>-run-<id>` Artifact 同时提供 fastboot 临时 IMG 与标记 `OTA_CUSTOM_UNVERIFIED` 的 AnyKernel3 ZIP；两者使用同一个 Image，无需再次提交测试即可取得压缩包。建议仍先临时启动验证，再决定是否持久安装。
-11. **稳定版晋升暂不支持新 OTA**：当前 R62 晋升工作流不会识别新 OTA 的 Artifact、ABI 锁/fixture，不能以新版本自定义 Run ID 走原晋升链。未来需要版本化 promotion、LKG 复现和归档适配及独立验证后才可开放。
+11. **版本化新 OTA 稳定晋升已实现，待真实 OTA 验收**：不能使用旧 R62 晋升入口，但可在原功能版真机稳定使用后选择新的 [跨 OTA LKG 入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，由 CI 自动严格重编、归档并更新版本化稳定指针；尚未取得真实新 OTA 的端到端成功证据。
 
 ### 固件未确认时的确定行为
 
