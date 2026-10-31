@@ -327,9 +327,11 @@ OTA 主工作流自动识别和检查新固件 xm.zip
     ↓
 fastboot boot 真机验证新基线
     ↓
-更新 stock-input 版本配置
+在 OTA 真机结果提交工作流填写 Run ID、SHA 和实际 uname
     ↓
-固化新版本 fixture
+GitHub 独立重打包验证并自动 PR 固化新版本 fixture
+    ↓
+开始新版本功能移植（旧 R62 LKG 不变）
     ↓
 编译 BakaSU + SUSFS + NoMount
     ↓
@@ -337,6 +339,12 @@ fastboot boot 真机验证新基线
     ↓
 再次 fastboot boot 真机验证
 ```
+
+新的测试结果回报入口：[小米17 Pro OS4 / 提交 OTA 真机测试结果与固化基线](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml)。这是一个人工确认的单独 workflow，不会由 Release 更新自动认定为真机成功。
+
+在 Run workflow（dev）里，按顺序填写 OTA 原工作流 Run ID、pass/fail、被测 IMG SHA256、实际系统 build 和 uname -r。pass 要勾选 Android 启动完成及 OEM 基础模块检查；fail 只保存 GitHub Issue。pass 还需通过同源 ZIP、Artifact、ABI 报告、重打包字节一致和 fixture 再现一致等门禁，才会自动创建并尝试合并仅含新版本 fixture 与验证记录的 PR。
+
+通过后路径为 .github/config/ota-verified/<新 build>/fixture.json 和 verification.json。状态表示“已人工确认纯 GKI 基线启动，可进入新版本 BakaSU/SUSFS/NoMount 适配”，**不代表功能内核已经移植好，也不会更新 Gen 3 LKG 或自动刷入**。原 OS4 R62 自定义工作流仍是旧版本专用，需另行做新 OTA 功能适配。参见 [完整确认门禁](xiaomi-17-pro-os4-ota-auto-baseline.md)。
 
 **不能把“上传了新 xm.zip”直接等价成“旧功能内核可以继续用”。**
 
