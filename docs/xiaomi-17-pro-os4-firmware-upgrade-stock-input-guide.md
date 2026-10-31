@@ -181,9 +181,10 @@ collect-pandora-stock-input.cmd
    - `init_boot`
    - `vendor_boot`
    - `dtbo`
-9. 自动计算四张镜像的 SHA256；
-10. 自动生成 `README.txt`；
-11. 自动打成一个新的 `*-xm.zip`。
+9. **只读采集当前挂载的 vendor_dlkm / vendor / odm_dlkm / system_dlkm 内核模块**，随 ZIP 提供 OEM CRC/KMI 实际校验输入；不可访问或没有 .ko 时停止并提示；
+10. 自动计算四张镜像及模块压缩包的 SHA256；
+11. 自动生成 `README.txt`；
+12. 自动打成一个新的 `*-xm.zip`。
 
 脚本明确不会执行：
 
@@ -208,6 +209,8 @@ pandora-stock-OS4.x.x.x.XBLCNXM-_a\
 ├─ init_boot.img
 ├─ vendor_boot.img
 ├─ dtbo.img
+├─ oem-modules.zip（新 OTA 必需）
+├─ oem-modules-count.txt
 ├─ README.txt
 └─ SHA256SUMS.txt
 
@@ -215,6 +218,8 @@ pandora-stock-OS4.x.x.x.XBLCNXM-_a-xm.zip
 ```
 
 **真正需要上传的是最后这个 `*-xm.zip`。**
+
+新版本需要使用**更新后的采集脚本**。旧版仅含分区的 xm.zip 不足以自动检查厂商模块 ABI/KMI，自动化会停在分析报告阶段，不会生成待测 boot。上传包含模块的新版 ZIP 可能比旧版本大，属于正常现象。
 
 不要手工：
 

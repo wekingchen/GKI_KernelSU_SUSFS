@@ -165,6 +165,7 @@ jobs:
         shell: bash
         env:
           OTA_CANDIDATE_ENV: ${{ runner.temp }}/ota-input/gki-candidate.env
+          OTA_STOCK_REPORT_PATH: ${{ runner.temp }}/ota-input/stock-report.json
           XIAOMI_OS4_JOBS: '6'
         run: |
           set -euo pipefail
@@ -282,3 +283,123 @@ jobs:
           [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == false ]] || exit 1
           echo "OTA_GKI_CANDIDATE_ARCHIVED=YES (NO_FLASH)"
           echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+
+  oem-abi-and-testboot:
+    name: "OEM 模块 CRC/KMI 强校验 → 条件通过才打包 fastboot boot 待测包"
+    needs: [inspect, baseline]
+    if: needs.baseline.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - name: "获取同一构建的候选 GKI 产物"
+        uses: actions/download-artifact@v4
+        with:
+          name: pandora-OTA-UNVERIFIED-GKI-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-abi
+
+      - name: "下载相同固件资产并校验来源 ID 与 SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          python3 -m py_compile scripts/xiaomi-os4/check-ota-oem-abi.py scripts/xiaomi-os4/package-ota-testboot-v4.py
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd jq
+          RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          ASSET_ID="$(jq -r .github_asset_id "$DIR/stock-report.json")"
+          jq -e --argjson id "$ASSET_ID" \
+            '[.assets[] | select(.id == $id and (.name | endswith("xm.zip")))] | length == 1' <<<"$RELEASE" >/dev/null || {
+            echo "::error::stock input asset changed during compile"; exit 1;
+          }
+          mkdir -p "$RUNNER_TEMP/ota-abi-stock"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern '*xm.zip' --dir "$RUNNER_TEMP/ota-abi-stock"
+          mapfile -t ZIPS < <(find "$RUNNER_TEMP/ota-abi-stock" -maxdepth 1 -name '*xm.zip' -type f)
+          [[ "${#ZIPS[@]}" -eq 1 ]] || exit 1
+          [[ "$(sha256sum "${ZIPS[0]}" | awk '{print $1}')" == "$(jq -r .ota_source_id "$DIR/stock-report.json")" ]] || {
+            echo "::error::OTA stock input SHA changed"; exit 1;
+          }
+          echo "OTA_STOCK_ZIP=${ZIPS[0]}" >> "$GITHUB_ENV"
+
+      - name: "逐项比较 OEM / GKI 内核模块 vermagic、导入符号 CRC"
+        id: abi
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$OTA_STOCK_ZIP" \
+            --stock-report "$DIR/stock-report.json" \
+            --candidate-report "$DIR/gki-candidate.json" \
+            --metadata "$DIR/build-metadata.txt" \
+            --symvers "$DIR/Module.symvers" \
+            --output "$DIR/ota-abi-report.json"
+          ELIGIBLE="$(jq -r .eligible_for_fastboot_boot "$DIR/ota-abi-report.json")"
+          [[ "$ELIGIBLE" == true || "$ELIGIBLE" == false ]]
+          echo "eligible=$ELIGIBLE" >> "$GITHUB_OUTPUT"
+          if [[ "$ELIGIBLE" != true ]]; then
+            echo "::notice::未通过 OEM CRC/KMI 门禁，只保存 ABI 报告，绝不生成测试 boot。"
+          fi
+
+      - name: "仅静态门禁全部通过时生成同 OTA fastboot boot 临时测试包"
+        if: steps.abi.outputs.eligible == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          OUT="$DIR/pandora-${{ needs.inspect.outputs.ota_build }}-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"
+          python3 scripts/xiaomi-os4/package-ota-testboot-v4.py \
+            --stock-zip "$OTA_STOCK_ZIP" \
+            --stock-report "$DIR/stock-report.json" \
+            --abi-report "$DIR/ota-abi-report.json" \
+            --metadata "$DIR/build-metadata.txt" \
+            --candidate-image "$DIR/Image" \
+            --output "$OUT"
+          sha256sum "$OUT" > "$DIR/TESTBOOT-SHA256SUMS.txt"
+          cat > "$DIR/TESTBOOT-READ-ME-FIRST.txt" <<'EOF'
+          OTA NEW KERNEL - UNVERIFIED - REAL DEVICE TEST REQUIRED
+          FOR TEMPORARY FASTBOOT BOOT ONLY: fastboot boot <filename.img>
+          NEVER fastboot flash. Keep stock known-bootable boot backup.
+          This candidate passed only static OEM module CRC/vermagic checks.
+          Other Android vendor/boot/vendor_boot/dtbo module loading and runtime are unproven.
+          NO LKG promotion; no automatic persistent package; do not use on another OTA.
+          EOF
+          echo "OTA_FASTBOOT_BOOT_READY=UNVERIFIED_ONLY"
+
+      - name: "独立保存兼容性证据 / 仅在全绿时附加待测 boot"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-OEM-ABI-TESTBOOT-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ota-abi/ota-abi-report.json
+            ${{ runner.temp }}/ota-abi/TESTBOOT-READ-ME-FIRST.txt
+            ${{ runner.temp }}/ota-abi/TESTBOOT-SHA256SUMS.txt
+            ${{ runner.temp }}/ota-abi/*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+      - name: "中文门禁结论"
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## 新 OTA OEM ABI / KMI 检查"
+            echo
+            if [[ -f "$RUNNER_TEMP/ota-abi/ota-abi-report.json" ]]; then
+              jq -r '"- 门禁状态: " + .gate, "- 阻断原因: " + .reason, "- 检查模块: " + ((.module_count // 0)|tostring), "- 错误模块: " + ((.failed_modules|length)|tostring), "- CRC 不匹配: " + ((.crc_mismatches|length)|tostring)' "$RUNNER_TEMP/ota-abi/ota-abi-report.json"
+            else
+              echo "- 未生成 ABI 校验报告，禁止待测 boot"
+            fi
+            echo "- 可选待测 boot 仅供人工 fastboot boot，不可 flash，不自动晋升 LKG"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,6 +8,12 @@ source "$OTA_CANDIDATE_ENV"
 [[ "$OTA_GKI_TAG" =~ ^android16-6\.12-[0-9]{4}-[0-9]{2}_r[1-9][0-9]*$ ]] || exit 2
 [[ "$OTA_GKI_COMMIT" =~ ^[0-9a-f]{40}$ && "$OTA_INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
 [[ "$OTA_SELECTION_REASON" == "EXACT_OFFICIAL_GKI_BUILD_ID" || "$OTA_SELECTION_REASON" == "SAME_PATCH_LATEST_OFFICIAL_GKI_CANDIDATE" ]] || exit 2
+# Candidate uses OEM release for vermagic matching, not OEM source equivalence.
+[[ -n "${OTA_STOCK_REPORT_PATH:-}" && -s "$OTA_STOCK_REPORT_PATH" ]] || exit 2
+STOCK_UNAME="$(jq -r .uname "$OTA_STOCK_REPORT_PATH")"
+[[ "$STOCK_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || exit 1
+[[ "$STOCK_UNAME" == "$OTA_KERNEL_VERSION"-* ]] || exit 1
+CANDIDATE_LOCALVERSION="${STOCK_UNAME#"$OTA_KERNEL_VERSION"}"
 STAGE="$RUNNER_TEMP/ota-candidate"
 SRC="$STAGE/common"
 OUT="$STAGE/out"
@@ -76,7 +82,7 @@ mkdir -p "$OUT"
 if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESULT/config-build.log" 2>&1; then
   tail -n 60 "$RESULT/config-build.log"; exit 1
 fi
-"$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "-android16-6-ota-candidate-4k"
+"$SRC/scripts/config" --file "$OUT/.config" --set-str LOCALVERSION "$CANDIDATE_LOCALVERSION"
 "$SRC/scripts/config" --file "$OUT/.config" --disable LOCALVERSION_AUTO
 if ! make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" olddefconfig >> "$RESULT/config-build.log" 2>&1; then
   tail -n 60 "$RESULT/config-build.log"; exit 1
@@ -91,6 +97,8 @@ fi
 [[ -s "$OUT/arch/arm64/boot/Image" && -s "$OUT/Module.symvers" ]] || exit 1
 cp "$OUT/arch/arm64/boot/Image" "$RESULT/Image"
 cp "$OUT/Module.symvers" "$RESULT/Module.symvers"
+RELEASE="$(make --no-print-directory -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 kernelrelease)"
+[[ "$RELEASE" == "$STOCK_UNAME" ]] || { echo "::error::Candidate release differs from OEM module release"; exit 1; }
 {
   echo "BASELINE_KIND=UNMODIFIED_GKI_CANDIDATE_ONLY"
   echo "FLASHABLE=NO"
@@ -98,6 +106,7 @@ cp "$OUT/Module.symvers" "$RESULT/Module.symvers"
   echo "STOCK_BUILD=$OTA_BUILD"
   echo "STOCK_KERNEL_VERSION=$OTA_KERNEL_VERSION"
   echo "STOCK_KMI=$OTA_KMI"
+  echo "STOCK_UNAME=$STOCK_UNAME"
   echo "SOURCE_GKI_TAG=$OTA_GKI_TAG"
   echo "SOURCE_GKI_COMMIT=$OTA_GKI_COMMIT"
   echo "SOURCE_SELECTION=$OTA_SELECTION_REASON"

@@ -11,9 +11,9 @@ import zipfile
 from pathlib import Path
 
 PAGE = 4096
-MAX_ZIP_SIZE = 300 * 1024 * 1024
-MAX_MEMBER_SIZE = 220 * 1024 * 1024
-MAX_UNCOMPRESSED = 750 * 1024 * 1024
+MAX_ZIP_SIZE = 950 * 1024 * 1024
+MAX_MEMBER_SIZE = 650 * 1024 * 1024
+MAX_UNCOMPRESSED = 1900 * 1024 * 1024
 BUILD_RE = re.compile(r"^OS[0-9]+\.[0-9.]+[A-Z0-9]+$")
 RELEASE_RE = re.compile(rb"Linux version ([0-9]+\.[0-9]+\.[0-9]+-android[0-9]+-[0-9]+-[^\x00\r\n ]+)")
 UNAME_RE = re.compile(r"^([0-9]+\.[0-9]+\.[0-9]+)-android([0-9]+)-([0-9]+)-[A-Za-z0-9_.-]+$")

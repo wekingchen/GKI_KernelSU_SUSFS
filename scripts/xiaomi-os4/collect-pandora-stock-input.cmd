@@ -120,6 +120,80 @@ for %%P in (boot init_boot vendor_boot dtbo) do (
   )
 )
 
+rem Capture active mounted modules. Device partitions remain read-only.
+echo.
+echo [采集] 新 OTA 当前挂载的 OEM / GKI 内核模块用于 CRC 校验...
+mkdir "%OUT%\oem_modules" || exit /b 1
+set "OEM_DIRS=0"
+for %%V in (vendor_dlkm vendor odm_dlkm system_dlkm) do (
+  adb shell su -c "test -d /%%V/lib/modules" >nul 2>nul
+  if not errorlevel 1 (
+    echo [读取] /%%V/lib/modules/ ...
+    mkdir "%OUT%\oem_modules\%%V" || exit /b 1
+    adb pull "/%%V/lib/modules/." "%OUT%\oem_modules\%%V" >nul
+    if errorlevel 1 (
+      echo [错误] 读取 OEM 内核模块失败。不得把不完整的 xm.zip 作为适配输入。
+      exit /b 1
+    )
+    set /a OEM_DIRS+=1
+  )
+)
+if "%OEM_DIRS%"=="0" (
+  echo [错误] 未发现可读的内核模块目录，无法审查 OTA ABI。
+  exit /b 1
+)
+powershell -NoProfile -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$d='%OUT%\oem_modules';" ^
+  "$m=@(Get-ChildItem -LiteralPath $d -File -Recurse | Where-Object { $_.Name -match '\.ko(\.zst|\.xz|\.gz)?
+powershell -NoProfile -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$files='boot.img','init_boot.img','vendor_boot.img','dtbo.img','oem-modules.zip';" ^
+  "$o='%OUT%\SHA256SUMS.txt';" ^
+  "foreach($f in $files){$h=(Get-FileHash -Algorithm SHA256 ('%OUT%\'+$f)).Hash.ToLower(); Add-Content -Encoding ascii $o ($h+'  '+$f)}"
+
+if errorlevel 1 (
+  echo [错误] SHA256 计算失败。
+  exit /b 1
+)
+
+echo [打包] 生成 %ZIP% ...
+powershell -NoProfile -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "Compress-Archive -Path '%OUT%\boot.img','%OUT%\init_boot.img','%OUT%\vendor_boot.img','%OUT%\dtbo.img','%OUT%\oem-modules.zip','%OUT%\oem-modules-count.txt','%OUT%\README.txt','%OUT%\SHA256SUMS.txt' -DestinationPath '%ZIP%' -CompressionLevel Optimal"
+
+if errorlevel 1 (
+  echo [错误] 生成 xm.zip 失败。
+  exit /b 1
+)
+
+echo.
+echo ================================================================
+echo [完成] 已生成：
+echo   %ZIP%
+echo.
+echo SHA256 清单：
+type "%OUT%\SHA256SUMS.txt"
+echo.
+echo 下一步：
+echo   1. 不要解压这个 *-xm.zip；
+echo   2. 上传到 GitHub 固定 prerelease：pandora-os4-stock-input；
+echo   3. 同一个 Release 中必须只保留一个 *xm.zip；
+echo   4. 新固件不要直接套用旧 fixture / 旧功能内核。
+echo.
+echo [安全确认] 本脚本没有修改手机任何分区。
+echo ================================================================
+endlocal
+ });" ^
+  "if($m.Count -lt 1){throw 'OEM module list is empty'};" ^
+  "$sum=($m | Measure-Object -Property Length -Sum).Sum;" ^
+  "if($sum -gt 500MB){throw 'OEM modules exceed 500 MB; stop for manual review'};" ^
+  "'MODULE_COUNT='+$m.Count | Out-File -Encoding ascii '%OUT%\oem-modules-count.txt';" ^
+  "Compress-Archive -Path '%OUT%\oem_modules\*' -DestinationPath '%OUT%\oem-modules.zip' -CompressionLevel Optimal"
+if errorlevel 1 (
+  echo [错误] 厂商模块采集失败，禁止产生不完整的 xm.zip。
+  exit /b 1
+)
 echo.
 echo [校验] 计算 SHA256 ...
 powershell -NoProfile -Command ^
