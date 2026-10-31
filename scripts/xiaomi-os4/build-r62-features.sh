@@ -193,7 +193,7 @@ export XIAOMI_OS4_USE_REKERNEL="$USE_REKERNEL"
 export XIAOMI_OS4_USE_NETWORKING="$USE_NETWORKING"
 export XIAOMI_OS4_USE_CVE="$USE_CVE"
 
-[[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" =~ ^6\\.12\\.[0-9]+$ ]] || exit 1
+[[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" =~ ^6\.12\.[0-9]+$ ]] || exit 1
 if [[ "$NEW_OTA_MODE" != "1" && "$OS4_KERNEL_VERSION" != "6.12.69" ]]; then
   echo "::error::legacy Gen 3 source identity drift"; exit 1
 fi
