@@ -137,19 +137,21 @@ Generic Netlink family: rekernel
 - 网络增强（BBR / IPSet / FQ / FQ_CODEL / CAKE / WireGuard / CIFS）；
 - CVE-2026-43499 / CVE-2026-53163 修复链审计。
 
-依赖关系由构建脚本统一解析。例如 DroidSpaces 关闭时，NTSync 即使在界面中仍被勾选，也会自动关闭，并把最终生效值写入构建元数据。
+依赖关系由构建脚本统一解析。NTSync 可独立于 DroidSpaces 开启；每次构建都会把最终实际生效值写入构建元数据。
 
 ### 默认组合
 
-所有默认项保持开启时，选择必须精确复现当前 Full Parity LKG：
+所有默认项保持开启时，选择必须复现当前 Full Parity 的配置、ABI/KMI 与 normalized Image。由于模块签名证书及 GNU build-id 会在每次构建时自动生成，raw Image SHA256 不要求与历史 LKG 字节级一致。
+
+固定门禁：
 
 ```text
-Image SHA256=244772c526f76a33fb96e7c6b8915f1d68e0f79b916bb1624127ccd6eee7a846
+final.config SHA256=f31d8fc1fdc998f36c23ce599ac8be54c1d8ed9297e7733ae931be78000c8ef6
 Module.symvers SHA256=f17b4d56fc3b80497a36826e4c9907bd51939662025a739accef20c2c00e0ae8
-fastboot boot SHA256=6f1972757b1d731a2efd93e4db109df1c49fc2776de97f067b838182193eb228
+normalized Image SHA256=5b28d9aa9cb1581cbca185e49fe9be5d81433c10d8725df734a22fbf326dc889
 ```
 
-只有这个精确组合允许工作流生成已真机验证的 AnyKernel3 持久化包。
+正式自定义工作流 run `41112359117` 已通过全部门禁；其重建 Full Parity fastboot boot 镜像随后在 Xiaomi 17 Pro / OS4.0.5.0.XBLCNXM 真机临时启动成功，确认 Root、PIDs Controller、Baseband Guard 与 ZRAM/ZSMALLOC 模块链正常。因此 normalized-equivalent Full Parity 重建现在允许直接生成 AnyKernel3 持久化包。
 
 ### 自定义组合
 
@@ -157,9 +159,11 @@ fastboot boot SHA256=6f1972757b1d731a2efd93e4db109df1c49fc2776de97f067b838182193
 
 - kernel release 使用 `-android16-6-os4r62-custom-4k`；
 - 必须通过固定 KMI/ABI lock；
-- 只生成 `fastboot boot` 临时测试镜像；
-- 不生成 AnyKernel3 持久化包；
-- 未经过真机临时启动验证前，不得提升为可持久化组合。
+- 同时生成 `fastboot boot` 临时测试镜像与 AnyKernel3；
+- AnyKernel3 文件名和包内 README 明确标记 `CUSTOM-UNVERIFIED`；
+- 未经过该精确组合的真机临时启动验证前，不把它标记为“已验证组合”。
+
+这样既保留旧 OS3 的“选择功能 → 编译 → 直接得到 AnyKernel3”使用方式，又把“可生成刷机包”和“已经真机验证”两个状态严格区分。
 
 ABI lock 固定当前已验证基线的 19324 个基础导出及 CRC。允许的 51 个可选功能新增导出单独列在：
 
