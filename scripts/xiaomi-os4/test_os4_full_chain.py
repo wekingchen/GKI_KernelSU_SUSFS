@@ -266,14 +266,14 @@ class OS4FullChain(unittest.TestCase):
         (self.features / "build-metadata.txt").write_text(
             "".join(f"{k}={v}\n" for k, v in self.feature_meta.items()))
 
-    def check_feature_abi(self):
+    def check_feature_abi(self, *, ok=True):
         report = self.features / "ota-custom-abi-report.json"
         return self.run_py("check-ota-feature-abi.py",
                            "--baseline-symvers", self.baseline_symvers,
                            "--feature-symvers", self.features / "Module.symvers",
                            "--baseline-record", self.versioned / "verification.json",
                            "--feature-metadata", self.features / "build-metadata.txt",
-                           "--report", report)
+                           "--report", report, ok=ok)
 
     def finish_artifacts(self):
         self.run_py("check-ota-anykernel-evidence.py",
@@ -424,7 +424,7 @@ class OS4FullChain(unittest.TestCase):
         (self.features / "Module.symvers").write_text(modified)
         self.feature_meta["SYMVERS_SHA256"] = digest(modified.encode())
         self.write_feature_metadata()
-        self.check_feature_abi()
+        self.check_feature_abi(ok=False)
         self.assertEqual(json.loads(
             (self.features / "ota-custom-abi-report.json").read_text())["gate"], "BLOCKED")
 
