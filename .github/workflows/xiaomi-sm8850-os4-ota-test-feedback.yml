@@ -226,14 +226,17 @@ jobs:
           mkdir -p "$DEST"
           cp "$RUNNER_TEMP/verified-ota/fixture.json" "$DEST/fixture.json"
           cp "$RUNNER_TEMP/verified-ota/verification.json" "$DEST/verification.json"
+          # Latest verified OTA is the development target; never mutate the LKG.
+          python3 scripts/xiaomi-os4/ota-development-pointer.py             create --record "$DEST/verification.json"             --fixture "$DEST/fixture.json"             --output ".github/config/ota-development-current.json"
           BRANCH="ota/verified-$VERIFIED_BUILD-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add "$DEST/fixture.json" "$DEST/verification.json"
-          [[ "$(git diff --cached --name-only | wc -l)" -eq 2 ]] || exit 1
+          git add "$DEST/fixture.json" "$DEST/verification.json" ".github/config/ota-development-current.json"
+          [[ "$(git diff --cached --name-only | wc -l)" -eq 3 ]] || exit 1
           git diff --cached --name-only | grep -Fxq "$DEST/fixture.json"
           git diff --cached --name-only | grep -Fxq "$DEST/verification.json"
+          git diff --cached --name-only | grep -Fxq ".github/config/ota-development-current.json"
           git commit -m "xiaomi(os4): verify OTA $VERIFIED_BUILD GKI baseline"
           bash scripts/xiaomi-os4/check-upstream-isolation.sh "$BASE_SHA" --committed
           git push origin "$BRANCH"
@@ -256,9 +259,10 @@ jobs:
           jq -e --arg b "$BRANCH" --arg sha "$HEAD_SHA" \
             '.state == "open" and .draft == false and .base.ref == "dev" and .head.ref == $b and .head.sha == $sha' <<<"$PR" >/dev/null
           FILES="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files?per_page=100" --jq '.[].filename')"
-          [[ "$(wc -l <<<"$FILES")" -eq 2 ]] || exit 1
+          [[ "$(wc -l <<<"$FILES")" -eq 3 ]] || exit 1
           grep -Fxq "$DEST/fixture.json" <<<"$FILES"
           grep -Fxq "$DEST/verification.json" <<<"$FILES"
+          grep -Fxq ".github/config/ota-development-current.json" <<<"$FILES"
           [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
             echo "::error::dev 已变化，保留 PR 请重新审核"; exit 1;
           }
@@ -291,5 +295,6 @@ jobs:
             echo "- 用户选择: $TEST_RESULT"
             echo "- 已合并验证 PR（若成功）: ${{ steps.commit.outputs.pr_url }}"
             echo "- 通过后隔离归档: .github/config/ota-verified/$OBSERVED_BUILD/"
+            echo "- 当前开发基线指针: .github/config/ota-development-current.json（不修改 LKG）"
             echo "- 现有 Gen 3 LKG 不更新；功能版仍需独立适配、编译和真机测试"
           } >> "$GITHUB_STEP_SUMMARY"
