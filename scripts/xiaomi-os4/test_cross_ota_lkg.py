@@ -202,6 +202,16 @@ class CrossOTALKGTest(unittest.TestCase):
         self.assertEqual(result["archive_tag"], "pandora-os4-lkg-gen4")
         self.assertFalse(result["legacy_r62_lkg_unchanged"] is False)
 
+    def test_first_new_ota_generation_follows_actual_legacy_if_it_advanced(self):
+        m = self.identify()
+        m["source_manifest_sha256"] = "1" * 64
+        result = MOD.promotion_record(m, {"rebuild_verification": "ok"}, None,
+                                      "989898", "test", legacy_generation=5)
+        self.assertEqual(result["generation"], 6)
+        self.assertEqual(result["archive_tag"], "pandora-os4-lkg-gen6")
+        with self.assertRaises(ValueError):
+            MOD.promotion_record(m, {}, None, "989898", "bad", legacy_generation=0)
+
     def test_generations_increment_and_same_run_rejected(self):
         m = self.identify()
         m["source_manifest_sha256"] = "1" * 64

@@ -8,9 +8,9 @@
 
 当你**实际确认这一精确 Run 的内核已真机启动、持久安装并且你开启的功能正常**，才使用新入口：
 
-[小米17 Pro OS4 / 跨 OTA LKG 晋升、复现及归档](../.github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml)
+[小米17 Pro OS4 / 将自定义构建晋升为 LKG](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)
 
-选择 `dev`，填待晋升的**新 OTA 自定义构建** Run ID，确认 `confirm_boot`、`confirm_persistent`、`confirm_runtime`，必要时写备注，点击一次 Run workflow。GitHub 在**同一次工作流**自动完成来源检查、严格复现、Release 长期归档、当前 LKG 指针晋升，正常成功无需再手动跑复现或归档。
+选择 `dev`，填待晋升的**任意受支持 OS4 自定义构建** Run ID，确认 `confirm_boot`、`confirm_persistent`、`confirm_runtime`，必要时写备注，点击一次 Run workflow。GitHub 在**同一次工作流**自动完成来源检查、严格复现、Release 长期归档、当前 LKG 指针晋升，正常成功无需再手动跑复现或归档。
 
 工作流的原始来源要求：
 - 只能接受本仓库 `dev` 正式 `xiaomi-sm8850-os4-custom.yml` 的 **workflow_dispatch 且 conclusion=success** 的 Run，必须是尚未过期的 `pandora-OTA-CUSTOM-<build>-run-<id>` 唯一 Artifact。
@@ -30,13 +30,13 @@
 | 6. 当前 LKG 晋升 | 仅在 Release 资产校验成功后创建 LKG PR；对 Git diff 做明确文件白名单、上游文件隔离、目标 dev 基线 SHA 和 PR head/mergeable 比较；合并后才把草稿 Release 正式公开 | PR 失败不改变当前 LKG，也不公开“稳定版” Release |
 | 7. 公布/归档恢复 | 成功后公开不可覆盖的代次 Release；当前指针记录本次验证与重编哈希。若 **PR 已合并但发布失败**，提供同一工作流 `repair_draft_release` 入口，直接核对草稿全部 SHA、已合并指针后恢复发布，**不再次晋升** | 确认不了同一代来源则拒绝修复 |
 
-新 OTA 首次正式晋升为 **Gen 4**（以现有历史 Gen 3 为起点），以后 Gen 5、Gen 6……自动递增。只保留单一移动指针 `.github/config/ota-lkg-current.json`，旧代状态按 gen 放在 `.github/config/ota-lkg-history/`；各代固定 Release 标签单独存在，不因新晋升覆盖旧资产。历史 R62/Gen 3 原有配置与 Release **保留不修改**；首次新 OTA 晋升后，旧 R62 晋升工作流会明确拒绝再创建一套冲突代次。
+此入口会根据源 Run 产物自动区分旧 R62 与新 OTA：R62 使用旧的晋升、复现和 Release 接力；新 OTA 在同一个工作流内执行严格复现、草稿归档、指针晋升及公开 Release。只有一个手动晋升入口，不需要用户选择路线。\n\n首次新 OTA 晋升的代次自动取**当前已晋升的最高代次 + 1**；如果 R62 仍停在历史 Gen 3，则首次新 OTA 是 **Gen 4**（如果 R62 已晋升 Gen 4，则从 Gen 5 开始），从而避免 Release 标签冲突，以后 Gen 5、Gen 6……自动递增。只保留单一移动指针 `.github/config/ota-lkg-current.json`，旧代状态按 gen 放在 `.github/config/ota-lkg-history/`；各代固定 Release 标签单独存在，不因新晋升覆盖旧资产。历史 R62/Gen 3 原有配置与 Release **保留不修改**；首次新 OTA 晋升后，旧 R62 晋升分支会明确拒绝再创建一套冲突代次。
 
 ## 如何修复最后一步公开 Release 失败
 
 正常使用**不要勾选** `repair_draft_release`。若已经看到该代 LKG PR 成功合并、但 GitHub 归档流程最后公开 Release 失败：
 
-1. 使用同一个「跨 OTA LKG 晋升、复现及归档」工作流，输入**原来的** `source_run_id`。
+1. 使用唯一的「将自定义构建晋升为 LKG」工作流，输入**原来的** `source_run_id`。
 2. 勾选 `repair_draft_release`；普通真机三个确认项此时不必重新勾选。
 3. CI 核对已经合并的 `ota-lkg-current.json` 和草稿 Release 中的 `ota-lkg-promotion-record.json` 字节一致、来源运行可信、原始和重建资产齐全，下载后逐文件重算 SHA256。
 4. 仅当当前 Gen 未被后续晋升替换，且草稿标签、来源 Run、晋升 Run 身份均吻合时才公布；**不会再次编译、不会产生新 Gen、不会篡改旧 Release**。

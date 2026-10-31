@@ -314,9 +314,12 @@ class OS4FullChain(unittest.TestCase):
 
     def promoted(self):
         record = self.root / "new-lkg.json"
+        legacy = self.root / "legacy-lkg.env"
+        legacy.write_text("LKG_PROMOTION_GENERATION=3\n")
         self.run_py("cross-ota-lkg.py", "promote", "--source-dir", self.features,
                     "--rebuild-report", self.root / "comparison.json",
                     "--current", self.root / "missing-current.json",
+                    "--legacy-current", legacy,
                     "--run-id", RUN_ID, "--head-sha", RUN_HEAD,
                     "--promotion-run-id", "872999",
                     "--note", "SIMULATED_NOT_REAL_DEVICE",

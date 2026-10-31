@@ -26,10 +26,10 @@
 | `xiaomi-sm8850-os4-ota-auto-candidate.yml` | 监听固定 Release 的 published/edited、每日补查或可手动触发；只读分析 ZIP；解析官方 GKI；编译候选；OEM CRC/KMI 全绿才生成临时待测 IMG | OTA 后更新固定 Release 的唯一 `*xm.zip`；正常不需另点运行，若立即处理可 Run workflow |
 | `xiaomi-sm8850-os4-ota-test-feedback.yml` | 对通过/失败的临时启动提交人工结果；通过则校验 Run / SHA / ABI / 重现 fixture，自动 PR 固化三份开发记录；失败建立 Issue | **新 OTA 纯 GKI 基线通常只提交一次真实测试结果**；失败开不了机时不要求填写无法读取的实际 uname |
 | `xiaomi-sm8850-os4-custom.yml` | 首先读取当前 stock-input；旧输入走 R62，新 OTA 已验证走新版本源码；各组件按本次上游快照构建；新 OTA 通过门禁后同次输出 IMG 与 UNVERIFIED AnyKernel3 | 选择功能并运行；拿到两个格式不需再次提交结果 |
-| `xiaomi-sm8850-os4-promote-lkg.yml` | 历史 R62 自定义 Run 的固定版本晋升 | **仅 R62**；新 OTA 改用独立入口，首次新 OTA 晋升后旧 R62 晋升被禁止 |
+| `xiaomi-sm8850-os4-promote-lkg.yml` | **唯一的 OS4 手动晋升入口**：按来源自动路由 R62 或新 OTA；新 OTA 同一工作流内复现、归档、晋升 | 输入原自定义 Run ID，确认启动、持久稳定、功能正常；修复草稿使用同入口 |
 | `xiaomi-sm8850-os4-lkg.yml` | 历史 R62 稳定 LKG 重建与打包 | 新 OTA 在跨版本单一交易工作流中按原始 Run SHA 严格复现 |
 | `xiaomi-sm8850-os4-archive-lkg-release.yml` | 历史 R62 LKG Release 长期归档 | 新 OTA 由新工作流独立归档同一代 Release；无须额外执行此旧入口 |
-| `xiaomi-sm8850-os4-cross-ota-lkg.yml` | 跨 OTA 原始自定义来源核验、固定提交严格重编、原始/复现双包归档、最后晋升 LKG；支持仅修复已合并指针但未公布的草稿 Release | **真正稳定使用新版功能内核后**只需输入源 Run ID 并确认一次；当前无新 OTA 实物进行完整验收 |
+| `xiaomi-sm8850-os4-promote-lkg.yml` | 跨 OTA 原始自定义来源核验、固定提交严格重编、原始/复现双包归档、最后晋升 LKG；支持仅修复已合并指针但未公布的草稿 Release | **真正稳定使用新版功能内核后**只需输入源 Run ID 并确认一次；当前无新 OTA 实物进行完整验收 |
 | `xiaomi-upstream-isolation-guard.yml` | 检查 Xiaomi 特有修改不能覆盖上游共享文件，执行 Python 回归、Shell 语法和 Windows 采集器静态完整性检查 | 不需要手动运行；PR 检查自动触发 |
 
 不存在“必须每次功能编译后重新填写一次真机测试，才能获得 AnyKernel3”的要求。**纯 GKI 基线确认**、**功能版编译与打包**、**用户主动晋升稳定 LKG**是三种不同操作。
@@ -46,7 +46,7 @@
 8. **开发指针自动切换**：成功时 GitHub PR 只提交该版本独立的 `fixture.json`、`verification.json` 和 `.github/config/ota-development-current.json` 指针，合并后**下一次自定义内核默认选择这个新 OTA**。此变更不触动 Gen 3 LKG。
 9. **日常自定义编译**：仍运行现有 `小米17 Pro OS4 / 自定义内核`。BakaSU/SUSFS/NoMount/DroidSpaces/NTSync/BBG/Re-Kernel/网络增强等按菜单选择；每轮按定义的稳定渠道获取新上游快照。在该 OTA 的 GKI commit 上尝试补丁，检查 Kconfig、Module.symvers 核心 CRC 和内核 release。失败不会悄悄回退 R62。
 10. **同次得到两个产物**：若本轮编译与静态门禁全绿，同一个 `pandora-OTA-CUSTOM-<build>-run-<id>` Artifact 同时提供 fastboot 临时 IMG 与标记 `OTA_CUSTOM_UNVERIFIED` 的 AnyKernel3 ZIP；两者使用同一个 Image，无需再次提交测试即可取得压缩包。建议仍先临时启动验证，再决定是否持久安装。
-11. **版本化新 OTA 稳定晋升已实现，待真实 OTA 验收**：不能使用旧 R62 晋升入口，但可在原功能版真机稳定使用后选择新的 [跨 OTA LKG 入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，由 CI 自动严格重编、归档并更新版本化稳定指针；尚未取得真实新 OTA 的端到端成功证据。
+11. **版本化新 OTA 稳定晋升已实现，待真实 OTA 验收**：新 OTA 与 R62 使用同一入口；在原功能版真机稳定使用后选择 [跨 OTA LKG 入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，由 CI 自动严格重编、归档并更新版本化稳定指针；尚未取得真实新 OTA 的端到端成功证据。
 
 ### 固件未确认时的确定行为
 
@@ -83,7 +83,7 @@
 | P0 已修复，待 Windows 实机复验 | Windows 采集器中 PowerShell 命令截断、双套 ZIP 打包逻辑冲突 | 修复为单套 root 只读 TAR 流采集 + OEM 数量/大小/完整文件清单 + SHA + 最终 ZIP；新增静态完整性回归 |
 | P1 已修复 | 无法启动 Android 时，反馈表单却要求实际 uname/build | fail 允许空值，使用候选来源 build 登记 Issue；pass 仍要求真值 |
 | P1 已修复 | 新 OTA 的 ccache 与 R62 共用缓存目录 | 新 OTA 缓存目录按官方 GKI commit 隔离；旧 R62 LKG 缓存不变 |
-| P1 已实现但待真实新 OTA 验收 | 新 OTA 自定义功能包 → 新 LKG 晋升 → 复现 → 永久归档 | 新版本化交易 workflow 已实现并具备合成错误场景回归；旧 R62 晋升仍单独存在，跨 OTA 首次完整实测尚未发生 |
+| P1 已实现但待真实新 OTA 验收 | 新 OTA 自定义功能包 → 新 LKG 晋升 → 复现 → 永久归档 | 新版本化交易 workflow 已实现并具备合成错误场景回归；旧 R62 晋升逻辑仍作为同一工作流内独立路线，跨 OTA 首次完整实测尚未发生 |
 | P1 技术限制 | OEM vendor module 静态 CRC/vermagic / KMI | 只能验证采集到的模块、vmlinux 导出符号与特定版本；不能证明驱动运行、跨模块依赖、早期启动时序和设备树兼容 |
 | P2 待新 OTA 验证 | R62 时代的 SYSVIPC/PIDs、Re-Kernel、SUSFS 等源码修改 | 新版本可能改变代码锚点/布局，编译门禁会阻断，但“自动解决兼容问题”尚不存在 |
 | P2 文档已更新 | OTA 文档残留“只生成 IMG”“仅两份验证文件”“新版本无法自定义构建”等旧描述 | 统一为三份开发基线记录、新版自动路由与 IMG + 未验证 AnyKernel3 双产物 |
@@ -106,7 +106,7 @@
 - [ ] 直接运行原自定义工作流，输出 build 和 GKI commit 均为新 OTA；指定功能的补丁/配置/ABI 全部通过。
 - [ ] 同次 Artifact 有 IMG 与未验证 AnyKernel3，ZIP 内 Image SHA 与编译 Image 一致。
 - [ ] 用户用 IMG 单独测试本次功能版，再决定是否人工持久安装 ZIP。**无须第二次反馈才能拿到 ZIP**。
-- [ ] 新 OTA 功能版实际稳定后，通过**跨 OTA LKG** 新入口执行原始包来源校验、固定提交严格复现、Release 下载回检及版本化指针晋升；不能把此 Run 输入旧 R62 晋升入口。
+- [ ] 新 OTA 功能版实际稳定后，通过**跨 OTA LKG** 新入口执行原始包来源校验、固定提交严格复现、Release 下载回检及版本化指针晋升；直接使用统一晋升入口，自动路由新 OTA。
 
 ## 八、关联文档
 

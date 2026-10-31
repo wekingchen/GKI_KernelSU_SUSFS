@@ -62,8 +62,10 @@ jobs:
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_lkg_release.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_os4_full_chain.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_os4_transaction_invariants.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_lkg_promotion_routes.py' -v
+          python3 -m py_compile scripts/xiaomi-os4/select-lkg-promotion-route.py
           bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
-          ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }'             .github/workflows/xiaomi-sm8850-os4-custom.yml             .github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml
+          ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }'             .github/workflows/xiaomi-sm8850-os4-custom.yml             .github/workflows/xiaomi-sm8850-os4-promote-lkg.yml             .github/workflows/xiaomi-sm8850-os4-lkg.yml             .github/workflows/xiaomi-sm8850-os4-archive-lkg-release.yml
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
