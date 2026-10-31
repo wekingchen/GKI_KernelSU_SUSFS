@@ -848,6 +848,7 @@ jobs:
       - name: "仅以新 OTA 已验证 fixture 打包未验证的 fastboot boot"
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
         run: |
           set -euo pipefail
