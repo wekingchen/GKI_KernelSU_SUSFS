@@ -16,11 +16,29 @@ class TransactionSafety(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.promote = (SCRIPTS / "run-cross-ota-lkg.sh").read_text()
-        cls.lifecycle = (WF / "xiaomi-sm8850-os4-cross-ota-lkg.yml").read_text()
+        cls.lifecycle = (WF / "xiaomi-sm8850-os4-promote-lkg.yml").read_text()
         cls.custom = (WF / "xiaomi-sm8850-os4-custom.yml").read_text()
         cls.feedback = (WF / "xiaomi-sm8850-os4-ota-test-feedback.yml").read_text()
         cls.candidate = (WF / "xiaomi-sm8850-os4-ota-auto-candidate.yml").read_text()
         cls.legacy = (WF / "xiaomi-sm8850-os4-promote-lkg.yml").read_text()
+
+    def test_one_manual_promotion_entry_auto_routes_both_families(self):
+        self.assertFalse((WF / "xiaomi-sm8850-os4-cross-ota-lkg.yml").exists())
+        self.assertIn("select-route:", self.lifecycle)
+        self.assertIn("select-lkg-promotion-route.py", self.lifecycle)
+        self.assertIn("needs.select-route.outputs.mode == 'legacy'", self.lifecycle)
+        self.assertIn("needs.select-route.outputs.mode == 'ota'", self.lifecycle)
+        self.assertIn("needs.select-route.outputs.mode == 'repair'", self.lifecycle)
+        self.assertIn("test_lkg_promotion_routes.py",
+                      (WF / "xiaomi-upstream-isolation-guard.yml").read_text())
+
+    def test_legacy_auto_reproduction_runs_only_for_real_legacy_promotion(self):
+        repro = (WF / "xiaomi-sm8850-os4-lkg.yml").read_text()
+        archive = (WF / "xiaomi-sm8850-os4-archive-lkg-release.yml").read_text()
+        self.assertIn("needs.source-kind.outputs.legacy == 'true'", repro)
+        self.assertIn("needs.check-reproduction.outputs.allowed == 'true'", archive)
+        self.assertIn('COUNT" == 1', repro)
+        self.assertIn('COUNT" == 1', archive)
 
     def test_promotion_requires_real_owner_confirmation_three_times(self):
         for s in ("confirm_boot", "confirm_persistent", "confirm_runtime"):
