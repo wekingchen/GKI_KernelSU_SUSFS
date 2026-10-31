@@ -471,3 +471,11 @@ R62 #7 baseline Image
 9. 最后才生成新的功能版 FASTBOOT-BOOT-ONLY.img
 10. 未验证前始终只 fastboot boot，不 fastboot flash
 ```
+
+## 新 OTA 通过真机确认后自定义构建的默认版本
+
+一旦新 OTA 的真机验证结果通过 GitHub 全部安全门禁并自动合并开发基线指针 .github/config/ota-development-current.json，现有「小米17 Pro OS4 / 自定义内核」默认切换到这个新固件的 GKI 源码和对应 fixture，而不是编译旧 R62。
+
+只有上传了新 xm.zip 但还没提交成功的真机测试时，会阻止旧版内核回退；新 GKI 上功能补丁或 OEM ABI 比较失败时，也不会输出冒充新版本的文件。
+
+新版本成功编译后只有 fastboot boot 临时启动待测 IMG，BakaSU/SUSFS/NoMount 等功能还需要独立真机验证。Gen 3 LKG 及已验证旧 boot fixture 一直独立保留。
