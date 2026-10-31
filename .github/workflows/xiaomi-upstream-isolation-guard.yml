@@ -74,7 +74,7 @@ jobs:
           assert "steps.abi.outputs.eligible == 'true'" in s
           assert 'package-ota-testboot-v4.py' in s
           assert 'check-ota-oem-abi.py' in s
-          assert 'fastboot flash' not in s
+          assert 'NEVER fastboot flash' in s # explicit prohibition in read-me; not an executed action
           assert 'fastboot boot' in s
           assert y['concurrency']['cancel-in-progress'] is False
           print('OTA_ABI_AND_TESTBOOT_WORKFLOW_STATIC=PASS')
