@@ -65,8 +65,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  select-baseline:
+    name: "确认当前 stock-input 与新 OTA 已验证基线，禁止旧核回退"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      mode: @GH{steps.select.outputs.mode}@
+      build: @GH{steps.select.outputs.build}@
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+      - name: "下载当前 OTA 输入并按原始 boot SHA 检查"
+        shell: bash
+        env:
+          GH_TOKEN: @GH{github.token}@
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ota-stock"
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          [[ "$(jq -r '[.assets[] | select(.name | endswith("xm.zip"))] | length' <<<"$STOCK")" == 1 ]] || {
+            echo "::error::stock-input Release 中必须仅有一个 xm.zip"; exit 1;
+          }
+          ASSET_ID="$(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$STOCK")"
+          [[ "$ASSET_ID" =~ ^[0-9]+$ ]] || exit 1
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern '*xm.zip' --dir "$RUNNER_TEMP/ota-stock"
+          [[ "$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip' | wc -l)" -eq 1 ]] || exit 1
+          ZIP="$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip')"
+          python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
+            --zip "$ZIP" --stock-config .github/config/pandora-os4-stock-input.env \
+            --github-asset-id "$ASSET_ID" --output "$RUNNER_TEMP/stock-report.json"
+
+      - name: "匹配当前已验证开发指针；新 OTA 未验证时禁止编旧 R62"
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/ota-development-pointer.py select \
+            --stock-report "$RUNNER_TEMP/stock-report.json" --output "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+
   resolve-upstreams:
     name: "解析本次最新稳定上游快照"
+    needs: select-baseline
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -173,8 +215,9 @@ jobs:
 
 
   build:
-    name: "pandora / OS4 R62 / 自定义功能"
-    needs: resolve-upstreams
+    name: "pandora / OS4 R62 / 自定义功能（仅当前 stock 为已验证旧版）"
+    needs: [select-baseline, resolve-upstreams]
+    if: needs.select-baseline.outputs.mode == 'legacy'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
 
@@ -662,6 +705,203 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+
+
+  ota-build:
+    name: "pandora / 当前已验证新 OTA / 自定义内核（临时启动待测）"
+    needs: [select-baseline, resolve-upstreams]
+    if: needs.select-baseline.outputs.mode == 'ota'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: "严格下载已验证版本永久候选源码与 ABI 身份"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ota-permanent" "$RUNNER_TEMP/ota-live"
+          gh release download "pandora-os4-ota-candidate-$VERIFIED_BUILD" \
+            --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/ota-permanent"
+          # Reject modified/partially uploaded Release inputs, never use an old fixture.
+          (cd "$RUNNER_TEMP/ota-permanent" && sha256sum -c RELEASE-SHA256SUMS.txt)
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          ASSET_ID="$(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$STOCK")"
+          [[ "$(jq -r .stock_release_asset_id .github/config/ota-development-current.json)" == "$ASSET_ID" ]] || {
+            echo "::error::当前 Release 已换 OTA，停止而不是回退旧源码"; exit 1;
+          }
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern '*xm.zip' --dir "$RUNNER_TEMP/ota-live"
+          ZIP="$(find "$RUNNER_TEMP/ota-live" -maxdepth 1 -type f -name '*xm.zip')"
+          [[ -f "$ZIP" ]] || exit 1
+          python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
+            --zip "$ZIP" --stock-config .github/config/pandora-os4-stock-input.env \
+            --github-asset-id "$ASSET_ID" --output "$RUNNER_TEMP/ota-live/stock-report.json"
+          python3 scripts/xiaomi-os4/ota-development-pointer.py prepare \
+            --stock-report "$RUNNER_TEMP/ota-live/stock-report.json" \
+            --candidate-dir "$RUNNER_TEMP/ota-permanent" \
+            --output "$RUNNER_TEMP/verified-ota-source.env"
+          {
+            echo "XIAOMI_OS4_NEW_OTA=1"
+            echo "XIAOMI_OS4_VERIFIED_OTA_ENV=$RUNNER_TEMP/verified-ota-source.env"
+          } >> "$GITHUB_ENV"
+
+      - name: "准备安全构建环境"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
+          bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
+          python3 -m py_compile scripts/xiaomi-os4/ota-development-pointer.py \
+            scripts/xiaomi-os4/check-ota-feature-abi.py \
+            scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq libdw-dev \
+            libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils \
+            zip zstd dwarves
+
+      - name: "保留独立工具链缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "新 OTA GKI 源码缓存（按来源 SHA 隔离）"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ota-*.git
+          key: pandora-ota-gki-${{ needs.select-baseline.outputs.build }}-${{ hashFiles('.github/config/ota-development-current.json') }}
+
+      - name: "新 OTA 功能编译缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-r62
+          key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh') }}
+
+      - name: "只使用最新稳定上游，在新 OTA GKI 上尝试功能编译"
+        shell: bash
+        env:
+          XIAOMI_OS4_SELECTABLE_BUILD: "1"
+          XIAOMI_OS4_ROOT_MODE: ${{ inputs.root_mode }}
+          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: ${{ inputs.susfs_extra_features && '1' || '0' }}
+          XIAOMI_OS4_USE_NOMOUNT: ${{ inputs.use_nomount && '1' || '0' }}
+          XIAOMI_OS4_DROIDSPACES: ${{ inputs.droidspaces == 'on' && '1' || '0' }}
+          XIAOMI_OS4_USE_NTSYNC: ${{ inputs.droidspaces_ntsync && '1' || '0' }}
+          XIAOMI_OS4_USE_BBG: ${{ inputs.use_bbg && '1' || '0' }}
+          XIAOMI_OS4_USE_REKERNEL: ${{ inputs.use_rekernel && '1' || '0' }}
+          XIAOMI_OS4_USE_NETWORKING: ${{ inputs.use_networking && '1' || '0' }}
+          XIAOMI_OS4_USE_CVE: ${{ inputs.use_cve && '1' || '0' }}
+          OS4_BAKASU_COMMIT: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          OS4_BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          OS4_BAKASU_REF_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          OS4_SUSFS_COMMIT: ${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          OS4_SUSFS_BRANCH: ${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          OS4_SUSFS_REF_KIND: ${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          OS4_NOMOUNT_COMMIT: ${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          OS4_NOMOUNT_REF: ${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          OS4_NOMOUNT_REF_KIND: ${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          OS4_DROIDSPACES_COMMIT: ${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          OS4_DROIDSPACES_REF: ${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          OS4_DROIDSPACES_REF_KIND: ${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          OS4_NTSYNC_PATCH_COMMIT: ${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          OS4_NTSYNC_PATCH_REF: ${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          OS4_NTSYNC_REF_KIND: ${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          OS4_BBG_COMMIT: ${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          OS4_BBG_REF: ${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          OS4_BBG_REF_KIND: ${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          OS4_REKERNEL_COMMIT: ${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          OS4_REKERNEL_REF: ${{ needs.resolve-upstreams.outputs.rekernel_ref }}
+          OS4_REKERNEL_REF_KIND: ${{ needs.resolve-upstreams.outputs.rekernel_kind }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-r62-features.sh
+          source "$XIAOMI_OS4_VERIFIED_OTA_ENV"
+          RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          [[ "$(sed -n 's/^SOURCE_COMMIT=//p' "$RES/build-metadata.txt")" == "$OS4_GKI_COMMON_COMMIT" ]] || exit 1
+          [[ "$(sed -n 's/^KERNEL_RELEASE=//p' "$RES/build-metadata.txt")" == "$OS4_STOCK_KERNEL_RELEASE" ]] || {
+            echo "::error::新内核和厂商模块 vermagic 不一致"; exit 1;
+          }
+          [[ "$(sed -n 's/^BUILD_KIND=//p' "$RES/build-metadata.txt")" == "OTA_OS4_SELECTABLE_CUSTOM_UNVERIFIED" ]] || {
+            echo "::error::没有真正构建新版本，禁止上传旧 R62 包"; exit 1;
+          }
+
+      - name: "用新 OTA 的 Module.symvers 逐项锁定原有 ABI"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/check-ota-feature-abi.py \
+            --baseline-symvers "$RUNNER_TEMP/ota-permanent/Module.symvers" \
+            --feature-symvers "$RUNNER_TEMP/xiaomi-os4-integrated/results/Module.symvers" \
+            --baseline-record ".github/config/ota-verified/${{ needs.select-baseline.outputs.build }}/verification.json" \
+            --feature-metadata "$RUNNER_TEMP/xiaomi-os4-integrated/results/build-metadata.txt" \
+            --report "$RUNNER_TEMP/xiaomi-os4-integrated/results/ota-custom-abi-report.json"
+
+      - name: "仅以新 OTA 已验证 fixture 打包未验证的 fastboot boot"
+        shell: bash
+        env:
+          VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
+        run: |
+          set -euo pipefail
+          RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          OUT="$RUNNER_TEMP/ota-custom-output"
+          mkdir -p "$OUT"
+          FIX=".github/config/ota-verified/$VERIFIED_BUILD/fixture.json"
+          IMG="$OUT/pandora-$VERIFIED_BUILD-CUSTOM-run-$GITHUB_RUN_ID-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"
+          EXPECTED="$(jq -r .kernel_release ".github/config/ota-verified/$VERIFIED_BUILD/verification.json")"
+          IMAGE_SHA="$(sha256sum "$RES/Image" | cut -d' ' -f1)"
+          python3 scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
+            "$FIX" "$RES/Image" "$IMG" \
+            --expected-image-sha256 "$IMAGE_SHA" \
+            --expected-release "$EXPECTED" --expected-build "$VERIFIED_BUILD"
+          # Prevent stock Release changing during the long feature build.
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          [[ "$(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$STOCK")" == "$(jq -r .stock_release_asset_id .github/config/ota-development-current.json)" ]] || {
+            echo "::error::输入 OTA 已变化，取消发布待测包"; exit 1;
+          }
+          cp "$RES/Image" "$RES/Module.symvers" "$RES/final.config" \
+            "$RES/build-metadata.txt" "$RES/ota-custom-abi-report.json" "$OUT/"
+          cp ".github/config/ota-verified/$VERIFIED_BUILD/verification.json" "$OUT/verified-baseline.json"
+          cp "$FIX" "$OUT/fixture.json"
+          cat > "$OUT/README-ONLY-FASTBOOT-BOOT.md" <<EOF
+          # $VERIFIED_BUILD / 自定义内核待测包
+          来源: 本 OTA 的真机已验证纯 GKI 基线；上游功能为本次 Run 新解析稳定提交。
+          **功能版尚未经真机验证**；仅允许 fastboot boot 临时启动，绝不 fastboot flash。
+          不生成 AnyKernel3；成功开机不自动晋升 LKG。
+          EOF
+          (cd "$OUT" && sha256sum Image Module.symvers *.img > SHA256SUMS.txt)
+
+      - name: "上传新版本自定义待测内核"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-CUSTOM-${{ needs.select-baseline.outputs.build }}-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-custom-output/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+      - name: "构建摘要"
+        shell: bash
+        env:
+          VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
+        run: |
+          {
+            echo "## 新 OTA 自定义构建"
+            echo "- 本次系统: $VERIFIED_BUILD"
+            echo "- 开发基线: .github/config/ota-verified/$VERIFIED_BUILD/"
+            echo "- 功能组件: 本次最新稳定上游"
+            echo "- OEM CRC/KMI: 已按新 OTA baseline 强制检查"
+            echo "- 产物: 未经真机验证的 FASTBOOT-BOOT-ONLY.img"
+            echo "- 禁止 fastboot flash、旧版 R62 fixture 或自动晋升 Gen 3 LKG"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   bakasu-manager:
     name: "BakaSU Manager / 与本次稳定快照内核同提交"
