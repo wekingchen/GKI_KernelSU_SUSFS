@@ -116,7 +116,14 @@ unzip -tqq "$REPRO/$REPRO_AK3" || { echo "::error::Reproduction ZIP damaged"; ex
 
 require_line "$MANAGER/manager-metadata.txt" "BAKASU_TARGET_COMMIT=$LKG_BAKASU_COMMIT"
 require_line "$MANAGER/manager-metadata.txt" "MANAGER_HEAD_SHA=$LKG_BAKASU_COMMIT"
-require_line "$MANAGER/manager-metadata.txt" "BAKASU_VALIDATED_REFERENCE=$LKG_BAKASU_COMMIT"
+# The manager script's BAKASU_VALIDATED_REFERENCE is a fallback/default config
+# reference, not the exact selected custom build source. Verify the actual
+# Manager build HEAD, target and KSU version rather than that legacy alias.
+MANAGER_KSU="$(field "$MANAGER/manager-metadata.txt" MANAGER_KSU_VERSION)"
+KERNEL_KSU="$(field "$MANAGER/manager-metadata.txt" BAKASU_KERNEL_KSU_VERSION)"
+[[ "$MANAGER_KSU" =~ ^[0-9]+$ && "$MANAGER_KSU" == "$KERNEL_KSU" ]] || {
+  echo "::error::Manager/kernel KSU versions differ"; exit 1;
+}
 mapfile -t APKS < <(find "$MANAGER" -maxdepth 1 -type f -name '*-arm64-v8a-release.apk' -printf '%f\n' | sort)
 (( ${#APKS[@]} > 0 )) || { echo "::error::No validated Manager APK"; exit 1; }
 
