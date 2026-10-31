@@ -49,7 +49,7 @@ def metadata(path: Path) -> dict[str, str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     for key in ("stock-zip", "stock-report", "gki-candidate", "abi-report",
-                "metadata", "image", "testboot", "output-dir"):
+                "metadata", "image", "symvers", "testboot", "output-dir"):
         parser.add_argument("--" + key, type=Path, required=True)
     for key in ("source-run-id", "source-head-sha", "asset-id", "tested-sha256",
                 "observed-uname", "observed-build", "actor",
@@ -97,6 +97,9 @@ def main() -> None:
         or abi.get("kernel_release") != source["uname"]
         or abi.get("candidate_commit") != gki.get("candidate_commit")):
         stop("OEM static CRC/KMI gate not satisfied for exact candidate")
+    symvers_bytes = a.symvers.read_bytes()
+    if not symvers_bytes or digest(symvers_bytes) != meta.get("SYMVERS_SHA256"):
+        stop("Module.symvers hash differs from the GKI compile metadata")
     image = a.image.read_bytes()
     if not image or digest(image) != meta.get("IMAGE_SHA256"):
         stop("candidate Image hash mismatch")
@@ -189,7 +192,7 @@ def main() -> None:
         "stock_boot_sha256": fixture["stock_boot_sha256"],
         "candidate_gki_commit": gki["candidate_commit"],
         "candidate_image_sha256": fixture["baseline_kernel_sha256"],
-        "module_symvers_sha256": digest(a.output_dir.joinpath("Module.symvers").read_bytes()) if a.output_dir.joinpath("Module.symvers").is_file() else meta.get("SYMVERS_SHA256", ""),
+        "module_symvers_sha256": digest(symvers_bytes),
         "candidate_boot_sha256": fixture["tested_boot_sha256"],
         "abi_gate": abi["gate"],
         "abi_modules_checked": abi.get("module_count"),
