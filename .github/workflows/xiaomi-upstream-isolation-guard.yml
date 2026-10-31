@@ -102,6 +102,9 @@ jobs:
           x['build']='OS4.0.5.1.XBLCNXM'
           x['status']='NEW_OTA_CANDIDATE'
           x['may_build_gki_candidate']=True
+          x['kernel_version']='6.12.69'
+          x['kmi']='android16-6'
+          x['uname']='6.12.69-android16-6-test-abogki0-4k'
           with open('/tmp/ota-synthetic-test-only.json','w') as f:json.dump(x,f)
           PY
           python3 scripts/xiaomi-os4/resolve-ota-gki-candidate.py \
