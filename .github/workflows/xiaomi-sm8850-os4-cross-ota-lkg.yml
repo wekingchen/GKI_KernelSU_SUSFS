@@ -1,0 +1,101 @@
+name: "小米17 Pro OS4 / 跨 OTA LKG 晋升、复现及归档"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "已实际稳定使用的新 OTA 自定义内核 Run ID"
+        type: string
+        required: true
+      confirm_boot:
+        description: "我确认此 Run 的内核已成功在真机启动"
+        type: boolean
+        required: true
+        default: false
+      confirm_persistent:
+        description: "我确认此内核已持久安装并实际稳定使用"
+        type: boolean
+        required: true
+        default: false
+      confirm_runtime:
+        description: "我确认本次选用的 Root、SUSFS、NoMount、DroidSpaces 等功能实际正常"
+        type: boolean
+        required: true
+        default: false
+      note:
+        description: "稳定版备注（可选）"
+        type: string
+        required: false
+        default: "user-confirmed-ota"
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: pandora-os4-cross-ota-lkg-transaction
+  cancel-in-progress: false
+
+jobs:
+  verified-lkg-transaction:
+    name: "来源校验 → 固定源重编 → 严格验证 → 永久归档 → 指针晋升"
+    if: >-
+      github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
+      inputs.confirm_boot && inputs.confirm_persistent && inputs.confirm_runtime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: "检出受保护的 dev，并保留提交祖先"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+      - name: "预检与破坏性回归测试"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
+          python3 -m py_compile scripts/xiaomi-os4/cross-ota-lkg.py scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_cross_ota_lkg.py' -v
+      - name: "构建与校验环境"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq libdw-dev \
+            libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils \
+            zip zstd dwarves
+      - name: "只恢复相同版本工具链缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+      - name: "严格重建、长期归档下载回检，最后才更新 LKG"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_BOOT: ${{ inputs.confirm_boot }}
+          CONFIRM_PERSISTENT: ${{ inputs.confirm_persistent }}
+          CONFIRM_RUNTIME: ${{ inputs.confirm_runtime }}
+          PROMOTION_NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/run-cross-ota-lkg.sh
+      - name: "保护边界摘要"
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## 跨 OTA LKG 安全边界"
+            echo "- 源 Run 与当次 OTA、7 类上游 SHA、用户选择及每个产物哈希绑定"
+            echo "- 先强制重建 Image，再比对 normalized Image + exact config/Module.symvers"
+            echo "- 独立下载校验 Release 后才创建稳定版指针 PR"
+            echo "- 原始用户确认包与仅 CI 复现包分开，禁止冒充二次真机验证"
+            echo "- 永不修改历史 R62 Gen3 配置与 boot fixture，不自动刷机"
+          } >> "$GITHUB_STEP_SUMMARY"
