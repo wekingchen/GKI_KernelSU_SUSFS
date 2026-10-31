@@ -571,7 +571,7 @@ jobs:
           UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}
           CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}
           UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}
-EOF
+          EOF
 
           {
             echo "DEVICE=pandora"
