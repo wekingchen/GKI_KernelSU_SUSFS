@@ -42,6 +42,13 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --name "os4-dynamic-stable-upstreams-validation" \
             --dir "$CAND"
+          if [[ ! -s "$CAND/Image" ]]; then
+            AK3="$(find "$CAND" -maxdepth 1 -type f -name '*AnyKernel3.zip' -print -quit)"
+            [[ -n "$AK3" && -s "$AK3" ]] || {
+              echo "::error::实验候选既无 raw Image，也无 AnyKernel3"; exit 1;
+            }
+            unzip -p "$AK3" Image > "$CAND/Image"
+          fi
           test -s "$CAND/Image"
           test -s "$CAND/final.config"
           test -s "$CAND/Module.symvers"
