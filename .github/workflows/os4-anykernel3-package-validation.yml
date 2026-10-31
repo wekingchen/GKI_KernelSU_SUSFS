@@ -1,4 +1,5 @@
 name: "OS4 selectable AnyKernel3 package validation"
+# rerun after AnyKernel runtime-template fix
 
 on:
   push:
