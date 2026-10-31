@@ -786,7 +786,7 @@ jobs:
       - name: "新 OTA 功能编译缓存"
         uses: actions/cache@v6
         with:
-          path: ~/.cache/xiaomi-os4/ccache-r62
+          path: ~/.cache/xiaomi-os4/ccache-ota-*
           key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh') }}
 
       - name: "只使用最新稳定上游，在新 OTA GKI 上尝试功能编译"
