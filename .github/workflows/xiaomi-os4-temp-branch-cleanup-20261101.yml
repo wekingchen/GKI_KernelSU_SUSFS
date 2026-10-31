@@ -1,0 +1,50 @@
+name: "临时：删除已合并的 OS4 OTA 开发分支"
+
+on:
+  push:
+    paths:
+      - ".github/workflows/xiaomi-os4-temp-branch-cleanup-20261101.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: "只有两个 PR 已合并、目标分支 SHA 未变化才删除"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for pr in 36 37; do
+            [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq '.merged')" == true ]] || {
+              echo "::error::PR #$pr 尚未合并，拒绝清理"; exit 1;
+            }
+          done
+          branches=(
+            "os4-ota-dynamic-custom-20261101"
+            "os4-ota-test-feedback-20261101"
+            "os4/ota-test-feedback-20261101"
+          )
+          expected=(
+            "2867214f4739b2b35c3bbdf2920ae60e9c1105f0"
+            "6b0089118839672883cb71f57b74b9e31c1a7d6f"
+            "635feb1fa161eb026949941d826b29f5c06db962"
+          )
+          # Pre-validate all refs before first destructive mutation.
+          for i in "${!branches[@]}"; do
+            current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/${branches[$i]}" --jq '.object.sha')"
+            [[ "$current" == "${expected[$i]}" ]] || {
+              echo "::error::分支 ${branches[$i]} 已变化，禁止删除"; exit 1;
+            }
+          done
+          for i in "${!branches[@]}"; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/${branches[$i]}" >/dev/null
+            echo "已删除临时分支：${branches[$i]}" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "本临时工作流文件可在结束后删除。" >> "$GITHUB_STEP_SUMMARY"
