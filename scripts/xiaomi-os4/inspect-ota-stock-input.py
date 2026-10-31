@@ -57,10 +57,11 @@ def main() -> None:
             abort("unexpected number/size of ZIP members")
         if any(x.file_size > MAX_MEMBER_SIZE or x.flag_bits & 0x1 for x in info):
             abort("oversized or encrypted ZIP member")
-        bo = members(z, "boot.img")
+        bo = [x for x in z.infolist() if not x.is_dir() and
+              re.fullmatch(r"boot(?:_[^/]*)?\.img", x.filename.replace("\\", "/").rsplit("/", 1)[-1], re.I)]
         rd = members(z, "README.txt")
         if len(bo) != 1 or len(rd) != 1:
-            abort("ZIP must contain exactly one boot.img and one README.txt")
+            abort("ZIP must contain exactly one boot*.img and one README.txt")
         boot = z.read(bo[0])
         readme = z.read(rd[0]).decode("utf-8", "replace")
     fields = {}
