@@ -1,5 +1,5 @@
 name: "OS4 dynamic stable upstreams one-shot validation"
-# rerun after production-workflow YAML fix
+# rerun with direct resolved-upstreams shell injection
 
 on:
   push:
@@ -86,40 +86,49 @@ jobs:
 
       - name: "使用解析快照编译默认全功能 OS4"
         shell: bash
-        env:
-          XIAOMI_OS4_SELECTABLE_BUILD: "1"
-          XIAOMI_OS4_ROOT_MODE: "bakasu-susfs"
-          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: "1"
-          XIAOMI_OS4_USE_NOMOUNT: "1"
-          XIAOMI_OS4_DROIDSPACES: "1"
-          XIAOMI_OS4_USE_NTSYNC: "1"
-          XIAOMI_OS4_USE_BBG: "1"
-          XIAOMI_OS4_USE_REKERNEL: "1"
-          XIAOMI_OS4_USE_NETWORKING: "1"
-          XIAOMI_OS4_USE_CVE: "1"
-          OS4_BAKASU_REF_KIND: ${{ env.RESOLVED_BAKASU_KIND }}
-          OS4_BAKASU_REF: ${{ env.RESOLVED_BAKASU_REF }}
-          OS4_BAKASU_COMMIT: ${{ env.RESOLVED_BAKASU_COMMIT }}
-          OS4_SUSFS_REF_KIND: ${{ env.RESOLVED_SUSFS_KIND }}
-          OS4_SUSFS_BRANCH: ${{ env.RESOLVED_SUSFS_REF }}
-          OS4_SUSFS_COMMIT: ${{ env.RESOLVED_SUSFS_COMMIT }}
-          OS4_NOMOUNT_REF_KIND: ${{ env.RESOLVED_NOMOUNT_KIND }}
-          OS4_NOMOUNT_REF: ${{ env.RESOLVED_NOMOUNT_REF }}
-          OS4_NOMOUNT_COMMIT: ${{ env.RESOLVED_NOMOUNT_COMMIT }}
-          OS4_DROIDSPACES_REF_KIND: ${{ env.RESOLVED_DROIDSPACES_KIND }}
-          OS4_DROIDSPACES_REF: ${{ env.RESOLVED_DROIDSPACES_REF }}
-          OS4_DROIDSPACES_COMMIT: ${{ env.RESOLVED_DROIDSPACES_COMMIT }}
-          OS4_NTSYNC_REF_KIND: ${{ env.RESOLVED_NTSYNC_KIND }}
-          OS4_NTSYNC_PATCH_REF: ${{ env.RESOLVED_NTSYNC_REF }}
-          OS4_NTSYNC_PATCH_COMMIT: ${{ env.RESOLVED_NTSYNC_COMMIT }}
-          OS4_BBG_REF_KIND: ${{ env.RESOLVED_BBG_KIND }}
-          OS4_BBG_REF: ${{ env.RESOLVED_BBG_REF }}
-          OS4_BBG_COMMIT: ${{ env.RESOLVED_BBG_COMMIT }}
-          OS4_REKERNEL_REF_KIND: ${{ env.RESOLVED_REKERNEL_KIND }}
-          OS4_REKERNEL_REF: ${{ env.RESOLVED_REKERNEL_REF }}
-          OS4_REKERNEL_COMMIT: ${{ env.RESOLVED_REKERNEL_COMMIT }}
         run: |
           set -euo pipefail
+          source "$RUNNER_TEMP/resolved-upstreams.env"
+
+          export XIAOMI_OS4_SELECTABLE_BUILD=1
+          export XIAOMI_OS4_ROOT_MODE=bakasu-susfs
+          export XIAOMI_OS4_SUSFS_EXTRA_FEATURES=1
+          export XIAOMI_OS4_USE_NOMOUNT=1
+          export XIAOMI_OS4_DROIDSPACES=1
+          export XIAOMI_OS4_USE_NTSYNC=1
+          export XIAOMI_OS4_USE_BBG=1
+          export XIAOMI_OS4_USE_REKERNEL=1
+          export XIAOMI_OS4_USE_NETWORKING=1
+          export XIAOMI_OS4_USE_CVE=1
+
+          export OS4_BAKASU_REF_KIND="$RESOLVED_BAKASU_KIND"
+          export OS4_BAKASU_REF="$RESOLVED_BAKASU_REF"
+          export OS4_BAKASU_COMMIT="$RESOLVED_BAKASU_COMMIT"
+
+          export OS4_SUSFS_REF_KIND="$RESOLVED_SUSFS_KIND"
+          export OS4_SUSFS_BRANCH="$RESOLVED_SUSFS_REF"
+          export OS4_SUSFS_COMMIT="$RESOLVED_SUSFS_COMMIT"
+
+          export OS4_NOMOUNT_REF_KIND="$RESOLVED_NOMOUNT_KIND"
+          export OS4_NOMOUNT_REF="$RESOLVED_NOMOUNT_REF"
+          export OS4_NOMOUNT_COMMIT="$RESOLVED_NOMOUNT_COMMIT"
+
+          export OS4_DROIDSPACES_REF_KIND="$RESOLVED_DROIDSPACES_KIND"
+          export OS4_DROIDSPACES_REF="$RESOLVED_DROIDSPACES_REF"
+          export OS4_DROIDSPACES_COMMIT="$RESOLVED_DROIDSPACES_COMMIT"
+
+          export OS4_NTSYNC_REF_KIND="$RESOLVED_NTSYNC_KIND"
+          export OS4_NTSYNC_PATCH_REF="$RESOLVED_NTSYNC_REF"
+          export OS4_NTSYNC_PATCH_COMMIT="$RESOLVED_NTSYNC_COMMIT"
+
+          export OS4_BBG_REF_KIND="$RESOLVED_BBG_KIND"
+          export OS4_BBG_REF="$RESOLVED_BBG_REF"
+          export OS4_BBG_COMMIT="$RESOLVED_BBG_COMMIT"
+
+          export OS4_REKERNEL_REF_KIND="$RESOLVED_REKERNEL_KIND"
+          export OS4_REKERNEL_REF="$RESOLVED_REKERNEL_REF"
+          export OS4_REKERNEL_COMMIT="$RESOLVED_REKERNEL_COMMIT"
+
           bash scripts/xiaomi-os4/build-r62-features.sh
 
       - name: "验证上游身份与 ABI/KMI"
