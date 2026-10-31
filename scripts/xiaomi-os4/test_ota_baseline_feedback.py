@@ -40,6 +40,8 @@ class SyntheticFeedback(unittest.TestCase):
         self.gki = self.base / "gki-candidate.json"
         self.abi = self.base / "ota-abi-report.json"
         self.metadata = self.base / "build-metadata.txt"
+        self.symvers = self.base / "Module.symvers"
+        self.symvers.write_bytes(b"synthetic vmlinux CRC evidence\n")
         self.testboot = self.base / "testboot.img"
         self.outdir = self.base / "out"
 
