@@ -175,3 +175,9 @@ adb shell cat /proc/modules
 ---
 
 **恢复原则**：不跨 HyperOS 版本刷旧 boot，不把 Root 状态备份声称为原厂 pristine boot，不用静态 ABI/CI 结果代替真机启动证据。完整技术限制请看 [OS4 全流程独立审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)。
+
+## 八、确认新 OTA 自定义版本稳定后，怎样晋升当前 LKG？
+
+**取得 IMG/AnyKernel3 无需第二次反馈。** 只有当你后来真正用该功能版在手机上启动、持久安装并确认选用的功能正常，才需要主动标记 LKG：在 [跨 OTA LKG 晋升、复现及归档](../.github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml) 输入原自定义 Run ID、勾选三项真实确认，之后 CI 自动完成原版本源码严格重编、OEM ABI/归一化 Image 校验、原版及复现版 Release 资产 SHA 下载回检、稳定指针 PR 合并与发布。首次新 OTA 从 Gen 4 开始，不再使用旧 R62 晋升入口；失败即停。
+
+当前还没有新 OTA 可用于实机端到端验证；该流程的适用条件、错误恢复及证明边界见 [跨 OTA LKG 文档](xiaomi-17-pro-os4-cross-ota-lkg.md)。
