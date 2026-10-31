@@ -67,8 +67,8 @@ BEST_ARTIFACTS=""
 # The exact main commit may have been pushed seconds before this Xiaomi run.
 # Wait for BakaSU's own signed Manager workflow to finish so the APK and kernel
 # always come from the exact same source commit.
-for ATTEMPT in $(seq 1 10); do
-  echo "[BakaSU Manager] 查找与 $TARGET_COMMIT 完全匹配的成功构建（$ATTEMPT/10）"
+for ATTEMPT in $(seq 1 40); do
+  echo "[BakaSU Manager] 查找与 $TARGET_COMMIT 完全匹配的成功构建（$ATTEMPT/40）"
   BEST_VERSION=0
   BEST_RUN_ID=""
   BEST_HEAD_SHA=""
@@ -117,7 +117,7 @@ for ATTEMPT in $(seq 1 10); do
   done
 
   [[ -n "$BEST_RUN_ID" ]] && break
-  if (( ATTEMPT < 10 )); then
+  if (( ATTEMPT < 40 )); then
     echo "[BakaSU Manager] 精确提交的官方 Manager 尚未完成，30 秒后重试"
     sleep 30
   fi
