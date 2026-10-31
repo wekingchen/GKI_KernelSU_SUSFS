@@ -85,12 +85,12 @@ cp -a "$AK3/META-INF" "$PKG/"
 cp -a "$AK3/tools" "$PKG/"
 cp -f "$IMAGE" "$PKG/Image"
 
-cat > "$PKG/anykernel.sh" <<AK3EOF
+cat > "$PKG/anykernel.sh" <<'AK3EOF'
 ### AnyKernel3 Ramdisk Mod Script
 ## Xiaomi 17 Pro / pandora / HyperOS 4 R62 selectable kernel installer
 
 properties() { '
-kernel.string=Xiaomi 17 Pro OS4 R62 / $PROFILE_LABEL
+kernel.string=Xiaomi 17 Pro OS4 R62 / @@PROFILE_LABEL@@
 do.devicecheck=1
 do.modules=0
 do.systemless=0
@@ -118,20 +118,18 @@ NO_MAGISK_CHECK=1;
 
 ui_print " ";
 ui_print "Xiaomi 17 Pro / pandora";
-ui_print "HyperOS 4 R62 / $PROFILE_LABEL";
-ui_print "Kernel: $EXPECTED_RELEASE";
-ui_print "Validation: $VALIDATION_LEVEL";
+ui_print "HyperOS 4 R62 / @@PROFILE_LABEL@@";
+ui_print "Kernel: @@EXPECTED_RELEASE@@";
+ui_print "Validation: @@VALIDATION_LEVEL@@";
 ui_print "Replaces only the active boot kernel payload.";
 ui_print "Preserves ramdisk and does not touch init_boot/vendor_boot/dtbo/vbmeta.";
-if [ "$MODE" = "custom" ]; then
-  ui_print "WARNING: this exact custom feature combination has not been real-device validated.";
-fi
+@@CUSTOM_WARNING@@
 ui_print " ";
 
 build="$(getprop ro.build.version.incremental 2>/dev/null)"
 [ -z "$build" ] && build="$(getprop ro.system.build.version.incremental 2>/dev/null)"
-if [ "$build" != "$EXPECTED_BUILD" ]; then
-  abort "Unsupported OS build: $build (expected $EXPECTED_BUILD)";
+if [ "$build" != "@@EXPECTED_BUILD@@" ]; then
+  abort "Unsupported OS build: $build (expected @@EXPECTED_BUILD@@)";
 fi
 
 split_boot;
@@ -156,6 +154,31 @@ fi
 flash_boot;
 AK3EOF
 
+python3 - "$PKG/anykernel.sh" "$PROFILE_LABEL" "$EXPECTED_RELEASE" "$VALIDATION_LEVEL" "$EXPECTED_BUILD" "$MODE" <<'PY'
+from pathlib import Path
+import sys
+
+path, profile, release, validation, build, mode = sys.argv[1:]
+p = Path(path)
+text = p.read_text()
+warning = (
+    'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
+    if mode == "custom" else
+    'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+)
+replacements = {
+    "@@PROFILE_LABEL@@": profile,
+    "@@EXPECTED_RELEASE@@": release,
+    "@@VALIDATION_LEVEL@@": validation,
+    "@@EXPECTED_BUILD@@": build,
+    "@@CUSTOM_WARNING@@": warning,
+}
+for old, new in replacements.items():
+    text = text.replace(old, new)
+if "@@" in text:
+    raise SystemExit("unresolved AnyKernel3 template placeholder")
+p.write_text(text)
+PY
 cat > "$PKG/README.txt" <<EOF
 Xiaomi 17 Pro / pandora
 HyperOS build: $EXPECTED_BUILD
