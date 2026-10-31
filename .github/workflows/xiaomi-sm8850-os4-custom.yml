@@ -313,21 +313,39 @@ jobs:
             echo "BOOT_SHA256=$BOOT_SHA"
           } >> "$GITHUB_ENV"
 
-      - name: "持久化包保护门禁"
+      - name: "生成 AnyKernel3（按验证等级标记）"
         shell: bash
         run: |
           set -euo pipefail
           RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
           OUT="${{ runner.temp }}/custom-out"
+
           if [[ "$BYTE_EXACT_LKG" == "1" ]]; then
+            AK3_MODE="validated-lkg"
+          elif [[ "$FULL_PARITY_SELECTION" == "1" ]]; then
+            AK3_MODE="full-parity-rebuild"
+          else
+            AK3_MODE="custom"
+          fi
+
+          XIAOMI_AK3_MODE="$AK3_MODE" \
+          XIAOMI_AK3_RELEASE="$ACTUAL_KERNEL_RELEASE" \
             bash scripts/xiaomi-os4/package-validated-anykernel3.sh "$RES/Image" "$OUT" \
               | tee "$OUT/package-report.txt"
-          elif [[ "$FULL_PARITY_SELECTION" == "1" ]]; then
-            echo "Full Parity 功能/ABI/配置与 LKG 等价，但本次模块签名证书与 GNU build-id 为新生成值。"
-            echo "在新的 normalized-equivalent Image 完成一次真机 fastboot boot 验证前，不生成持久化 AnyKernel3。"
-          else
-            echo "自定义组合尚未真机验证：不生成 AnyKernel3。"
-          fi
+
+          ANYKERNEL3_PATH="$(find "$OUT" -maxdepth 1 -type f -name '*AnyKernel3.zip' -print -quit)"
+          [[ -n "$ANYKERNEL3_PATH" && -s "$ANYKERNEL3_PATH" ]] || {
+            echo "::error::AnyKernel3 package missing"
+            exit 1
+          }
+          ANYKERNEL3_NAME="$(basename "$ANYKERNEL3_PATH")"
+          ANYKERNEL3_SHA="$(sha256sum "$ANYKERNEL3_PATH" | awk '{print $1}')"
+
+          {
+            echo "ANYKERNEL3_MODE=$AK3_MODE"
+            echo "ANYKERNEL3_NAME=$ANYKERNEL3_NAME"
+            echo "ANYKERNEL3_SHA256=$ANYKERNEL3_SHA"
+          } >> "$GITHUB_ENV"
 
       - name: "整理产物与选择清单"
         shell: bash
@@ -365,24 +383,21 @@ jobs:
             echo "FULL_PARITY_SELECTION=$FULL_PARITY_SELECTION"
             echo "LKG_NORMALIZED_EQUIVALENCE=$LKG_NORMALIZED_EQUIVALENCE"
             echo "BYTE_EXACT_LKG=$BYTE_EXACT_LKG"
+            echo "ANYKERNEL3_MODE=$ANYKERNEL3_MODE"
+            echo "ANYKERNEL3=$ANYKERNEL3_NAME"
+            echo "ANYKERNEL3_SHA256=$ANYKERNEL3_SHA256"
             if [[ "$BYTE_EXACT_LKG" == "1" ]]; then
-              echo "PERSISTENT_PACKAGE=VERIFIED_LKG_ANYKERNEL3_INCLUDED"
-              echo "SAFETY=VERIFIED_PERSISTENT_LKG"
+              echo "SAFETY=VERIFIED_BYTE_EXACT_LKG"
             elif [[ "$FULL_PARITY_SELECTION" == "1" ]]; then
-              echo "PERSISTENT_PACKAGE=NOT_GENERATED"
-              echo "SAFETY=FULL_PARITY_EQUIVALENT_FASTBOOT_TEST_ONLY"
+              echo "SAFETY=VERIFIED_FULL_PARITY_REBUILD"
             else
-              echo "PERSISTENT_PACKAGE=NOT_GENERATED"
-              echo "SAFETY=CUSTOM_FASTBOOT_TEST_ONLY"
+              echo "SAFETY=CUSTOM_UNVERIFIED_PERSISTENT_PACKAGE"
             fi
           } > "$OUT/selection-manifest.txt"
 
           (
             cd "$OUT"
-            sha256sum Image Module.symvers "$BOOT_NAME" > SHA256SUMS.txt
-            if [[ -f Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip ]]; then
-              sha256sum Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip >> SHA256SUMS.txt
-            fi
+            sha256sum Image Module.symvers "$BOOT_NAME" "$ANYKERNEL3_NAME" > SHA256SUMS.txt
           )
 
       - name: "上传自定义构建"
@@ -404,16 +419,19 @@ jobs:
             echo "- Kernel: `$ACTUAL_KERNEL_RELEASE`"
             echo "- Image SHA256: `$ACTUAL_IMAGE_SHA256`"
             echo "- fastboot boot SHA256: `$BOOT_SHA256`"
+            echo "- AnyKernel3: `$ANYKERNEL3_NAME`"
+            echo "- AnyKernel3 SHA256: `$ANYKERNEL3_SHA256`"
             echo "- 是否为 Full Parity 默认功能组合: `$FULL_PARITY_SELECTION`"
             echo "- normalized LKG 等价校验: `$LKG_NORMALIZED_EQUIVALENCE`"
             echo "- 是否字节级等于历史 LKG: `$BYTE_EXACT_LKG`"
             echo
             if [[ "$BYTE_EXACT_LKG" == "1" ]]; then
-              echo "本次构建字节级等于已验证持久化 LKG，并包含 AnyKernel3。"
+              echo "本次构建字节级等于历史真机 LKG，已生成已验证 AnyKernel3。"
             elif [[ "$FULL_PARITY_SELECTION" == "1" ]]; then
-              echo "默认 Full Parity 的配置、ABI 与除自动模块签名证书/build-id 外的 Image 内容均与 LKG 等价。"
-              echo "**当前仍只生成 fastboot boot 测试镜像；完成一次真机验证后再开放该重建路径的持久化包。**"
+              echo "默认 Full Parity 配置、ABI 与 normalized Image 均与 LKG 等价，且该重建路径已完成 Xiaomi 17 Pro OS4 真机临时启动验证。"
+              echo "**已生成可持久化使用的 Full Parity AnyKernel3。**"
             else
-              echo "**自定义组合尚未真机验证，只生成 fastboot boot 测试镜像，不生成持久化 AnyKernel3。**"
+              echo "**已按选择生成 CUSTOM-UNVERIFIED AnyKernel3；该精确功能组合尚未完成真机启动验证，请保留已知可启动 boot 作为恢复基线。**"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
