@@ -761,7 +761,9 @@ jobs:
           bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
           python3 -m py_compile scripts/xiaomi-os4/ota-development-pointer.py \
             scripts/xiaomi-os4/check-ota-feature-abi.py \
+            scripts/xiaomi-os4/check-ota-anykernel-evidence.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
@@ -872,15 +874,58 @@ jobs:
             "$RES/build-metadata.txt" "$RES/ota-custom-abi-report.json" "$OUT/"
           cp ".github/config/ota-verified/$VERIFIED_BUILD/verification.json" "$OUT/verified-baseline.json"
           cp "$FIX" "$OUT/fixture.json"
-          cat > "$OUT/README-ONLY-FASTBOOT-BOOT.md" <<EOF
-          # $VERIFIED_BUILD / 自定义内核待测包
-          来源: 本 OTA 的真机已验证纯 GKI 基线；上游功能为本次 Run 新解析稳定提交。
-          **功能版尚未经真机验证**；仅允许 fastboot boot 临时启动，绝不 fastboot flash。
-          不生成 AnyKernel3；成功开机不自动晋升 LKG。
+          cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
+          # $VERIFIED_BUILD / 新 OTA 自定义内核（未经真机功能版验证）
+          GKI 基线已经由用户真机确认，**本次功能版并未因此获得启动验证**。
+          同一次构建提供 FASTBOOT-BOOT-ONLY.img 与未验证 AnyKernel3 安装包。
+          **强烈建议先用 fastboot boot 临时测试**，勿直接 fastboot flash。
+          AnyKernel3 会持久修改活动 boot；若启动失败可能需要 fastboot 恢复。
+          两个文件中的内核均为同一个 Image；不要求再次提交测试才能取得安装包。
+          该功能版不会自动晋升 LKG，Gen 3 LKG 与旧版 boot fixture 保持不变。
           EOF
-          (cd "$OUT" && sha256sum Image Module.symvers *.img > SHA256SUMS.txt)
 
-      - name: "上传新版本自定义待测内核"
+      - name: "同时生成新 OTA 实验性 AnyKernel3（无须二次反馈）"
+        shell: bash
+        env:
+          VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
+        run: |
+          set -euo pipefail
+          RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
+          OUT="$RUNNER_TEMP/ota-custom-output"
+          RECORD=".github/config/ota-verified/$VERIFIED_BUILD/verification.json"
+          FIXTURE=".github/config/ota-verified/$VERIFIED_BUILD/fixture.json"
+          EXPECTED="$(jq -r .kernel_release "$RECORD")"
+          [[ "$(jq -r .gate "$RES/ota-custom-abi-report.json")" == "PASS" ]] || {
+            echo "::error::功能内核 ABI 检查未通过，不能打包实验性 AnyKernel3"; exit 1;
+          }
+          XIAOMI_AK3_MODE=ota-custom \
+          XIAOMI_AK3_BUILD="$VERIFIED_BUILD" \
+          XIAOMI_AK3_RELEASE="$EXPECTED" \
+          XIAOMI_AK3_OTA_BASELINE_RECORD="$RECORD" \
+          XIAOMI_AK3_OTA_FIXTURE="$FIXTURE" \
+          XIAOMI_AK3_OTA_ABI_REPORT="$RES/ota-custom-abi-report.json" \
+          XIAOMI_AK3_OTA_METADATA="$RES/build-metadata.txt" \
+            bash scripts/xiaomi-os4/package-validated-anykernel3.sh "$RES/Image" "$OUT" \
+            | tee "$OUT/anykernel3-packaging-report.txt"
+          mapfile -t ZIP < <(find "$OUT" -maxdepth 1 -type f -name "*-UNVERIFIED-AnyKernel3.zip")
+          [[ "${#ZIP[@]}" -eq 1 && -s "${ZIP[0]}" ]] || {
+            echo "::error::实验性 AnyKernel3 没有正确生成"; exit 1;
+          }
+          unzip -t "${ZIP[0]}" >/dev/null
+          unzip -p "${ZIP[0]}" Image | sha256sum | awk '{print $1}' > "$OUT/anykernel-image.sha256"
+          [[ "$(cat "$OUT/anykernel-image.sha256")" == "$(sha256sum "$RES/Image" | awk '{print $1}')" ]] || {
+            echo "::error::AnyKernel3 中 Image 不等于同次 FASTBOOT BOOT 的 Image"; exit 1;
+          }
+          (cd "$OUT" && sha256sum Image Module.symvers *.img *.zip > SHA256SUMS.txt)
+          {
+            echo "## 同次构建产生两种待测格式"
+            echo "- FASTBOOT-BOOT-ONLY.img：推荐先临时启动测试"
+            echo "- AnyKernel3：实验性持久安装，已标记 OTA_CUSTOM_UNVERIFIED"
+            echo "- 内核 Image SHA256 一致；无需再提交真机结果才能下载安装包"
+            echo "- 仅 LKG 晋升需要另外明确确认"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "上传新版本自定义内核：IMG + UNVERIFIED AnyKernel3"
         uses: actions/upload-artifact@v6
         with:
           name: pandora-OTA-CUSTOM-${{ needs.select-baseline.outputs.build }}-run-${{ github.run_id }}
@@ -900,8 +945,10 @@ jobs:
             echo "- 开发基线: .github/config/ota-verified/$VERIFIED_BUILD/"
             echo "- 功能组件: 本次最新稳定上游"
             echo "- OEM CRC/KMI: 已按新 OTA baseline 强制检查"
-            echo "- 产物: 未经真机验证的 FASTBOOT-BOOT-ONLY.img"
-            echo "- 禁止 fastboot flash、旧版 R62 fixture 或自动晋升 Gen 3 LKG"
+            echo "- 同时产出: FASTBOOT-BOOT-ONLY.img + OTA_CUSTOM_UNVERIFIED-AnyKernel3.zip"
+            echo "- 两者使用相同 Image，AnyKernel3 无需二次反馈就可取得"
+            echo "- 临时启动通过前，不建议进行 AnyKernel3 持久安装"
+            echo "- 禁止直接 fastboot flash、复用旧 R62 fixture 或自动晋升 LKG"
           } >> "$GITHUB_STEP_SUMMARY"
 
   bakasu-manager:
