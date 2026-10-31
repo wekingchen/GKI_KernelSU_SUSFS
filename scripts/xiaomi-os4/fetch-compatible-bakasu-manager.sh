@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
 
 OUTDIR="${1:-${RUNNER_TEMP:-/tmp}/bakasu-manager-out}"
+TARGET_COMMIT="${2:-${XIAOMI_OS4_BAKASU_COMMIT:-}}"
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 API_ROOT="https://api.github.com/repos/Baka-SU/BakaSU"
 WORKDIR="$(mktemp -d)"
@@ -79,8 +80,8 @@ for PAGE in $(seq 1 10); do
 
     RUN_VERSION="$(calculate_version "$HEAD_SHA" || true)"
     [[ "$RUN_VERSION" =~ ^[0-9]+$ ]] || continue
-    (( RUN_VERSION <= TARGET_KSU_VERSION )) || continue
-    (( RUN_VERSION >= BEST_VERSION )) || continue
+    [[ "$HEAD_SHA" == "$TARGET_COMMIT" ]] || continue
+    (( RUN_VERSION == TARGET_KSU_VERSION )) || continue
 
     ARTIFACTS="$(curl_api "$API_ROOT/actions/runs/$RUN_ID/artifacts?per_page=100")"
     CANDIDATES="$(jq -c '
@@ -96,15 +97,12 @@ for PAGE in $(seq 1 10); do
     BEST_HEAD_SHA="$HEAD_SHA"
     BEST_HEAD_BRANCH="$HEAD_BRANCH"
     BEST_ARTIFACTS="$CANDIDATES"
-
-    if (( BEST_VERSION == TARGET_KSU_VERSION )); then
-      break 2
-    fi
+    break 2
   done
 done
 
 [[ -n "$BEST_RUN_ID" && -n "$BEST_ARTIFACTS" ]] || {
-  echo "::error::未找到 KSU 版本 <= $TARGET_KSU_VERSION 的 BakaSU Manager 成功构建"
+  echo "::error::未找到与 BakaSU 提交 $TARGET_COMMIT / KSU $TARGET_KSU_VERSION 完全匹配的成功 Manager 构建"
   exit 1
 }
 
@@ -142,8 +140,8 @@ while IFS=$'\t' read -r NAME URL; do
       echo "::error::无法从 BakaSU Manager 文件名解析 KSU 版本: $APK_NAME"
       exit 1
     fi
-    (( APK_KSU_VERSION <= TARGET_KSU_VERSION )) || {
-      echo "::error::Manager KSU $APK_KSU_VERSION 高于 OS4 内核 KSU $TARGET_KSU_VERSION: $APK_NAME"
+    (( APK_KSU_VERSION == TARGET_KSU_VERSION )) || {
+      echo "::error::Manager KSU $APK_KSU_VERSION 与目标内核 KSU $TARGET_KSU_VERSION 不一致: $APK_NAME"
       exit 1
     }
 
@@ -169,7 +167,8 @@ if [[ "$LATEST_SHA" != "$OS4_BAKASU_COMMIT" ]]; then
 fi
 
 {
-  echo "BAKASU_KERNEL_PIN=$OS4_BAKASU_COMMIT"
+  echo "BAKASU_TARGET_COMMIT=$TARGET_COMMIT"
+  echo "BAKASU_VALIDATED_REFERENCE=$OS4_BAKASU_COMMIT"
   echo "BAKASU_KERNEL_KSU_VERSION=$TARGET_KSU_VERSION"
   echo "BAKASU_UPSTREAM_HEAD=$LATEST_SHA"
   echo "BAKASU_UPSTREAM_STATUS=$UPSTREAM_STATUS"
