@@ -131,7 +131,7 @@ Generic Netlink family: rekernel
 - boot fixture / ABI lock；
 - 来源 run / AnyKernel3 / fastboot boot 哈希。
 
-该工作流按晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。**配置锁定不等于已经证明复现成功**；每次晋升后的新 LKG 还应至少运行一次该 Workflow，通过后才标记“该代 LKG 复现已验证”。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
+该工作流按晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。**从 Gen 4 开始，晋升成功后由 GitHub 自动启动复现，不再需要手动运行「当前 LKG 复现与打包」。** 每次晋升后的新 LKG 只有复现成功才标记“该代 LKG 复现已验证”，随后才由自动归档工作流发布独立的 `pandora-os4-lkg-genN` Release。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
 
 当某次正式自定义构建经过真机启动、持久化使用并由用户确认稳定后，使用：
 
@@ -150,8 +150,12 @@ Generic Netlink family: rekernel
 6. 提交 LKG 配置到专用分支，再次对**已提交的准确差异**执行上游隔离门禁；仅允许当前 LKG 指针与一份旧 LKG 历史快照；
 7. 自动创建非草稿 PR，并核对 PR head/base、服务器侧变更文件清单、当前 `dev` 的基线 SHA、GitHub 可合并状态；
 8. 上述所有校验成功才由 GitHub 自动 squash 合并到 `dev`，更新当前 LKG，并清理临时分支。若任何检查失败或分支保护禁止合并，则停止并保留 PR 供排查，**不会擅自更新当前 LKG**。
+9. 本次晋升 Run ID 与新的 `LKG_PROMOTION_RUN_ID` 一起保存；**晋升 Workflow 确认成功结束后**，GitHub `workflow_run` 自动启动严格 LKG 复现。复现仅接受当前 LKG 的同一晋升 Run ID，拒绝过期触发、跳过用户确认的晋升和跨代复现。
+10. 严格复现成功结束后，再由 GitHub `workflow_run` 自动执行长期 Release 归档；强制核对原始真机版本、BakaSU Manager、复现 Image、SHA256 与锁定组件快照，上传后从 Release 下载回检，完成才发布。任何阶段失败会阻断后续自动步骤，但已晋升的 LKG 不会被自动回滚。
 
 **不需要人工合并 LKG 晋升 PR**。机器人创建 PR 时 GitHub 可能要求人工批准其独立 CI；因此晋升所需的校验全部在本工作流内完成，不依赖该异步 CI。独立隔离 Workflow 仍用于 `os4-*`、`xiaomi-*`、`pandora-*` 开发分支及开发 PR；仅包含 LKG 指针和历史快照变更的 PR 不触发它。
+
+**历史说明：**Gen 3 的严格复现 Run `41213989920` 与 Release `pandora-os4-lkg-gen3` 已在旧流程下实际验证成功。新的无手动复现接力从下一次新晋升（Gen 4）开始生效；不能把 Gen 3 的手动测试冒充为新自动链路的端到端测试。
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
