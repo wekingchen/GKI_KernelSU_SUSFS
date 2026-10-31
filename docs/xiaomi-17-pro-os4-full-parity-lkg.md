@@ -131,7 +131,7 @@ Generic Netlink family: rekernel
 - boot fixture / ABI lock；
 - 来源 run / AnyKernel3 / fastboot boot 哈希。
 
-该工作流按**当前 R62 体系**在晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。后续 **R62 范围内**若再次晋升，晋升成功后 GitHub 的 workflow_run 会尝试自动接力复现、归档。**这套逻辑并未泛化到新 OTA：不能简单把 Gen 4 等同于可适配任意新 HyperOS 版本。** 新 OTA 要先完成专用晋升/复现/归档代码的版本化改造及测试。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
+该工作流按**当前 R62 体系**在晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。后续 **R62 范围内**若再次晋升，晋升成功后 GitHub 的 workflow_run 会尝试自动接力复现、归档。**这套历史 R62 工作流仍不通用于新 OTA**。新 OTA 已另行实现[版本化 LKG 单次交易入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，独立按原始 Run 重建、校验、归档与晋升；代码已测试，真实新 OTA 尚待验证。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
 
 当某次正式自定义构建经过真机启动、持久化使用并由用户确认稳定后，使用：
 
@@ -140,7 +140,7 @@ Generic Netlink family: rekernel
 小米17 Pro OS4 / 将自定义构建晋升为 LKG
 ```
 
-**仅限来自 R62 路径的正式 `dev` 自定义 Run ID**（Artifact 名称为 `pandora-OS4-R62-CUSTOM-run-<id>`）。不能输入新 OTA 的 `pandora-OTA-CUSTOM-<build>-run-<id>`：现有晋升仍强制依赖 R62 的 ABI 锁、系统 build、fixture、AnyKernel3、复现和归档设置；**目前新 OTA 晋升 LKG 不支持**。对受支持的 R62 Run，需你明确确认已经真机稳定验证，晋升流程会：
+**仅限来自 R62 路径的正式 `dev` 自定义 Run ID**（Artifact 名称为 `pandora-OS4-R62-CUSTOM-run-<id>`）。不能输入新 OTA 的 `pandora-OTA-CUSTOM-<build>-run-<id>`：现有晋升仍强制依赖 R62 的 ABI 锁、系统 build、fixture、AnyKernel3、复现和归档设置；**请使用独立跨 OTA LKG 工作流，不要使用此旧入口**。对受支持的 R62 Run，需你明确确认已经真机稳定验证，晋升流程会：
 
 1. 下载并重新校验该 run 的 Image / config / Module.symvers / fastboot boot / AnyKernel3；
 2. 重新执行 ABI/KMI 固定锁；
