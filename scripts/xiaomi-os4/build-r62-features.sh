@@ -225,11 +225,11 @@ if [[ "$USE_BAKASU" == "1" ]]; then
   checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
 
   # The formal OS4 custom workflow tracks BakaSU main at run start. The
-  # historical OS4_BAKASU_COMMIT remains the real-device-validated reference.
-  # If upstream changed only userspace/Manager, the kernel subtree is still
-  # equivalent and the Full Parity LKG gates remain meaningful. If kernel/
-  # changed, automatically downgrade this run to CUSTOM-UNVERIFIED while still
-  # compiling the newest source through the normal ABI/KMI safety gates.
+  # historical OS4_BAKASU_COMMIT remains the last real-device-validated
+  # reference. BakaSU's Kbuild derives KSU_VERSION and KSU_VERSION_FULL from
+  # the whole repository HEAD, so even a userspace-only upstream commit changes
+  # the compiled kernel identity. Therefore any newer BakaSU SHA is treated as
+  # CUSTOM-UNVERIFIED until that exact source revision passes real-device test.
   if [[ "$BAKASU_SHA" == "$OS4_BAKASU_COMMIT" ]]; then
     BAKASU_KERNEL_TREE_EQUIVALENT=1
   else
@@ -241,13 +241,14 @@ if [[ "$USE_BAKASU" == "1" ]]; then
     VALIDATED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$OS4_BAKASU_COMMIT:kernel")"
     if [[ "$SELECTED_BAKASU_KERNEL_TREE" == "$VALIDATED_BAKASU_KERNEL_TREE" ]]; then
       BAKASU_KERNEL_TREE_EQUIVALENT=1
-      echo "[OS4] BakaSU main 已更新，但 kernel/ 子树与已验证 pin 相同；保留 Full Parity LKG 身份"
+      echo "[OS4] BakaSU main 的 kernel/ 子树未变，但仓库 HEAD/KSU_VERSION 已变化"
     else
       BAKASU_KERNEL_TREE_EQUIVALENT=0
-      if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
-        EXACT_LKG_SELECTION=0
-        echo "::warning::BakaSU main 的 kernel/ 子树已变化；本次继续构建最新内核，但自动降级为 CUSTOM-UNVERIFIED"
-      fi
+      echo "[OS4] BakaSU main 的 kernel/ 子树也已变化"
+    fi
+    if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+      EXACT_LKG_SELECTION=0
+      echo "::warning::BakaSU main 已前进到 $BAKASU_SHA；本次直接构建最新版并标记 CUSTOM-UNVERIFIED"
     fi
   fi
 else
