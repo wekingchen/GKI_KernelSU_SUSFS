@@ -231,6 +231,14 @@ jobs:
             [[ -n "${!v:-}" ]] || { echo "::error::新 LKG 字段为空: $v"; exit 1; }
           done
 
+      - name: "晋升前强制检查上游文件隔离"
+        shell: bash
+        run: |
+          set -euo pipefail
+          # At this point the new LKG and history exist only in the worktree.
+          # A normal committed-only PR diff would silently miss these changes.
+          bash scripts/xiaomi-os4/check-upstream-isolation.sh HEAD --worktree
+
       - name: "创建 LKG 晋升 PR"
         id: pr
         shell: bash
