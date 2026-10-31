@@ -81,7 +81,7 @@ class SyntheticFeedback(unittest.TestCase):
             "STOCK_BUILD": BUILD,
             "KERNEL_RELEASE": RELEASE,
             "IMAGE_SHA256": sha(new_image),
-            "SYMVERS_SHA256": "f" * 64,
+            "SYMVERS_SHA256": sha(self.symvers.read_bytes()),
         }
         self.sync()
         packed = run(PACK, "--stock-zip", self.stock_zip,
