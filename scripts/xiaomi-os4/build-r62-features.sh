@@ -5,12 +5,28 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
 source "$ROOT/.github/config/pandora-os4-full-parity-lkg.env"
+# New OTA feature builds are driven only by the version-scoped, verified
+# development pointer. Old LKG reproduction remains pinned to R62 unchanged.
+NEW_OTA_MODE="${XIAOMI_OS4_NEW_OTA:-0}"
+if [[ "$NEW_OTA_MODE" == "1" ]]; then
+  [[ -n "${XIAOMI_OS4_VERIFIED_OTA_ENV:-}" && -s "$XIAOMI_OS4_VERIFIED_OTA_ENV" ]] || {
+    echo "::error::missing checked new-OTA source override"; exit 1;
+  }
+  source "$XIAOMI_OS4_VERIFIED_OTA_ENV"
+  [[ "$OS4_SYSTEM_BUILD" != "$LKG_SYSTEM_BUILD" ]] || {
+    echo "::error::new OTA mode cannot target legacy Gen 3"; exit 1;
+  }
+fi
 STAGE="$RUNNER_TEMP/xiaomi-os4-integrated"
 SRC="$STAGE/common"
 OUT="$STAGE/out"
 RESULT="$STAGE/results"
 CACHE_ROOT="$HOME/.cache/xiaomi-os4"
-GIT_CACHE="$CACHE_ROOT/common-r62.git"
+if [[ "$NEW_OTA_MODE" == "1" ]]; then
+  GIT_CACHE="$CACHE_ROOT/ota-$OS4_GKI_COMMON_COMMIT.git"
+else
+  GIT_CACHE="$CACHE_ROOT/common-r62.git"
+fi
 TOOL_CACHE="$CACHE_ROOT/toolchain-r536225"
 mkdir -p "$STAGE" "$RESULT" "$CACHE_ROOT"
 
@@ -101,7 +117,7 @@ if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
     fi
   fi
 
-  if [[ "$ROOT_MODE" == "$LKG_ROOT_MODE" &&
+  if [[ "$NEW_OTA_MODE" != "1" && "$ROOT_MODE" == "$LKG_ROOT_MODE" &&
         "$SUSFS_EXTRA_FEATURES" == "$LKG_SUSFS_EXTRA_FEATURES" &&
         "$USE_NOMOUNT" == "$LKG_USE_NOMOUNT" &&
         "$DROIDSPACES_ENABLED" == "$LKG_DROIDSPACES" &&
@@ -177,7 +193,10 @@ export XIAOMI_OS4_USE_REKERNEL="$USE_REKERNEL"
 export XIAOMI_OS4_USE_NETWORKING="$USE_NETWORKING"
 export XIAOMI_OS4_USE_CVE="$USE_CVE"
 
-[[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" == 6.12.69 ]] || exit 1
+[[ "$OS4_DEVICE" == pandora && "$OS4_KERNEL_VERSION" =~ ^6\\.12\\.[0-9]+$ ]] || exit 1
+if [[ "$NEW_OTA_MODE" != "1" && "$OS4_KERNEL_VERSION" != "6.12.69" ]]; then
+  echo "::error::legacy Gen 3 source identity drift"; exit 1
+fi
 
 if [[ ! -d "$GIT_CACHE" ]] || ! git --git-dir="$GIT_CACHE" cat-file -e "$OS4_GKI_COMMON_COMMIT^{commit}" 2>/dev/null; then
   rm -rf "$GIT_CACHE"
@@ -567,7 +586,11 @@ SOURCE_DATE_EPOCH="$(git -C "$SRC" show -s --format=%ct "$OS4_GKI_COMMON_COMMIT"
 export SOURCE_DATE_EPOCH
 export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%a %b %d %T UTC %Y')"
 export KBUILD_BUILD_USER="android-build"
-export KBUILD_BUILD_HOST="pandora-r62-ci"
+if [[ "$NEW_OTA_MODE" == "1" ]]; then
+  export KBUILD_BUILD_HOST="pandora-ota-custom-ci"
+else
+  export KBUILD_BUILD_HOST="pandora-r62-ci"
+fi
 export KBUILD_BUILD_VERSION=1
 export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip
 # Build official R62 with upstream flags: Gold's 6.12.23 KCFLAGS (notably
@@ -586,7 +609,12 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
 }
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
 if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
-  if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+  if [[ "$NEW_OTA_MODE" == "1" ]]; then
+    # Stock OEM .ko vermagic is bound to the exact verified new OTA release.
+    # Avoid R62 localversions; artifacts clearly remain CUSTOM-UNVERIFIED.
+    [[ "$OS4_STOCK_KERNEL_RELEASE" == "$OS4_KERNEL_VERSION"-* ]] || exit 1
+    FEATURE_LOCALVERSION="${OS4_STOCK_KERNEL_RELEASE#${OS4_KERNEL_VERSION}}"
+  elif [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
     [[ "$LKG_KERNEL_RELEASE" == "$OS4_KERNEL_VERSION"-* ]] || {
       echo "::error::LKG kernel release is not based on $OS4_KERNEL_VERSION: $LKG_KERNEL_RELEASE"
       exit 1
@@ -847,7 +875,9 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "KBUILD_BUILD_HOST=$KBUILD_BUILD_HOST"
   echo "KBUILD_BUILD_VERSION=$KBUILD_BUILD_VERSION"
   if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
-    if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+    if [[ "$NEW_OTA_MODE" == "1" ]]; then
+      echo "BUILD_KIND=OTA_OS4_SELECTABLE_CUSTOM_UNVERIFIED"
+    elif [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
       echo "BUILD_KIND=R62_OS4_SELECTABLE_FULL_PARITY_LKG"
     else
       echo "BUILD_KIND=R62_OS4_SELECTABLE_CUSTOM"
@@ -895,6 +925,8 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
     cat "$RESULT/os4-selected-source.env"
   fi
   echo "FLASHABLE=NO"
+  echo "NEW_OTA_MODE=$NEW_OTA_MODE"
+  echo "SYSTEM_BUILD=$OS4_SYSTEM_BUILD"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
   echo "BAKASU_VALIDATED_REFERENCE=$LKG_BAKASU_COMMIT"
