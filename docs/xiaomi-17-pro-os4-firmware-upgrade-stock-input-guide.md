@@ -156,7 +156,7 @@ adb shell cat /proc/modules
 2. GitHub 读取当前输入 Release 和已验证开发指针，自动选择对应 GKI commit。每轮锁定本次最新稳定上游提交，尝试移植补丁和编译。**新固件未通过确认时，不会偷偷回退 R62**。
 3. 新 OTA 编译及 ABI/KMI 全绿时，在同一 Artifact 同时下载 `*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img` 与 `*-UNVERIFIED-AnyKernel3.zip`，以及 SHA256、ABI 结果和构建元信息。
 4. 两种形式使用相同 Image。**不用再提交另一轮真机结果才能拿到 AnyKernel3**。更安全的使用方式仍是先 `fastboot boot` 临时测试功能版，再决定是否运行会持久替换活动 boot 内核的 AnyKernel3。
-5. 目前旧 R62 的 [`晋升为 LKG`](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml) 尚不支持直接输入新 OTA 的 Artifact。**新版本日常自定义编译可用不代表新版本 LKG 晋升流程已贯通**。
+5. 目前旧 R62 的 [`晋升为 LKG`](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml) 尚不支持直接输入新 OTA 的 Artifact。**新版本 LKG 现使用独立跨 OTA 入口，代码自动链路已接通，但要等新 OTA 实际真机才能完成首次端到端验收**。
 
 ## 七、常见问题与故障回退
 
