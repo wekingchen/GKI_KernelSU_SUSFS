@@ -142,6 +142,8 @@ def identify(folder, run_id, source_sha):
         required(process.returncode == 0,
                  "source boot cannot be reproduced from same-OTA fixture: " + process.stderr[-500:])
     hashes = {p.name: sha(p) for p in (folder / n for n in FILES)}
+    if (folder / "image-reproducibility.env").exists():
+        hashes["image-reproducibility.env"] = sha(folder / "image-reproducibility.env")
     hashes[boot.name] = sha(boot)
     hashes[zipfile.name] = sha(zipfile)
     manifest = {
