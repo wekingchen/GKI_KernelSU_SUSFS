@@ -1,6 +1,6 @@
 # 小米 17 Pro（pandora）OS4 固件升级后的 stock input 操作指南
 
-> **自动化更新（2026-11-01）**：只需在 OTA 后按本指南采集并替换固定 Release 的 `*-xm.zip`。新版 [OTA 自动识别与纯 GKI 候选基线工作流](../.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml) 已配置 Release 更新触发和每日补查：自动审计、比对固件版本、尝试解析官方 GKI 源码并生成**不能刷机**的研究候选。下文「手动运行只读检查」仍可作为故障排查入口，不再是每次升级后的必做步骤。详见 [自动化边界及人机验证门禁](xiaomi-17-pro-os4-ota-auto-baseline.md)。
+> **自动化更新（2026-11-01）**：只需在 OTA 后按本指南采集并替换固定 Release 的 `*-xm.zip`。新版 [OTA 自动识别与纯 GKI 候选基线工作流](../.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml) 已配置 Release 更新触发和每日补查：自动审计、比对固件版本、尝试解析官方 GKI 源码并生成**不能刷机**的研究候选。需要立即重试时仍可在 OTA 主工作流手动运行，但不是正常操作的必需步骤。详见 [自动化边界及人机验证门禁](xiaomi-17-pro-os4-ota-auto-baseline.md)。
 
 
 > 适用设备：Xiaomi 17 Pro / `pandora`  
@@ -270,67 +270,25 @@ pandora-stock-OS4.x.x.x.XBLCNXM-_a-xm.zip
 
 ---
 
-# 七、上传完后先跑“只读检查”，不要直接生成内核
+# 七、上传后自动检查与构建候选（无需手动启动）
 
-新固件上传后，第一步运行：
+固定 Release 中的最新 `*-xm.zip` 更新后，现行主工作流是：
 
-## 工作流
+**[小米17 Pro OS4 / OTA 自动识别与非刷机 GKI 基线候选](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml)**
 
-**小米17 Pro OS4 / 检查新固件 xm.zip（只读）**
+工作流监听 `pandora-os4-stock-input` 的 Release 发布/编辑事件，同时设有每日补查。**只替换已发布 Release 中的附件不保证触发 edited 事件**，因此不能承诺立刻开始，但无需你每天手动运行；紧急需要立即检查时，可在上述工作流点击 `Run workflow`（`dev`），不会重复执行已适配的版本。
 
-地址：
+自动步骤包括：
 
-**https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-stock-intake.yml**
+1. 校验固定 Release 中只有一个有效 `*xm.zip`，比对固件 build、boot 头、内核版本与 SHA；
+2. 已适配同版本且 boot SHA 一致则结束，避免重复编译；
+3. 发现新 OTA 后，从官方 GKI 目录寻找候选源码；锁定同一输入 SHA 与 commit，编译纯 GKI 候选；
+4. 对新采集包里的厂商模块执行 vermagic 与导入符号 CRC/KMI 静态比对；
+5. **只有所有已实现门禁通过时**才生成这次 OTA 专属的 `UNVERIFIED-FASTBOOT-BOOT-ONLY.img`；否则只保留诊断报告。
 
-操作：
+原来的独立工作流 `检查新固件 xm.zip（只读）` 已被此自动入口替代并移除。不再需要运行两套检查。
 
-1. 打开仓库 **Actions**；
-2. 左侧选择：
-   **小米17 Pro OS4 / 检查新固件 xm.zip（只读）**；
-3. 点击 **Run workflow**；
-4. 使用默认分支 `dev`；
-5. 点击绿色 **Run workflow**。
-
-这个工作流只会：
-
-- 下载固定 Release 中唯一的 `*xm.zip`；
-- 列出 ZIP 内容；
-- 自动找到唯一的 `boot*.img`；
-- 计算：
-  - boot SHA256
-  - 4KB header SHA256
-  - kernel SHA256
-  - kernel size
-  - boot header version
-  - header size
-  - ramdisk size
-  - signature size
-- 尝试读取 ZIP 中的 `README.txt`：
-  - device
-  - build
-  - uname
-  - slot
-- 输出检查报告 Artifact。
-
-它**不会**：
-
-- 修改仓库；
-- 更新 fixture；
-- 修改手机；
-- 生成可刷镜像；
-- 自动认为旧内核兼容新固件。
-
-### 正常结果
-
-工作流应该是：
-
-```text
-SUCCESS
-```
-
-并在 Summary 里看到新固件的 boot / kernel 信息。
-
-如果只是新固件 SHA 与旧配置不同，这本身并不是故障；新固件本来就应该重新建立版本门禁。
+**不可误解为自动完成适配**：源码候选不等于 OEM 真实构建，静态 CRC 检查也不足以证明所有厂商驱动可用；待测包必须由你手动 `fastboot boot` 验证。禁止 `fastboot flash`、自动晋升 LKG 或跨系统版本复用旧 fixture。
 
 ---
 
@@ -361,7 +319,7 @@ SUCCESS
     ↓
 替换固定 Release 中旧 xm.zip
     ↓
-运行“检查新固件 xm.zip（只读）”
+OTA 主工作流自动识别和检查新固件 xm.zip
     ↓
 根据报告做新固件适配
     ↓
@@ -499,7 +457,7 @@ R62 #7 baseline Image
 3. platform-tools 里运行 collect-pandora-stock-input.cmd
 4. 得到新的 *-xm.zip
 5. 固定 Release 删除旧 xm.zip，只上传新的一个
-6. 等待 OTA 自动检查（Release 编辑事件 / 每日补查）；必要时手动运行只读检查
+6. OTA 主工作流自动检查（Release 编辑事件 / 每日补查），必要时可手动重试同一工作流
 7. 根据检查结果完成新版本适配和 baseline 真机测试
 8. 再固化 fixture
 9. 最后才生成新的功能版 FASTBOOT-BOOT-ONLY.img
