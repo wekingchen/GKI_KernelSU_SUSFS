@@ -28,21 +28,24 @@ curl_api() {
   curl "${args[@]}" "$url"
 }
 
-echo "[BakaSU Manager] kernel source pin: $OS4_BAKASU_COMMIT"
 git clone -q --filter=blob:none "$OS4_BAKASU_REPO" "$WORKDIR/BakaSU"
-if ! git -C "$WORKDIR/BakaSU" cat-file -e "$OS4_BAKASU_COMMIT^{commit}" 2>/dev/null; then
-  git -C "$WORKDIR/BakaSU" fetch -q --no-tags origin "$OS4_BAKASU_COMMIT"
+LATEST_SHA="$(git -C "$WORKDIR/BakaSU" rev-parse "origin/$OS4_BAKASU_REF")"
+if [[ -z "$TARGET_COMMIT" ]]; then
+  TARGET_COMMIT="$LATEST_SHA"
 fi
-git -C "$WORKDIR/BakaSU" cat-file -e "$OS4_BAKASU_COMMIT^{commit}" 2>/dev/null || {
-  echo "::error::无法取得 OS4 固定 BakaSU 提交 $OS4_BAKASU_COMMIT"
+if ! git -C "$WORKDIR/BakaSU" cat-file -e "$TARGET_COMMIT^{commit}" 2>/dev/null; then
+  git -C "$WORKDIR/BakaSU" fetch -q --no-tags origin "$TARGET_COMMIT"
+fi
+git -C "$WORKDIR/BakaSU" cat-file -e "$TARGET_COMMIT^{commit}" 2>/dev/null || {
+  echo "::error::无法取得 BakaSU 目标提交 $TARGET_COMMIT"
   exit 1
 }
 
-TARGET_GIT_COUNT="$(git -C "$WORKDIR/BakaSU" rev-list --count "$OS4_BAKASU_COMMIT")"
+TARGET_GIT_COUNT="$(git -C "$WORKDIR/BakaSU" rev-list --count "$TARGET_COMMIT")"
 TARGET_KSU_VERSION="$((30700 + TARGET_GIT_COUNT))"
-LATEST_SHA="$(git -C "$WORKDIR/BakaSU" rev-parse "origin/$OS4_BAKASU_REF")"
 
-echo "[BakaSU Manager] pinned KSU version: $TARGET_KSU_VERSION"
+echo "[BakaSU Manager] target commit: $TARGET_COMMIT"
+echo "[BakaSU Manager] target KSU version: $TARGET_KSU_VERSION"
 echo "[BakaSU Manager] latest upstream: $LATEST_SHA"
 
 calculate_version() {
