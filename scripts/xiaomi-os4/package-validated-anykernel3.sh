@@ -35,6 +35,12 @@ case "$MODE" in
     VALIDATION_LEVEL="CUSTOM_UNVERIFIED"
     DEFAULT_PACKAGE="Xiaomi17Pro-pandora-OS4.0.5.0-R62-CUSTOM-run-${RUN_ID}-UNVERIFIED-AnyKernel3.zip"
     ;;
+  ota-custom)
+    # Experimental packaging only; true runtime stability needs a separate test.
+    PROFILE_LABEL="New OTA custom kernel (UNVERIFIED)"
+    VALIDATION_LEVEL="OTA_CUSTOM_UNVERIFIED"
+    DEFAULT_PACKAGE="Xiaomi17Pro-pandora-${EXPECTED_BUILD}-CUSTOM-run-${RUN_ID}-UNVERIFIED-AnyKernel3.zip"
+    ;;
   *)
     echo "::error::unsupported XIAOMI_AK3_MODE: $MODE"
     exit 1
@@ -64,13 +70,27 @@ case "$MODE" in
     }
     python3 "$ROOT/scripts/xiaomi-os4/verify-lkg-image-equivalence.py" "$IMAGE"       --expected-size "$LKG_IMAGE_SIZE"       --build-id-payload-offset "$LKG_IMAGE_BUILD_ID_PAYLOAD_OFFSET"       --cert-offset "$LKG_IMAGE_MODULE_CERT_OFFSET"       --cert-length "$LKG_IMAGE_MODULE_CERT_LENGTH"       --expected-normalized-sha256 "$LKG_IMAGE_NORMALIZED_SHA256"
     ;;
-  custom)
+  custom|ota-custom)
     # The caller must already have passed the common ABI/KMI lock.
     # Custom combinations are packaged for the user's OS3-style workflow,
     # but are deliberately marked UNVERIFIED until that exact combination
     # completes a real-device boot test.
     ;;
 esac
+
+# The pure-GKI real-device attestation does not certify the feature Image.
+# Require immutable source, ABI and per-build evidence for new-OTA AnyKernel3.
+if [[ "$MODE" == "ota-custom" ]]; then
+  for key in XIAOMI_AK3_OTA_BASELINE_RECORD XIAOMI_AK3_OTA_FIXTURE XIAOMI_AK3_OTA_ABI_REPORT XIAOMI_AK3_OTA_METADATA; do
+    test -s "${!key:-}" || { echo "::error::missing OTA evidence: $key"; exit 1; }
+  done
+  python3 "$ROOT/scripts/xiaomi-os4/check-ota-anykernel-evidence.py" \
+    --record "$XIAOMI_AK3_OTA_BASELINE_RECORD" \
+    --fixture "$XIAOMI_AK3_OTA_FIXTURE" \
+    --abi "$XIAOMI_AK3_OTA_ABI_REPORT" \
+    --metadata "$XIAOMI_AK3_OTA_METADATA" \
+    --image "$IMAGE" --build "$EXPECTED_BUILD" --release "$EXPECTED_RELEASE"
+fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -131,7 +151,8 @@ ui_print "Preserves ramdisk and does not touch init_boot/vendor_boot/dtbo/vbmeta
 @@CUSTOM_WARNING@@
 ui_print " ";
 
-build="$(getprop ro.build.version.incremental 2>/dev/null)"
+build="$(getprop ro.mi.os.version.incremental 2>/dev/null)"
+[ -z "$build" ] && build="$(getprop ro.build.version.incremental 2>/dev/null)"
 [ -z "$build" ] && build="$(getprop ro.system.build.version.incremental 2>/dev/null)"
 if [ "$build" != "@@EXPECTED_BUILD@@" ]; then
   abort "Unsupported OS build: $build (expected @@EXPECTED_BUILD@@)";
@@ -167,14 +188,22 @@ path, profile, release, validation, build, mode = sys.argv[1:]
 p = Path(path)
 text = p.read_text()
 warning = (
-    'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
-    if mode == "custom" else
+    'ui_print "WARNING: new OTA feature kernel has NOT been real-device tested.";'
+    if mode == "ota-custom" else
     (
-        'ui_print "Current promoted LKG rebuild: real-device validation PASS.";'
-        if mode == "validated-rebuild"
-        else 'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+        'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
+        if mode == "custom" else
+        (
+            'ui_print "Current promoted LKG rebuild: real-device validation PASS.";'
+            if mode == "validated-rebuild"
+            else 'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+        )
     )
 )
+if mode == "ota-custom":
+    # Do not alter historical R62 LKG package templates.
+    text = text.replace("HyperOS 4 R62", "HyperOS @@EXPECTED_BUILD@@")
+    text = text.replace("OS4 R62", "@@EXPECTED_BUILD@@")
 replacements = {
     "@@PROFILE_LABEL@@": profile,
     "@@EXPECTED_RELEASE@@": release,
@@ -202,9 +231,13 @@ AnyKernel3 and preserves the existing ramdisk.
 It also ensures module_blacklist contains kernelsu so the legacy KernelSU LKM
 cannot load alongside Built-in BakaSU.
 
-$(if [[ "$MODE" == "custom" ]]; then
+$(if [[ "$MODE" == "custom" || "$MODE" == "ota-custom" ]]; then
   echo "WARNING: this exact custom feature combination has not completed a real-device boot validation."
   echo "Keep a known-good boot image available for recovery."
+  if [[ "$MODE" == "ota-custom" ]]; then
+    echo "Pure GKI boot validation does NOT certify this custom feature kernel."
+    echo "EXPERIMENTAL PERSISTENT INSTALL: test paired FASTBOOT-BOOT-ONLY.img first."
+  fi
 else
   echo "This package rebuilds a user-promoted Xiaomi 17 Pro OS4 LKG that has completed real-device validation."
 fi)
