@@ -58,6 +58,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: xiaomi-os4-pandora-custom-${{ github.ref }}
@@ -72,6 +73,8 @@ jobs:
     steps:
       - name: "检出仓库"
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: "载入已验证 OS4 基线"
         shell: bash
@@ -105,6 +108,23 @@ jobs:
           CVE 修复链：${{ inputs.use_cve }}
           EOF
 
+      - name: "检查上游更新与功能漂移"
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT="${{ runner.temp }}/xiaomi-os4-upstream-drift.txt"
+          if ! bash scripts/xiaomi-os4/check-upstream-drift.sh "$REPORT"; then
+            echo "::warning::上游状态检查暂时失败；不阻断本次固定 LKG 构建。"
+          fi
+          if [[ -s "$REPORT" ]]; then
+            cat "$REPORT"
+            {
+              echo "## 上游状态"
+              echo
+              sed "s/^/- /" "$REPORT"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: "静态安全门禁"
         shell: bash
         run: |
@@ -113,6 +133,8 @@ jobs:
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
           bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
+          bash -n scripts/xiaomi-os4/check-upstream-drift.sh
+          bash -n scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh
           python3 -m py_compile \
             scripts/xiaomi-os4/susfs-task-mmu-compat.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
@@ -435,3 +457,67 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+
+  bakasu-manager:
+    name: "BakaSU Manager / 匹配 OS4 内核固定版本"
+    if: ${{ inputs.root_mode != 'none' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v7
+
+      - name: "安装 Manager 获取依赖"
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends curl git jq unzip
+
+      - name: "获取不高于内核版本的 BakaSU Manager"
+        id: manager
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh "${{ runner.temp }}/bakasu-manager"
+
+      - name: "Manager 获取失败提示"
+        if: steps.manager.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::BakaSU Manager 获取失败；内核构建与 AnyKernel3 不受影响。"
+          {
+            echo "## BakaSU Manager"
+            echo
+            echo "Manager 获取失败；本次仍可使用内核 / AnyKernel3 产物。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "上传 BakaSU Manager"
+        if: steps.manager.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: BakaSU-Manager-pandora-OS4-run-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/bakasu-manager/*.apk
+            ${{ runner.temp }}/bakasu-manager/manager-metadata.txt
+            ${{ runner.temp }}/bakasu-manager/MANAGER-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: "BakaSU Manager 摘要"
+        if: steps.manager.outcome == 'success'
+        shell: bash
+        run: |
+          OUT="${{ runner.temp }}/bakasu-manager"
+          {
+            echo "## BakaSU Manager"
+            echo
+            sed "s/^/- /" "$OUT/manager-metadata.txt"
+            sed "s/^/- SHA256: /" "$OUT/MANAGER-SHA256SUMS.txt"
+            echo
+            echo "Manager 按当前 OS4 固定 BakaSU 提交选择，不允许版本高于本次内核。"
+          } >> "$GITHUB_STEP_SUMMARY"
