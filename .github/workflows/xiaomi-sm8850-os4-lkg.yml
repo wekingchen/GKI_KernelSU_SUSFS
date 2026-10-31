@@ -1,24 +1,64 @@
 name: "小米17 Pro OS4 / 当前 LKG 复现与打包"
 
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "小米17 Pro OS4 / 将自定义构建晋升为 LKG"
+    types:
+      - completed
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: xiaomi-os4-pandora-current-lkg
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   reproduce:
-    name: "复现用户当前标记的稳定 LKG"
+    name: "晋升成功后自动复现当前稳定 LKG"
+    if: >-
+      github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.path == '.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
 
     steps:
-      - name: "检出仓库"
+      - name: "检出晋升合并后的 dev"
         uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - name: "自动复现来源：必须是刚刚成功晋升的同一代 LKG"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          [[ "$PROMOTION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          source .github/config/pandora-os4-full-parity-lkg.env
+          [[ "${LKG_PROMOTION_RUN_ID:-}" == "$PROMOTION_RUN_ID" ]] || {
+            echo "::error::当前 LKG 晋升 Run ID 与触发 Run 不同；禁止旧任务复现新 LKG"
+            exit 1
+          }
+          [[ "$LKG_PROMOTION_GENERATION" =~ ^[1-9][0-9]*$ ]]
+          [[ "$LKG_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          PROMOTION_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID")"
+          jq -e '.status == "completed" and .conclusion == "success" and .event == "workflow_dispatch" and .head_branch == "dev" and .path == ".github/workflows/xiaomi-sm8850-os4-promote-lkg.yml"' <<<"$PROMOTION_JSON" >/dev/null || {
+            echo "::error::晋升来源 workflow_run 身份不可信"; exit 1;
+          }
+          JOBS_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/jobs?per_page=100")"
+          jq -e '[.jobs[] | select(.name == "验证候选 → 上游隔离 → 自动合并新 LKG" and .conclusion == "success")] | length == 1' <<<"$JOBS_JSON" >/dev/null || {
+            echo "::error::晋升工作未成功完成（可能 confirm_stable=false）；禁止复现"; exit 1;
+          }
+          echo "AUTO_LKG_PROMOTION_RUN=$PROMOTION_RUN_ID"
+          echo "AUTO_LKG_GENERATION=$LKG_PROMOTION_GENERATION"
+          echo "AUTO_LKG_SOURCE_RUN=$LKG_SOURCE_RUN_ID"
 
       - name: "载入当前 LKG 身份与组件快照"
         shell: bash
