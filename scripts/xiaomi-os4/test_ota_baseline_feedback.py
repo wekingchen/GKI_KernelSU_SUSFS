@@ -109,6 +109,7 @@ class SyntheticFeedback(unittest.TestCase):
             "--abi-report", self.abi,
             "--metadata", self.metadata,
             "--image", self.image,
+            "--symvers", self.symvers,
             "--testboot", self.testboot,
             "--output-dir", self.outdir,
             "--source-run-id", "1001",
