@@ -22,7 +22,28 @@ if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
   exit 1
 fi
 
-mapfile -t changed < <(git diff --name-only "$BASE_REF"...HEAD)
+SCAN_MODE="${2:---committed}"
+case "$SCAN_MODE" in
+  --committed)
+    # PR changes relative to fork dev, including added/deleted paths.
+    mapfile -t changed < <(git diff --name-only "$BASE_REF"...HEAD)
+    ;;
+  --worktree)
+    # LKG promotion renders files before committing them. Include modified,
+    # staged, and newly created (untracked) files in the isolation audit.
+    mapfile -t changed < <(
+      {
+        git diff --name-only "$BASE_REF" --
+        git diff --cached --name-only "$BASE_REF" --
+        git ls-files --others --exclude-standard
+      } | LC_ALL=C sort -u
+    )
+    ;;
+  *)
+    echo "::error::Unknown isolation scan mode: $SCAN_MODE"
+    exit 1
+    ;;
+esac
 violations=()
 
 for path in "${changed[@]}"; do
@@ -32,7 +53,7 @@ for path in "${changed[@]}"; do
   fi
 done
 
-echo "Xiaomi isolation base: $BASE_REF"
+echo "Xiaomi isolation base: $BASE_REF (mode=$SCAN_MODE)"
 echo "Upstream: $UPSTREAM_REPO@$UPSTREAM_REF ($UPSTREAM_SHA)"
 echo "Changed files: ${#changed[@]}"
 
