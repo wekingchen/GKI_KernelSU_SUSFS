@@ -16,7 +16,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source-kind:
+    name: "识别原晋升是否真的执行了 R62 分支"
+    if: >-
+      needs.source-kind.outputs.legacy == 'true' &&
+      github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.head_branch == 'dev' &&
+      github.event.workflow_run.path == '.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      legacy: ${{ steps.check.outputs.legacy }}
+    steps:
+      - name: "只有旧 R62 晋升 Job 真实成功才自动复现"
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          JOBS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/jobs?per_page=100")"
+          COUNT="$(jq '[.jobs[] | select(.name == "验证候选 → 上游隔离 → 自动合并新 LKG" and .conclusion == "success")] | length' <<<"$JOBS")"
+          if [[ "$COUNT" == 1 ]]; then
+            echo "legacy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "legacy=false" >> "$GITHUB_OUTPUT"
+            echo "当前为 OTA/草稿修复（或 R62 晋升未运行），不启动旧 R62 LKG 复现" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   reproduce:
+    needs: source-kind
     name: "晋升成功后自动复现当前稳定 LKG"
     if: >-
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
