@@ -70,8 +70,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      mode: @GH{steps.select.outputs.mode}@
-      build: @GH{steps.select.outputs.build}@
+      mode: ${{ steps.select.outputs.mode }}
+      build: ${{ steps.select.outputs.build }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,7 +79,7 @@ jobs:
       - name: "下载当前 OTA 输入并按原始 boot SHA 检查"
         shell: bash
         env:
-          GH_TOKEN: @GH{github.token}@
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ota-stock"
