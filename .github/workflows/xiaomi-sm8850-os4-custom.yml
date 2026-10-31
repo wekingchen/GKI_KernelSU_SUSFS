@@ -943,6 +943,20 @@ jobs:
           NTSYNC: ${{ needs.resolve-upstreams.outputs.ntsync_commit }}
           BBG: ${{ needs.resolve-upstreams.outputs.bbg_commit }}
           REKERNEL: ${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          BAKASU_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          SUSFS_KIND: ${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          NOMOUNT_KIND: ${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          DROIDSPACES_KIND: ${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          NTSYNC_KIND: ${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          BBG_KIND: ${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          REKERNEL_KIND: ${{ needs.resolve-upstreams.outputs.rekernel_kind }}
+          BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          SUSFS_REF: ${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          NOMOUNT_REF: ${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          DROIDSPACES_REF: ${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          NTSYNC_REF: ${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          BBG_REF: ${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          REKERNEL_REF: ${{ needs.resolve-upstreams.outputs.rekernel_ref }}
         run: |
           set -euo pipefail
           OUT="$RUNNER_TEMP/ota-custom-output"
@@ -953,6 +967,11 @@ jobs:
                 echo "::error::$c 上游提交不可信"; exit 1;
               }
               printf 'RESOLVED_%s_COMMIT=%s\n' "$c" "$value"
+              kind="$(printenv "${c}_KIND")"
+              ref="$(printenv "${c}_REF")"
+              [[ "$kind" == branch || "$kind" == tag ]] || { echo "::error::invalid upstream kind $c"; exit 1; }
+              [[ "$ref" =~ ^[A-Za-z0-9._/+-]+$ ]] || { echo "::error::invalid upstream ref $c"; exit 1; }
+              printf 'RESOLVED_%s_KIND=%s\nRESOLVED_%s_REF=%s\n' "$c" "$kind" "$c" "$ref"
             done
           } > "$OUT/locked-upstreams.env"
           # If this future GKI cannot be normalized safely, do not block
