@@ -43,9 +43,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  select-route:
+    name: "自动识别来源：旧 R62 / 新 OTA / 草稿修复"
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.route.outputs.mode }}
+    steps:
+      - name: "验证源 Run 身份、类型和唯一未过期产物"
+        id: route
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_BOOT: ${{ inputs.confirm_boot }}
+          CONFIRM_PERSISTENT: ${{ inputs.confirm_persistent }}
+          CONFIRM_RUNTIME: ${{ inputs.confirm_runtime }}
+          REPAIR_DRAFT: ${{ inputs.repair_draft_release }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::请输入真实的自定义构建 Run ID"; exit 1;
+          }
+          if [[ "$REPAIR_DRAFT" == true ]]; then
+            echo "mode=repair" >> "$GITHUB_OUTPUT"
+            echo "LKG_ROUTE=REPAIR_EXISTING_OTA_RELEASE" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ "$CONFIRM_BOOT" == true && "$CONFIRM_PERSISTENT" == true && "$CONFIRM_RUNTIME" == true ]] || {
+            echo "::error::正式晋升必须确认真机启动、持久稳定使用和所选功能正常"; exit 1;
+          }
+          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          jq -e '.status=="completed" and .conclusion=="success" and
+                 .event=="workflow_dispatch" and .head_branch=="dev" and
+                 .path==".github/workflows/xiaomi-sm8850-os4-custom.yml"' <<<"$RUN" >/dev/null || {
+            echo "::error::只允许 dev 正式自定义工作流的成功 Run"; exit 1;
+          }
+          ARTIFACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
+          LEGACY="pandora-OS4-R62-CUSTOM-run-$SOURCE_RUN_ID"
+          OLD="$(jq --arg name "$LEGACY" '[.artifacts[] | select(.expired==false and .name==$name)] | length' <<<"$ARTIFACTS")"
+          OTA="$(jq --arg id "$SOURCE_RUN_ID" '[.artifacts[] | select(.expired==false) | .name |
+            select(startswith("pandora-OTA-CUSTOM-") and endswith("-run-"+$id))] | length' <<<"$ARTIFACTS")"
+          [[ "$OLD" -le 1 && "$OTA" -le 1 && $((OLD+OTA)) -eq 1 ]] || {
+            echo "::error::找不到唯一、未过期、名称与 Run ID 匹配的 R62 或新 OTA 产物"; exit 1;
+          }
+          if [[ "$OLD" == 1 ]]; then
+            [[ ! -e .github/config/ota-lkg-current.json ]] || {
+              echo "::error::LKG 已迁移到新 OTA，拒绝旧 R62 产生冲突代次"; exit 1;
+            }
+            echo "mode=legacy" >> "$GITHUB_OUTPUT"
+            echo "LKG_ROUTE=R62_LEGACY" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "mode=ota" >> "$GITHUB_OUTPUT"
+            echo "LKG_ROUTE=CROSS_OTA_STRICT_REBUILD_ARCHIVE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   promote:
+    needs: select-route
     name: "验证候选 → 上游隔离 → 自动合并新 LKG"
-    if: ${{ inputs.confirm_stable }}
+    if: needs.select-route.outputs.mode == 'legacy'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
