@@ -40,3 +40,58 @@ jobs:
       - name: "确认 Xiaomi 改动不覆盖上游共用文件"
         shell: bash
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
+
+  validate-promotion-chain:
+    name: "自动晋升→复现→归档链路静态验收（只读）"
+    needs: isolation
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/xiaomi-os4-promotion-auto-reproduce-release-20261101' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: "校验三段 Workflow 及 Python 生成器语法与触发合同"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/promote-custom-run-to-lkg.py
+          bash -n scripts/xiaomi-os4/archive-current-lkg-release.sh
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-yaml
+          python3 - <<'PY'
+          import pathlib, yaml, re
+          root = pathlib.Path('.')
+          def read(path):
+              p = root/path
+              text=p.read_text()
+              obj=yaml.safe_load(text)
+              assert isinstance(obj, dict), path
+              triggers=obj.get('on',obj.get(True))
+              assert isinstance(triggers,dict), (path,triggers)
+              return text,obj,triggers
+          p,po,pt=read('.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml')
+          r,ro,rt=read('.github/workflows/xiaomi-sm8850-os4-lkg.yml')
+          a,ao,at=read('.github/workflows/xiaomi-sm8850-os4-archive-lkg-release.yml')
+          assert 'workflow_dispatch' in pt and len(pt)==1
+          assert set(rt)=={'workflow_run'} and 'workflow_dispatch' not in rt
+          assert rt['workflow_run']['types']==['completed']
+          assert po['jobs']['promote']['if'] in ('${{ inputs.confirm_stable }}',)
+          assert '小米17 Pro OS4 / 将自定义构建晋升为 LKG' in rt['workflow_run']['workflows']
+          assert '小米17 Pro OS4 / 当前 LKG 复现与打包' in at['workflow_run']['workflows']
+          assert 'workflow_run' in at and 'workflow_dispatch' in at
+          assert ro['concurrency']['cancel-in-progress'] is False
+          assert 'actions: read' in r
+          assert '--promotion-run-id "$GITHUB_RUN_ID"' in p
+          assert 'LKG_PROMOTION_RUN_ID' in r
+          assert 'PROMOTION_RUN_ID' in r
+          assert 'gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/jobs?per_page=100"' in r
+          assert "github.event.workflow_run.event == 'workflow_dispatch'" in r
+          assert "github.event.workflow_run.conclusion == 'success'" in r
+          assert "github.event.workflow_run.event == 'workflow_run'" in a
+          assert "github.event.workflow_run.conclusion == 'success'" in a
+          gen=(root/'scripts/xiaomi-os4/promote-custom-run-to-lkg.py').read_text()
+          assert 'ap.add_argument("--promotion-run-id", required=True' in gen
+          assert 'emit(lines, "LKG_PROMOTION_RUN_ID", args.promotion_run_id)' in gen
+          print('PROMOTION_CHAIN_STATIC_CONTRACT=PASS')
+          PY
