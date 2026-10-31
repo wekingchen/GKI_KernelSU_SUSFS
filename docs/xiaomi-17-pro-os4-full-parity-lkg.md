@@ -144,7 +144,10 @@ Generic Netlink family: rekernel
 2. 重新执行 ABI/KMI 固定锁；
 3. 把旧 LKG 自动归档至 `.github/config/lkg-history/`；
 4. 生成下一代当前 LKG 文件；
-5. 创建专用 PR，通过 Xiaomi 上游隔离门禁后再合入 `dev`。
+5. 创建 PR 之前**强制执行上游隔离预检**（包括未提交的 LKG 文件和历史快照）；
+6. 创建专用**草稿 PR**。机器人创建的 PR 可能需要在 GitHub 点击 **Approve workflows to run** 才会启动 CI；确认隔离检查成功后，将草稿标记为 **Ready for review**，再合入 `dev`。
+
+禁止在隔离检查仍在等待批准、排队或者失败时提前合并晋升 PR。
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
