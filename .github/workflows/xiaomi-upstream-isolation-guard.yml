@@ -40,3 +40,77 @@ jobs:
       - name: "确认 Xiaomi 改动不覆盖上游共用文件"
         shell: bash
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
+
+  ota-candidate-static-and-current-input-check:
+    name: "OTA 新基线链路只读验收（当前已适配固件必须跳过）"
+    needs: isolation
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/os4-ota-auto-baseline-candidate-20261101' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: "检查脚本和 Workflow YAML 语法"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/inspect-ota-stock-input.py scripts/xiaomi-os4/resolve-ota-gki-candidate.py
+          bash -n scripts/xiaomi-os4/build-ota-gki-baseline-candidate.sh
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-yaml
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          f=Path('.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml')
+          y=yaml.safe_load(f.read_text())
+          triggers=y.get('on',y.get(True))
+          assert 'release' in triggers and 'schedule' in triggers and 'workflow_dispatch' in triggers
+          assert 'push' not in triggers
+          assert set(y['jobs'])=={'inspect','baseline','archive'}
+          assert y['jobs']['baseline']['if'].strip()=="needs.inspect.outputs.build_candidate == 'true'"
+          assert "github.event.release.tag_name == 'pandora-os4-stock-input'" in y['jobs']['inspect']['if']
+          assert y['concurrency']['cancel-in-progress'] is False
+          print('OTA_PIPELINE_YAML_STATIC=PASS')
+          PY
+      - name: "读取已归档 OS4.0.5.0 xm.zip：必须无变化、不触发候选编译"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-stock-input \
+            --repo "$GITHUB_REPOSITORY" --pattern '*xm.zip' --dir "$RUNNER_TEMP/stock"
+          mapfile -t files < <(find "$RUNNER_TEMP/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          [[ "${#files[@]}" -eq 1 ]]
+          python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
+            --zip "${files[0]}" --stock-config .github/config/pandora-os4-stock-input.env \
+            --output "$RUNNER_TEMP/report.json"
+          python3 - "$RUNNER_TEMP/report.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['status']=='SAME_PINNED_BUILD', x['status']
+          assert x['may_build_gki_candidate'] is False
+          assert x['safe_to_flash'] is False
+          assert x['build']=='OS4.0.5.0.XBLCNXM'
+          assert x['stock_boot_sha256']=='4f873abec68220c0028c11c8833e7ec8b9652f263e850f1ddb76d19913374653'
+          print('CURRENT_OTA_SKIP=PASS; NO_GKI_BUILD=YES')
+          # Exercise catalog resolver with a synthetic *unit test*, never deploy a fake OTA.
+          x['build']='OS4.0.5.1.XBLCNXM'
+          x['status']='NEW_OTA_CANDIDATE'
+          x['may_build_gki_candidate']=True
+          with open('/tmp/ota-synthetic-test-only.json','w') as f:json.dump(x,f)
+          PY
+          python3 scripts/xiaomi-os4/resolve-ota-gki-candidate.py \
+            --ota-report /tmp/ota-synthetic-test-only.json \
+            --output "$RUNNER_TEMP/synthetic-candidate.json" \
+            --env "$RUNNER_TEMP/synthetic-candidate.env"
+          python3 - "$RUNNER_TEMP/synthetic-candidate.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['kernel_version']=='6.12.69'
+          assert x['candidate_commit'] and len(x['candidate_commit'])==40
+          assert x['safe_to_flash'] is False and x['not_oem_source_proven'] is True
+          print('OFFICIAL_GKI_CATALOG_RESOLUTION=PASS (synthetic test only)')
+          PY
