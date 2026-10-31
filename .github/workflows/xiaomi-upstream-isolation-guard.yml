@@ -42,9 +42,9 @@ jobs:
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
 
       - name: "OTA 真机反馈与 fixture 字节级复现单测"
-        if: hashFiles('scripts/xiaomi-os4/test-ota-baseline-feedback.py') != ''
+        if: hashFiles('scripts/xiaomi-os4/test_ota_baseline_feedback.py') != ''
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/xiaomi-os4/finalize-ota-baseline.py scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
-          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test-ota-baseline-feedback.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_baseline_feedback.py' -v
