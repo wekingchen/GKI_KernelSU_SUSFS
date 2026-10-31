@@ -237,9 +237,6 @@ jobs:
             echo "::error::stock-input 资产在构建期间被替换；拒绝发布"; exit 1;
           }
           TAG="pandora-os4-ota-candidate-$BUILD"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::对应 OTA Release 已存在，拒绝覆盖"; exit 1
-          fi
           cat > "$DIR/README-NO-FLASH.md" <<EOF
           # Xiaomi 17 Pro / $BUILD — 未验证的 OTA GKI 源码候选
 
@@ -254,10 +251,34 @@ jobs:
           EOF
           (cd "$DIR" && find . -maxdepth 1 -type f ! -name 'RELEASE-SHA256SUMS.txt' -printf '%f\0' \
             | LC_ALL=C sort -z | xargs -0 sha256sum > RELEASE-SHA256SUMS.txt)
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
-            --title "pandora $BUILD / UNVERIFIED GKI OTA candidate — DO NOT FLASH" \
-            --notes-file "$DIR/README-NO-FLASH.md" --prerelease --latest=false \
-            "$DIR"/*
+          if EXISTING="$(gh release view "$TAG" --json isDraft,isPrerelease,body --jq '.' 2>/dev/null)"; then
+            jq -e --arg sha "$INPUT_SHA" \
+              '.isDraft == true and .isPrerelease == true and (.body | contains("OTA_INPUT_SHA256=" + $sha))' <<<"$EXISTING" >/dev/null || {
+              echo "::error::对应 Release 已存在且不是同一输入的草稿，禁止覆盖"; exit 1;
+            }
+            echo "::notice::继续上传此前未完成的候选草稿"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
+              --title "pandora $BUILD / UNVERIFIED GKI OTA candidate — DO NOT FLASH" \
+              --notes-file "$DIR/README-NO-FLASH.md" --draft --prerelease --latest=false
+          fi
+          for file in "$DIR"/*; do
+            name="$(basename "$file")"
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              echo "Candidate asset already in draft: $name (will verify downloaded copy)"
+            else
+              gh release upload "$TAG" "$file"
+            fi
+          done
+          VERIFY="$RUNNER_TEMP/ota-release-download-verify"
+          mkdir -p "$VERIFY"
+          gh release download "$TAG" --dir "$VERIFY"
+          cmp -s "$DIR/RELEASE-SHA256SUMS.txt" "$VERIFY/RELEASE-SHA256SUMS.txt" || {
+            echo "::error::Release download manifest mismatch"; exit 1;
+          }
+          (cd "$VERIFY" && sha256sum -c RELEASE-SHA256SUMS.txt)
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == false ]] || exit 1
           echo "OTA_GKI_CANDIDATE_ARCHIVED=YES (NO_FLASH)"
           echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
