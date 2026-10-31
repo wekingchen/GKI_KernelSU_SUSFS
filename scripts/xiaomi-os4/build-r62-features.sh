@@ -199,7 +199,7 @@ BAKASU_SHA="N/A"
 NOMOUNT_SHA="N/A"
 DROIDSPACES_SHA="N/A"
 [[ "$USE_SUSFS" != "1" ]] || SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
-[[ "$USE_BAKASU" != "1" ]] || BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
+[[ "$USE_BAKASU" != "1" ]] || BAKASU_SHA="${XIAOMI_OS4_BAKASU_COMMIT:-${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}}"
 [[ "$USE_NOMOUNT" != "1" ]] || NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
 [[ "$DROIDSPACES_CORE_NAMESPACES" != "1" ]] || DROIDSPACES_SHA="${OS4_DROIDSPACES_COMMIT:?missing OS4_DROIDSPACES_COMMIT}"
 checkout_locked() {
@@ -223,6 +223,35 @@ if [[ "$USE_SUSFS" == "1" ]]; then
 fi
 if [[ "$USE_BAKASU" == "1" ]]; then
   checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
+
+  # The formal OS4 custom workflow tracks BakaSU main at run start. The
+  # historical OS4_BAKASU_COMMIT remains the real-device-validated reference.
+  # If upstream changed only userspace/Manager, the kernel subtree is still
+  # equivalent and the Full Parity LKG gates remain meaningful. If kernel/
+  # changed, automatically downgrade this run to CUSTOM-UNVERIFIED while still
+  # compiling the newest source through the normal ABI/KMI safety gates.
+  if [[ "$BAKASU_SHA" == "$OS4_BAKASU_COMMIT" ]]; then
+    BAKASU_KERNEL_TREE_EQUIVALENT=1
+  else
+    git -C "$STAGE/bakasu" fetch -q --no-tags --depth=1 origin "$OS4_BAKASU_COMMIT" || {
+      echo "::error::cannot fetch validated BakaSU reference $OS4_BAKASU_COMMIT"
+      exit 1
+    }
+    SELECTED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$BAKASU_SHA:kernel")"
+    VALIDATED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$OS4_BAKASU_COMMIT:kernel")"
+    if [[ "$SELECTED_BAKASU_KERNEL_TREE" == "$VALIDATED_BAKASU_KERNEL_TREE" ]]; then
+      BAKASU_KERNEL_TREE_EQUIVALENT=1
+      echo "[OS4] BakaSU main 已更新，但 kernel/ 子树与已验证 pin 相同；保留 Full Parity LKG 身份"
+    else
+      BAKASU_KERNEL_TREE_EQUIVALENT=0
+      if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
+        EXACT_LKG_SELECTION=0
+        echo "::warning::BakaSU main 的 kernel/ 子树已变化；本次继续构建最新内核，但自动降级为 CUSTOM-UNVERIFIED"
+      fi
+    fi
+  fi
+else
+  BAKASU_KERNEL_TREE_EQUIVALENT=0
 fi
 if [[ "$USE_NOMOUNT" == "1" ]]; then
   checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
@@ -835,6 +864,8 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
+  echo "BAKASU_VALIDATED_REFERENCE=$OS4_BAKASU_COMMIT"
+  echo "BAKASU_KERNEL_TREE_EQUIVALENT=$BAKASU_KERNEL_TREE_EQUIVALENT"
   echo "NOMOUNT_COMMIT=$NOMOUNT_SHA"
   echo "DROIDSPACES_COMMIT=$DROIDSPACES_SHA"
   echo "IMAGE_BUILD_SECONDS=$image_elapsed"
