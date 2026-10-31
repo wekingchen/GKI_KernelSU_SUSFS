@@ -1,0 +1,66 @@
+name: "OS4 Manager + upstream drift one-shot validation"
+
+on:
+  push:
+    branches:
+      - os4-restore-upstream-manager-20261031
+    paths:
+      - ".github/workflows/os4-manager-upstream-validation.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: "检出候选代码"
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "静态检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/check-upstream-drift.sh
+          bash -n scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh
+          grep -Fq 'bakasu-manager:' .github/workflows/xiaomi-sm8850-os4-custom.yml
+          grep -Fq '检查上游更新与功能漂移' .github/workflows/xiaomi-sm8850-os4-custom.yml
+          grep -Fq 'fetch-compatible-bakasu-manager.sh' .github/workflows/xiaomi-sm8850-os4-custom.yml
+
+      - name: "验证上游状态检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/check-upstream-drift.sh "$RUNNER_TEMP/upstream-drift.txt"
+          test -s "$RUNNER_TEMP/upstream-drift.txt"
+          grep -q '^UPSTREAM_HEAD=' "$RUNNER_TEMP/upstream-drift.txt"
+          grep -q '^UPSTREAM_SYNC_STATUS=' "$RUNNER_TEMP/upstream-drift.txt"
+          cat "$RUNNER_TEMP/upstream-drift.txt"
+
+      - name: "验证固定版本 BakaSU Manager 获取"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh "$RUNNER_TEMP/manager"
+          test -s "$RUNNER_TEMP/manager/manager-metadata.txt"
+          test -s "$RUNNER_TEMP/manager/MANAGER-SHA256SUMS.txt"
+          find "$RUNNER_TEMP/manager" -maxdepth 1 -type f -name '*-arm64-v8a-release.apk' -print -quit | grep -q .
+          grep -q '^BAKASU_KERNEL_PIN=' "$RUNNER_TEMP/manager/manager-metadata.txt"
+          grep -q '^MANAGER_KSU_VERSION=' "$RUNNER_TEMP/manager/manager-metadata.txt"
+
+      - name: "上传验证 Manager"
+        uses: actions/upload-artifact@v6
+        with:
+          name: os4-pinned-compatible-bakasu-manager-validation
+          path: |
+            ${{ runner.temp }}/manager/*
+            ${{ runner.temp }}/upstream-drift.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
