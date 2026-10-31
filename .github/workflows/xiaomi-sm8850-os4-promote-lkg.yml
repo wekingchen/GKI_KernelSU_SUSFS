@@ -203,6 +203,7 @@ jobs:
             --current-lkg "$HISTORY" \
             --candidate-dir "$CAND" \
             --source-run-id "$SOURCE_RUN_ID" \
+            --promotion-run-id "$GITHUB_RUN_ID" \
             --source-run-head "$SOURCE_HEAD" \
             --artifact-id "$ARTIFACT_ID" \
             --promoted-at "$PROMOTED_AT" \
@@ -212,6 +213,7 @@ jobs:
           source "$LKG"
           [[ "$LKG_PROMOTION_GENERATION" -eq $((OLD_GEN + 1)) ]]
           [[ "$LKG_SOURCE_RUN_ID" == "$SOURCE_RUN_ID" ]]
+          [[ "$LKG_PROMOTION_RUN_ID" == "$GITHUB_RUN_ID" ]]
           echo "history=$HISTORY" >> "$GITHUB_OUTPUT"
           echo "generation=$LKG_PROMOTION_GENERATION" >> "$GITHUB_OUTPUT"
 
@@ -223,7 +225,7 @@ jobs:
           python3 -m py_compile scripts/xiaomi-os4/promote-custom-run-to-lkg.py
           source .github/config/pandora-os4-full-parity-lkg.env
           for v in \
-            LKG_SOURCE_RUN_ID LKG_IMAGE_SHA256 LKG_SYMVERS_SHA256 \
+            LKG_SOURCE_RUN_ID LKG_PROMOTION_RUN_ID LKG_IMAGE_SHA256 LKG_SYMVERS_SHA256 \
             LKG_FINAL_CONFIG_SHA256 LKG_IMAGE_NORMALIZED_SHA256 \
             LKG_BAKASU_COMMIT LKG_SUSFS_COMMIT LKG_NOMOUNT_COMMIT \
             LKG_DROIDSPACES_COMMIT LKG_NTSYNC_PATCH_COMMIT LKG_BBG_COMMIT \
@@ -359,6 +361,9 @@ jobs:
             echo "- 旧 LKG 归档: ${{ steps.render.outputs.history }}"
             echo "- 已合并 PR: ${{ steps.pr.outputs.url }}"
             echo "- dev 合并提交: ${{ steps.pr.outputs.merge_sha }}"
+            echo "- 晋升 Workflow Run: $GITHUB_RUN_ID"
+            echo "- 下一阶段：本晋升运行成功结束后自动触发同一代 LKG 精确复现；复现通过后自动发布 Gen ${{ steps.render.outputs.generation }} Release。"
+            echo "- 无需再手动执行「当前 LKG 复现与打包」或 Release 归档工作流。"
             echo
             echo "来源产物、ABI/KMI、工作区及提交后的上游隔离检查均已通过，GitHub 已确认合并。无需人工再次合并。"
           } >> "$GITHUB_STEP_SUMMARY"
