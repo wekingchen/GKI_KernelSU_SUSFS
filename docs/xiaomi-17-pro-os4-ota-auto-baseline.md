@@ -23,10 +23,10 @@
 
 ## 自动化停止的位置
 
-当前阶段只自动建立 **GKI source/build candidate**。它不是手机可启动基线，更不是已验证的功能内核。自动化明确禁止：
+自动化先建立 **GKI source/build candidate**；只有 OEM ABI/KMI 门禁全部通过后，才会生成 **仅供 fastboot boot 的未验证临时启动包**。这仍不是已验证基线或功能内核。自动化明确禁止：
 
 - 自动复用 Gen 3 的 boot fixture、ABI 锁和 Image 哈希；
-- 自动构造用于刷机的 fastboot boot / AnyKernel3；
+- 绕过 OEM 静态门禁直接生成持久刷写的 boot / AnyKernel3；
 - 自动写入分区、切换 slot、临时启动或修改手机；
 - 自动晋升 LKG 或发布为稳定内核 Release。
 
@@ -65,3 +65,36 @@ Android 官方 GKI 6.12 版本索引：<https://source.android.com/docs/core/arc
 **安全边界**：`Module.symvers`/CRC 和 `vermagic` 只能筛查一部分模块加载兼容性，不等于完整 Android OEM ABI 证明，也不涵盖所有 vendor_boot 早期启动模块的运行时行为。因此“通过”只代表有条件地生成**研究性临时测试包**，不是安全刷机证明。系统升级可能更换 Android GKI toolchain/KMI，遇到差异会停在审计报告，不会强制覆盖。
 
 **已验证版本的采集包**仍无 `oem-modules.zip`：它只作旧 SHA 跳过测试，无须重采、无须改动当前可用内核。
+
+
+## 新增：人工真机测试结果提交与 OTA fixture 固化（2026-11-01）
+
+入口：[小米17 Pro OS4 / 提交 OTA 真机测试结果与固化基线](../.github/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml)，在 Actions 中选择 dev 后点击 Run workflow。
+
+前提：OTA 工作流已经通过静态门禁并生成同一固件的 UNVERIFIED-FASTBOOT-BOOT-ONLY.img。你只用 fastboot boot 临时启动，不可 fastboot flash；Android 成功进入桌面后执行：
+
+    adb shell getprop ro.product.device
+    adb shell getprop ro.mi.os.version.incremental
+    adb shell getprop sys.boot_completed
+    adb shell uname -r
+    adb shell cat /proc/modules
+
+在 Windows CMD 使用 certutil -hashfile 文件名.img SHA256 计算实际被测 IMG 的 SHA256，填入小写 64 位十六进制串。source_run_id 是 OTA 主工作流 Actions 运行 URL 末尾的数字，不是 Artifact ID。
+
+表单填写 source_run_id、result（pass / fail）、tested_boot_sha256、observed_build、observed_uname；通过时必须同时勾选 confirmed_boot_completed（设备 pandora、sys.boot_completed=1）和 confirmed_modules（OEM 模块和基本功能正常）。卡开机、重启循环、核心模块异常时填 fail 并说明问题。
+
+GitHub 对 pass 会自动完成：
+
+1. 只接受 dev 上成功完成的原始 OTA 工作流 Run ID，下载同一 Run 尚未过期的 GKI、OEM ABI 报告及临时 boot Artifact；
+2. 对固定 stock-input Release 唯一 ZIP 的 GitHub asset ID、ZIP SHA256、stock boot SHA256、GKI 来源、Image、uname、OEM CRC/vermagic 门禁和被测 boot SHA256 做强校验；替换到其它 OTA 就拒绝旧版本确认；
+3. 用原 OTA 包装器从同一 stock ZIP 和 Image 再生成 boot，要求与被测 IMG 完全字节一致；
+4. 生成对应新固件独立的 schema 2 fixture，再从 fixture + 同一 Image 复现完全相同的 IMG；fixture 只保存 header 和原 boot 大小，不存巨大的尾部零填充；
+5. 只提交 .github/config/ota-verified/<新 build>/fixture.json 与 verification.json 两个新文件，经上游文件隔离、PR diff 白名单、dev 并发检查和 GitHub 分支保护规则通过后尝试自动合并；已存在同 build 记录时拒绝覆盖。
+
+对 fail 会创建 GitHub Issue 留存来源、实际内核版本、IMG SHA 和失败说明；绝不创建 fixture 或改 LKG。
+
+**验证等级**：状态 HUMAN_ATTESTED_BASELINE_BOOTED 代表用户确认真机已启动且 GitHub 独立复核了产物身份，不意味着 GitHub 具有独立的手机运行时证明。READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION 仅开放下一阶段功能移植；不代表 BakaSU、SUSFS、NoMount 等已经编译好。
+
+**保持边界**：旧 OS4.0.5.0 / R62 / Gen 3 fixture、现有 LKG 和固定 R62 自定义工作流均不修改。新版本后续要另行完成新的 GKI/KMI/ABI、BakaSU main、SUSFS、NoMount 等功能适配、功能版编译和真机复测，最后由你决定是否晋升新的 LKG。当前固化动作不自动 flash、不发布持久包、不自动晋升 LKG。
+
+源 Actions Artifact 默认 30 天保留期；一旦过期必须重新建立可追溯候选，不能手工绕过认证。
