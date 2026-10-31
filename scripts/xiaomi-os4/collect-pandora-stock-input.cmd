@@ -120,9 +120,21 @@ for %%P in (boot init_boot vendor_boot dtbo) do (
   )
 )
 
-rem Capture active mounted modules. Device partitions remain read-only.
+rem Capture the live-mounted vendor / GKI module files with Root rights.
+rem Use root tar streaming: adb pull itself runs as shell and can miss root-only files.
+rem All streams are read-only on the phone; extraction happens on Windows.
 echo.
-echo [采集] 新 OTA 当前挂载的 OEM / GKI 内核模块用于 CRC 校验...
+echo [采集] 正在只读采集已挂载的 OEM / GKI 内核模块...
+where tar >nul 2>nul
+if errorlevel 1 (
+  echo [错误] Windows 没有 tar.exe。请使用较新版本 Windows 10/11。
+  exit /b 1
+)
+adb shell su -c "command -v tar" >nul 2>nul
+if errorlevel 1 (
+  echo [错误] 手机 Root 环境缺少 tar，无法完整采集模块。
+  exit /b 1
+)
 mkdir "%OUT%\oem_modules" || exit /b 1
 set "OEM_DIRS=0"
 for %%V in (vendor_dlkm vendor odm_dlkm system_dlkm) do (
@@ -130,107 +142,93 @@ for %%V in (vendor_dlkm vendor odm_dlkm system_dlkm) do (
   if not errorlevel 1 (
     echo [读取] /%%V/lib/modules/ ...
     mkdir "%OUT%\oem_modules\%%V" || exit /b 1
-    adb pull "/%%V/lib/modules/." "%OUT%\oem_modules\%%V" >nul
+    adb exec-out su -c "tar -C /%%V/lib/modules -cf - ." > "%OUT%\modules-%%V.tar"
     if errorlevel 1 (
-      echo [错误] 读取 OEM 内核模块失败。不得把不完整的 xm.zip 作为适配输入。
+      echo [错误] 无法通过 Root 只读提取 %%V 模块，请检查 su 权限。
       exit /b 1
     )
-    set /a OEM_DIRS+=1
+    for %%F in ("%OUT%\modules-%%V.tar") do if %%~zF LSS 1024 (
+      echo [错误] 模块 TAR 异常小：%%V
+      exit /b 1
+    )
+    tar -xf "%OUT%\modules-%%V.tar" -C "%OUT%\oem_modules\%%V"
+    if errorlevel 1 (
+      echo [错误] Windows 解包 %%V 模块失败，禁止生成不完整 xm.zip。
+      exit /b 1
+    )
+    del /q "%OUT%\modules-%%V.tar"
+    set /a OEM_DIRS+=1 >nul
   )
 )
 if "%OEM_DIRS%"=="0" (
-  echo [错误] 未发现可读的内核模块目录，无法审查 OTA ABI。
+  echo [错误] 手机没有检测到可读取的内核模块目录。
   exit /b 1
 )
-powershell -NoProfile -Command ^
+
+rem Build a full, bounded module archive plus exact count manifest.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "$d='%OUT%\oem_modules';" ^
-  "$m=@(Get-ChildItem -LiteralPath $d -File -Recurse | Where-Object { $_.Name -match '\.ko(\.zst|\.xz|\.gz)?
-powershell -NoProfile -Command ^
+  "$m=@(Get-ChildItem -LiteralPath $d -File -Recurse | Where-Object { $_.Name -match '\.ko(\.zst|\.xz|\.gz)?$' });" ^
+  "if($m.Count -lt 1){throw 'No kernel .ko files found'};" ^
+  "if($m.Count -gt 4096){throw 'Too many .ko files'};" ^
+  "$size=($m | Measure-Object -Property Length -Sum).Sum;" ^
+  "if($size -gt 500MB){throw 'OEM modules exceed 500 MiB'};" ^
+  "'MODULE_COUNT='+$m.Count | Set-Content -Encoding ascii -LiteralPath '%OUT%\oem-modules-count.txt';" ^
+  "Compress-Archive -Path '%OUT%\oem_modules\*' -DestinationPath '%OUT%\oem-modules.zip' -CompressionLevel Optimal"
+if errorlevel 1 (
+  echo [错误] 模块清单或模块 ZIP 生成失败。已停止，未更新手机分区。
+  exit /b 1
+)
+for %%F in ("%OUT%\oem-modules.zip") do if %%~zF LSS 128 (
+  echo [错误] 模块压缩包大小异常。
+  exit /b 1
+)
+
+echo.
+echo [校验] 生成当前活动分区及模块的 SHA256 清单...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "$files='boot.img','init_boot.img','vendor_boot.img','dtbo.img','oem-modules.zip';" ^
   "$o='%OUT%\SHA256SUMS.txt';" ^
-  "foreach($f in $files){$h=(Get-FileHash -Algorithm SHA256 ('%OUT%\'+$f)).Hash.ToLower(); Add-Content -Encoding ascii $o ($h+'  '+$f)}"
-
+  "if(Test-Path -LiteralPath $o){throw 'Unexpected existing SHA256 manifest'};" ^
+  "foreach($f in $files){" ^
+  "  $p=Join-Path '%OUT%' $f;" ^
+  "  if(!(Test-Path -LiteralPath $p)){throw 'Missing file: '+$p};" ^
+  "  $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant();" ^
+  "  Add-Content -Encoding ascii -LiteralPath $o -Value ($h+'  '+$f);" ^
+  "}"
 if errorlevel 1 (
-  echo [错误] SHA256 计算失败。
+  echo [错误] SHA256 清单生成失败。
   exit /b 1
 )
 
 echo [打包] 生成 %ZIP% ...
-powershell -NoProfile -Command ^
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
   "Compress-Archive -Path '%OUT%\boot.img','%OUT%\init_boot.img','%OUT%\vendor_boot.img','%OUT%\dtbo.img','%OUT%\oem-modules.zip','%OUT%\oem-modules-count.txt','%OUT%\README.txt','%OUT%\SHA256SUMS.txt' -DestinationPath '%ZIP%' -CompressionLevel Optimal"
-
 if errorlevel 1 (
-  echo [错误] 生成 xm.zip 失败。
+  echo [错误] 最终 xm.zip 生成失败，禁止上传不完整输入。
+  exit /b 1
+)
+for %%F in ("%ZIP%") do if %%~zF LSS 4096 (
+  echo [错误] xm.zip 大小异常。
   exit /b 1
 )
 
 echo.
 echo ================================================================
-echo [完成] 已生成：
-echo   %ZIP%
+echo [成功] 已生成：%ZIP%
 echo.
 echo SHA256 清单：
 type "%OUT%\SHA256SUMS.txt"
 echo.
 echo 下一步：
-echo   1. 不要解压这个 *-xm.zip；
-echo   2. 上传到 GitHub 固定 prerelease：pandora-os4-stock-input；
-echo   3. 同一个 Release 中必须只保留一个 *xm.zip；
-echo   4. 新固件不要直接套用旧 fixture / 旧功能内核。
+echo   1. 仅上传这个完整的 *-xm.zip 到固定 Release pandora-os4-stock-input；
+echo   2. 该 Release 必须只保留一个 *xm.zip；
+echo   3. GitHub 会自动检查版本并进行 OEM CRC/KMI 兼容性验证；
+echo   4. 通过门禁生成的临时 boot 必须先用 fastboot boot 真机验证。
 echo.
-echo [安全确认] 本脚本没有修改手机任何分区。
-echo ================================================================
-endlocal
- });" ^
-  "if($m.Count -lt 1){throw 'OEM module list is empty'};" ^
-  "$sum=($m | Measure-Object -Property Length -Sum).Sum;" ^
-  "if($sum -gt 500MB){throw 'OEM modules exceed 500 MB; stop for manual review'};" ^
-  "'MODULE_COUNT='+$m.Count | Out-File -Encoding ascii '%OUT%\oem-modules-count.txt';" ^
-  "Compress-Archive -Path '%OUT%\oem_modules\*' -DestinationPath '%OUT%\oem-modules.zip' -CompressionLevel Optimal"
-if errorlevel 1 (
-  echo [错误] 厂商模块采集失败，禁止产生不完整的 xm.zip。
-  exit /b 1
-)
-echo.
-echo [校验] 计算 SHA256 ...
-powershell -NoProfile -Command ^
-  "$ErrorActionPreference='Stop';" ^
-  "$files='boot.img','init_boot.img','vendor_boot.img','dtbo.img';" ^
-  "$o='%OUT%\SHA256SUMS.txt';" ^
-  "foreach($f in $files){$h=(Get-FileHash -Algorithm SHA256 ('%OUT%\'+$f)).Hash.ToLower(); Add-Content -Encoding ascii $o ($h+'  '+$f)}"
-
-if errorlevel 1 (
-  echo [错误] SHA256 计算失败。
-  exit /b 1
-)
-
-echo [打包] 生成 %ZIP% ...
-powershell -NoProfile -Command ^
-  "$ErrorActionPreference='Stop';" ^
-  "Compress-Archive -Path '%OUT%\boot.img','%OUT%\init_boot.img','%OUT%\vendor_boot.img','%OUT%\dtbo.img','%OUT%\README.txt','%OUT%\SHA256SUMS.txt' -DestinationPath '%ZIP%' -CompressionLevel Optimal"
-
-if errorlevel 1 (
-  echo [错误] 生成 xm.zip 失败。
-  exit /b 1
-)
-
-echo.
-echo ================================================================
-echo [完成] 已生成：
-echo   %ZIP%
-echo.
-echo SHA256 清单：
-type "%OUT%\SHA256SUMS.txt"
-echo.
-echo 下一步：
-echo   1. 不要解压这个 *-xm.zip；
-echo   2. 上传到 GitHub 固定 prerelease：pandora-os4-stock-input；
-echo   3. 同一个 Release 中必须只保留一个 *xm.zip；
-echo   4. 新固件不要直接套用旧 fixture / 旧功能内核。
-echo.
-echo [安全确认] 本脚本没有修改手机任何分区。
+echo [只读确认] 没有向手机写入任何分区，Gen 3 LKG 不受影响。
 echo ================================================================
 endlocal
