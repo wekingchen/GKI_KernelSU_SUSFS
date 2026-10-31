@@ -1,11 +1,11 @@
 # Xiaomi 17 Pro OS4 当前 LKG 与动态上游策略
 
-本文记录 Xiaomi 17 Pro OS4 的当前稳定 LKG、日常自定义编译上游策略，以及 LKG 晋升/复现机制。
+本文记录 Xiaomi 17 Pro OS4 的当前稳定 LKG、日常自定义编译上游策略，以及 **现有 R62 范围内的** LKG 晋升/复现机制。完整功能和新 OTA 的已完成/待实现边界见 [2026-11-01 OS4 端到端审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)。
 
 核心原则：
 
 - **自定义编译追最新稳定上游**：每次 run 开始时重新解析各功能的稳定渠道，并把本次解析结果锁成精确 SHA；
-- **LKG 是用户显式标记的当前稳定版本**：它会随着真机验证结果晋升，不是永久冻结的初始版本；
+- **LKG 是用户显式标记的当前稳定版本**：会在受支持的版本化晋升链完成真机确认与严格校验后移动，不能把新 OTA 的开发指针当作 LKG；
 - **旧 LKG 自动归档**：新 LKG 晋升时，旧机器可读状态写入 `.github/config/lkg-history/`；
 - **LKG 只负责稳定复现/回退，不阻止新版构建**：候选版本与 LKG 不同会标记为 `CUSTOM-UNVERIFIED`，但只要安全门禁通过就继续编译并输出 AnyKernel3。
 
@@ -131,7 +131,7 @@ Generic Netlink family: rekernel
 - boot fixture / ABI lock；
 - 来源 run / AnyKernel3 / fastboot boot 哈希。
 
-该工作流按晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。**从 Gen 4 开始，晋升成功后由 GitHub 自动启动复现，不再需要手动运行「当前 LKG 复现与打包」。** 每次晋升后的新 LKG 只有复现成功才标记“该代 LKG 复现已验证”，随后才由自动归档工作流发布独立的 `pandora-os4-lkg-genN` Release。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
+该工作流按**当前 R62 体系**在晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。后续 **R62 范围内**若再次晋升，晋升成功后 GitHub 的 workflow_run 会尝试自动接力复现、归档。**这套逻辑并未泛化到新 OTA：不能简单把 Gen 4 等同于可适配任意新 HyperOS 版本。** 新 OTA 要先完成专用晋升/复现/归档代码的版本化改造及测试。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
 
 当某次正式自定义构建经过真机启动、持久化使用并由用户确认稳定后，使用：
 
@@ -140,7 +140,7 @@ Generic Netlink family: rekernel
 小米17 Pro OS4 / 将自定义构建晋升为 LKG
 ```
 
-输入该正式 `dev` 自定义 run ID，并明确确认已完成真机稳定验证。晋升流程会：
+**仅限来自 R62 路径的正式 `dev` 自定义 Run ID**（Artifact 名称为 `pandora-OS4-R62-CUSTOM-run-<id>`）。不能输入新 OTA 的 `pandora-OTA-CUSTOM-<build>-run-<id>`：现有晋升仍强制依赖 R62 的 ABI 锁、系统 build、fixture、AnyKernel3、复现和归档设置；**目前新 OTA 晋升 LKG 不支持**。对受支持的 R62 Run，需你明确确认已经真机稳定验证，晋升流程会：
 
 1. 下载并重新校验该 run 的 Image / config / Module.symvers / fastboot boot / AnyKernel3；
 2. 重新执行 ABI/KMI 固定锁；
@@ -155,7 +155,7 @@ Generic Netlink family: rekernel
 
 **不需要人工合并 LKG 晋升 PR**。机器人创建 PR 时 GitHub 可能要求人工批准其独立 CI；因此晋升所需的校验全部在本工作流内完成，不依赖该异步 CI。独立隔离 Workflow 仍用于 `os4-*`、`xiaomi-*`、`pandora-*` 开发分支及开发 PR；仅包含 LKG 指针和历史快照变更的 PR 不触发它。
 
-**历史说明：**Gen 3 的严格复现 Run `41213989920` 与 Release `pandora-os4-lkg-gen3` 已在旧流程下实际验证成功。新的无手动复现接力从下一次新晋升（Gen 4）开始生效；不能把 Gen 3 的手动测试冒充为新自动链路的端到端测试。
+**历史说明：**Gen 3 的严格复现 Run `41213989920` 与 Release `pandora-os4-lkg-gen3` 已在旧流程下实际验证成功。新自动接力的端到端成功需要未来真正受支持的晋升 Run 另行证明；当前不能把新 OTA 的开发指针或编译成功当成 Gen 4 稳定晋升。
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
@@ -235,11 +235,11 @@ resolver 在 run 开始时只解析一次，并输出本次稳定快照 SHA256�
 - 仍直接使用最新稳定版继续适配和编译；
 - ABI/KMI、patch、Kconfig 等安全门禁继续执行；
 - 成功后生成 fastboot 测试镜像与 `CUSTOM-UNVERIFIED` AnyKernel3；
-- 真机稳定后可由用户把该 run 晋升成新的 LKG。
+- **对 R62 版本**，真机稳定后可以用现有晋升工作流；**对新 OTA 版本**，只能先作为自定义待测版使用，暂不可直接走旧 R62 LKG 晋升工作流。
 
 只有“功能选择 + 启用组件精确 SHA”都与当前 LKG 相同，构建结果才具有当前 LKG 身份。
 
-网络增强（BBR / IPSet / FQ / FQ_CODEL / CAKE / WireGuard / CIFS）目前来自固定 R62 内核源码本身，不存在独立第三方版本 resolver。CVE 修复链则按当前源码状态审计/必要时回补，不作为普通第三方版本号处理。
+网络增强（BBR / IPSet / FQ / FQ_CODEL / CAKE / WireGuard / CIFS）来自**本次选中的 GKI 内核源码**本身（R62 或经过验证的新 OTA GKI），没有独立第三方版本 resolver；CVE 修复链按当前源码审计/必要时回补，不作为普通第三方版本号处理。跨新 OTA 的补丁、Kconfig 与 OEM ABI 不保证自动适配。
 
 ### BakaSU Manager 与上游跟进
 
@@ -277,7 +277,7 @@ OTA 后不要直接沿用当前 LKG。先用新版 `collect-pandora-stock-input.
 .github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml
 ```
 
-它会自动检查新固件、构建候选 GKI、静态对比 OEM 模块 ABI/KMI；仅在检查允许时输出**不可刷写的 fastboot boot 临时待测包**。真机测试、版本 fixture 固化和 LKG 晋升仍需要后续确认。旧的独立 stock-intake Workflow 已删除。
+它会自动检查新固件、构建候选 GKI、静态对比 OEM 模块 ABI/KMI；仅在检查允许时输出**供 fastboot boot 临时测试、尚未认证的候选 IMG**。随后通过一次纯 GKI 真机结果反馈，GitHub 才会固化该版本的 fixture/verification 和开发指针；以后仍在原「自定义内核」入口自动选新 OTA，成功编译就同次输出待测 IMG 与 `OTA_CUSTOM_UNVERIFIED` AnyKernel3（无需第二次反馈才能取得 ZIP）。**这是开发基线的切换，不是新 OTA 稳定 LKG 晋升。** 旧的独立 stock-intake Workflow 已删除。
 
 详细步骤见：
 
