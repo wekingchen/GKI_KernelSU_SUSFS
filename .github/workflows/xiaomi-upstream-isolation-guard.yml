@@ -60,6 +60,7 @@ jobs:
           python3 -m py_compile scripts/xiaomi-os4/cross-ota-lkg.py scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_cross_ota_lkg.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_lkg_release.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_os4_full_chain.py' -v
           bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
           ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }'             .github/workflows/xiaomi-sm8850-os4-custom.yml             .github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
