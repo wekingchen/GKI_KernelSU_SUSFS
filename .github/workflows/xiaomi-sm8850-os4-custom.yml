@@ -254,7 +254,8 @@ jobs:
           python3 -m py_compile \
             scripts/xiaomi-os4/susfs-task-mmu-compat.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
-            scripts/xiaomi-os4/verify-lkg-image-equivalence.py
+            scripts/xiaomi-os4/verify-lkg-image-equivalence.py \
+            scripts/xiaomi-os4/describe-image-reproducibility.py
           ! grep -R -nE 'fastboot[[:space:]]+flash|dd[[:space:]].*of=/dev/block' \
             scripts/xiaomi-os4/package-validated-anykernel3.sh \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
@@ -403,6 +404,10 @@ jobs:
           OUT="${{ runner.temp }}/custom-out"
           mkdir -p "$OUT"
 
+          python3 scripts/xiaomi-os4/describe-image-reproducibility.py "$RES/Image" \
+            --output-env "$OUT/image-reproducibility.env"
+          source "$OUT/image-reproducibility.env"
+
           IMAGE_SHA="$(sha256sum "$RES/Image" | awk '{print $1}')"
           SYMVERS_SHA="$(sha256sum "$RES/Module.symvers" | awk '{print $1}')"
           CONFIG_SHA="$(sha256sum "$RES/final.config" | awk '{print $1}')"
@@ -467,6 +472,12 @@ jobs:
 
           {
             echo "ACTUAL_IMAGE_SHA256=$IMAGE_SHA"
+            echo "ACTUAL_IMAGE_SIZE=$IMAGE_SIZE"
+            echo "ACTUAL_IMAGE_BUILD_ID_PAYLOAD_OFFSET=$IMAGE_BUILD_ID_PAYLOAD_OFFSET"
+            echo "ACTUAL_IMAGE_MODULE_CERT_OFFSET=$IMAGE_MODULE_CERT_OFFSET"
+            echo "ACTUAL_IMAGE_MODULE_CERT_LENGTH=$IMAGE_MODULE_CERT_LENGTH"
+            echo "ACTUAL_IMAGE_NORMALIZED_SHA256=$NORMALIZED_IMAGE_SHA256"
+            echo "ACTUAL_MODULE_SIGNING_CERT_SHA256=$MODULE_SIGNING_CERT_SHA256"
             echo "ACTUAL_SYMVERS_SHA256=$SYMVERS_SHA"
             echo "ACTUAL_CONFIG_SHA256=$CONFIG_SHA"
             echo "ACTUAL_KERNEL_RELEASE=$RELEASE"
@@ -581,6 +592,12 @@ EOF
             echo "BAKASU_KERNEL_TREE_EQUIVALENT=$ACTUAL_BAKASU_KERNEL_TREE_EQUIVALENT"
             echo "KERNEL_RELEASE=$ACTUAL_KERNEL_RELEASE"
             echo "IMAGE_SHA256=$ACTUAL_IMAGE_SHA256"
+            echo "IMAGE_SIZE=$ACTUAL_IMAGE_SIZE"
+            echo "IMAGE_BUILD_ID_PAYLOAD_OFFSET=$ACTUAL_IMAGE_BUILD_ID_PAYLOAD_OFFSET"
+            echo "IMAGE_MODULE_CERT_OFFSET=$ACTUAL_IMAGE_MODULE_CERT_OFFSET"
+            echo "IMAGE_MODULE_CERT_LENGTH=$ACTUAL_IMAGE_MODULE_CERT_LENGTH"
+            echo "IMAGE_NORMALIZED_SHA256=$ACTUAL_IMAGE_NORMALIZED_SHA256"
+            echo "MODULE_SIGNING_CERT_SHA256=$ACTUAL_MODULE_SIGNING_CERT_SHA256"
             echo "SYMVERS_SHA256=$ACTUAL_SYMVERS_SHA256"
             echo "FASTBOOT_BOOT=$BOOT_NAME"
             echo "FASTBOOT_BOOT_SHA256=$BOOT_SHA256"
@@ -626,6 +643,7 @@ EOF
             echo "- BakaSU: \`$ACTUAL_BAKASU_COMMIT\`"
             echo "- BakaSU kernel/ tree 与已验证参考相同: \`$ACTUAL_BAKASU_KERNEL_TREE_EQUIVALENT\`"
             echo "- Image SHA256: `$ACTUAL_IMAGE_SHA256`"
+            echo "- normalized Image SHA256: `$ACTUAL_IMAGE_NORMALIZED_SHA256`"
             echo "- fastboot boot SHA256: `$BOOT_SHA256`"
             echo "- AnyKernel3: `$ANYKERNEL3_NAME`"
             echo "- AnyKernel3 SHA256: `$ANYKERNEL3_SHA256`"
