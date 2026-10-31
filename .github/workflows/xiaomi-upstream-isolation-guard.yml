@@ -56,6 +56,7 @@ jobs:
           python3 -m py_compile scripts/xiaomi-os4/check-ota-anykernel-evidence.py
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_anykernel_evidence.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_os4_stock_collector_integrity.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_os4_workflow_contracts.py' -v
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
