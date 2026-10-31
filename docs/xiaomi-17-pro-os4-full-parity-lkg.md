@@ -15,31 +15,33 @@
 - 代号：`pandora`
 - 系统：HyperOS 4 `OS4.0.5.0.XBLCNXM`
 - GKI：Android 16 KMI / 6.12.69
-- 最终内核：
-  `6.12.69-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k`
+- 当前 Gen 3 内核：`6.12.69-android16-6-os4r62-custom-4k`
+- 最初真机验证的 Gen 1 基线内核：`6.12.69-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k`
 
 不要把本结论外推到其他机型、其他 HyperOS 版本或 OTA 后的新 boot 布局。
 
-## 当前 LKG 身份
+## 当前 LKG 身份（唯一权威来源）
 
-```text
-source_run_id=41068829461
-image_sha256=244772c526f76a33fb96e7c6b8915f1d68e0f79b916bb1624127ccd6eee7a846
-module_symvers_sha256=f17b4d56fc3b80497a36826e4c9907bd51939662025a739accef20c2c00e0ae8
-fastboot_boot_sha256=6f1972757b1d731a2efd93e4db109df1c49fc2776de97f067b838182193eb228
-
-persistent_package_run_id=41072834543
-persistent_package=Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip
-persistent_package_sha256=df1138d26ba02749cb9902a683d01ddc52693b53c279f16119f02b7e69be437f
-```
-
-当前机器可读 LKG 指针在：
+**当前 LKG 以仓库 `dev` 中的机器可读配置为准，不以本文的历史示例为准：**
 
 ```text
 .github/config/pandora-os4-full-parity-lkg.env
 ```
 
-## 已验证功能
+最近一次已完成的晋升为 **Gen 3**（2026-10-31，来源自定义编译 Run `41210530544`，用户确认真机稳定后自动合并 PR #25）。
+Gen 2 已归档至：
+
+```text
+.github/config/lkg-history/pandora-os4-r62-gen-2-run-41206357785.env
+```
+
+更早的 Gen 1 Full Parity 基线来源 Run `41068829461`，其已验证 AnyKernel3 打包来源 Run `41072834543`。这两个 Run **不是当前 Gen 3 LKG**；仅用于历史回溯。
+
+`LKG_PACKAGE_NAME` 如果仍包含 `UNVERIFIED`，表示该 Artifact **在首次构建时尚未经真机确认**，是来源产物的原始文件名。成功晋升后须以当前 `LKG_PROMOTION_GENERATION` 和用户的真机确认作为稳定身份；不能因为文件名推断晋升失败。
+
+## 已验证功能（Full Parity 真机基线）
+
+以下运行时证据来自先前已完成的 Full Parity 真机检查；后续 Gen 3 是经用户独立真机验证并晋升的版本。配置字段或功能勾选本身**不能替代**逐项运行时验证。
 
 - Built-in BakaSU Root
 - SUSFS
@@ -129,7 +131,7 @@ Generic Netlink family: rekernel
 - boot fixture / ABI lock；
 - 来源 run / AnyKernel3 / fastboot boot 哈希。
 
-因此“当前 LKG”始终可以按它被晋升时的精确身份复现。
+该工作流按晋升时锁定的身份重新编译，并对配置、ABI/KMI 与归一化 Image 做严格比较。**配置锁定不等于已经证明复现成功**；每次晋升后的新 LKG 还应至少运行一次该 Workflow，通过后才标记“该代 LKG 复现已验证”。外部源码或工具链失去可访问性时，精确 SHA 也不能单独保证未来永久可复现。
 
 当某次正式自定义构建经过真机启动、持久化使用并由用户确认稳定后，使用：
 
@@ -152,6 +154,16 @@ Generic Netlink family: rekernel
 **不需要人工合并 LKG 晋升 PR**。机器人创建 PR 时 GitHub 可能要求人工批准其独立 CI；因此晋升所需的校验全部在本工作流内完成，不依赖该异步 CI。独立隔离 Workflow 仍用于 `os4-*`、`xiaomi-*`、`pandora-*` 开发分支及开发 PR；仅包含 LKG 指针和历史快照变更的 PR 不触发它。
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
+
+## 下一项验收：Gen 3 当前 LKG 复现
+
+- 工作流入口：[`小米17 Pro OS4 / 当前 LKG 复现与打包`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-lkg.yml)；
+- 在 `dev` 上运行；该工作流**不会刷新上游或推动 LKG 代次**，只使用当前 `.env` 的精确锁定信息；
+- 成功标准：`EXACT_LKG_SELECTION=1`，`Module.symvers` / `final.config` / kernel release 一致，normalized Image 校验成功，fastboot boot 和 AnyKernel3 生成并上传 Artifact；
+- `REBUILT_IMAGE_BYTE_EXACT=0` 不必然等于失败：构建生成的证书与 GNU build-id 可能变化，须以脚本对允许变化区间之外的归一化一致性检查为准；
+- **不要为了验证复现而直接刷写新生成的 boot**；先完成离线检查，必要时使用已经保存的已知可启动备份恢复。
+
+在新的 Gen 3 复现 Run 真正完成之前，不应在文档中声称该步骤已通过。
 
 ## 自定义功能编译
 
@@ -218,7 +230,9 @@ resolver 在 run 开始时只解析一次，并输出本次稳定快照 SHA256�
 OS4 正式自定义工作流恢复旧 OS3 的上游跟随方式，并进一步保证同一次构建的内核与 Manager 来源一致：
 
 - 每次 workflow 启动时先解析 `Baka-SU/BakaSU:main` 当前最新 SHA，并把这个 SHA 锁定为本次 run 的统一 BakaSU 来源；
-- `bakasu` / `bakasu-susfs` ### BakaSU Manager
+- `bakasu` / `bakasu-susfs` 共用本次解析的精确 BakaSU SHA；`none` 不获取管理器。
+
+### BakaSU Manager
 
 BakaSU 是动态上游快照的一部分。每次 run 解析 `Baka-SU/BakaSU:main` 当前 SHA 后：
 
