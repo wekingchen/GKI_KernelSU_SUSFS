@@ -63,7 +63,7 @@ jobs:
           bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
-          python3 -m py_compile scripts/xiaomi-os4/cross-ota-lkg.py scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py
+          python3 -m py_compile scripts/xiaomi-os4/cross-ota-lkg.py scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py scripts/xiaomi-os4/verify-ota-lkg-release.py
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_cross_ota_lkg.py' -v
       - name: "构建与校验环境"
         shell: bash
@@ -150,14 +150,7 @@ jobs:
           cmp -s "$POINTER" "$WORK/ota-lkg-promotion-record.json" || {
             echo "::error::Release 内记录不是已合并的 LKG"; exit 1;
           }
-          (cd "$WORK" && sha256sum -c "SHA256SUMS-$TAG.txt")
-          for pattern in '*ORIGINAL-USER-ATTESTED-AnyKernel3.zip' \
-                         '*REBUILT-CI-ONLY-AnyKernel3.zip' \
-                         '*original-evidence.tar.zst' '*rebuilt-evidence.tar.zst'; do
-            compgen -G "$WORK/$pattern" >/dev/null || {
-              echo "::error::Release 关键原始/复现资产缺失: $pattern"; exit 1;
-            }
-          done
+          python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK" --tag "$TAG"
           # Re-read the pointer to reject a concurrent later generation.
           CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/config/ota-lkg-current.json?ref=dev" --jq .content | base64 -d)"
           cmp -s <(printf '%s\n' "$CURRENT") "$POINTER" || {
