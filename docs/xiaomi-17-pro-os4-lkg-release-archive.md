@@ -31,3 +31,9 @@ GitHub Release 不受 Actions Artifact 自动 30 天过期规则限制，但 Git
 历史 Gen 3 的完整 Release 已于 2026-10-31 通过手动归档验收成功；新的两级自动接力需要等待下一次**受支持的正式晋升**才有真实端到端验证，不能用旧记录替代；**不能把新 OTA 的任何自定义 Run 直接交给现有 R62 晋升工作流。**GitHub `workflow_run` 最多支持三层接力；本方案使用晋升 → 复现 → 归档的两级接力。
 
 当前 Gen 3 系统为 pandora / OS4.0.5.0.XBLCNXM。不得将此 boot 直接刷入其它系统版本；保留本机原有的已知可启动备份。归档不会晋升新 LKG、改内核、刷设备。未来若完成版本化 LKG 晋升、严格复现与长期归档改造，下一代才可能发布到不同的 pandora-os4-lkg-genN 标签；在实现并真实验证之前不可声称已经支持新 OTA Gen 4。
+
+## 新 OTA 的版本化归档（2026-11-01 实现，尚待真机验收）
+
+对已经用 AnyKernel3 持久安装、运行稳定的**新 OTA 自定义 Run**，使用[跨 OTA LKG 晋升、复现与归档工作流](../.github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml)。它在同一工作流中先核对源码/上游/fixture 和用户真机确认，再检出原始 Git SHA 重编，严格核对相同内核配置、Module.symvers 与可证明的 normalized Image；准备 `pandora-os4-lkg-genN` 草稿 Release，下载核验所有原始与复现资产 SHA；然后才合并新的当前 LKG 指针并公开 Release。源真机版本和复现版本分别标明验证等级，不允许将 CI 重编冒充用户刷机验证。
+
+如果指针已合并但最后发布 Release 失败，在同一个入口勾选 `repair_draft_release`，只做当前代指针、草稿及 SHA 的核验与发布，不会再次晋升。完整说明见 [跨 OTA LKG 可靠性设计](xiaomi-17-pro-os4-cross-ota-lkg.md)。**代码层面的合成 CI 已建立，真实新 OTA 端到端仍未执行。**

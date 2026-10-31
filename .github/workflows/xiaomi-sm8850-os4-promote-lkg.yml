@@ -60,6 +60,12 @@ jobs:
             exit 1
           }
 
+          # A versioned OTA LKG supersedes the historical R62 promotion path.
+          # Never let the old Gen3 counter issue a competing GenN after that.
+          if [[ -e .github/config/ota-lkg-current.json ]]; then
+            echo "::error::当前稳定 LKG 已切换到版本化 OTA 指针；R62 晋升入口不再允许创建冲突代次。"
+            exit 1
+          fi
           RUN_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
           [[ "$(jq -r '.status' <<<"$RUN_JSON")" == "completed" ]] || {
             echo "::error::来源 run 尚未完成"; exit 1;

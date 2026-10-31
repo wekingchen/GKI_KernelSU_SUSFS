@@ -156,7 +156,7 @@ adb shell cat /proc/modules
 2. GitHub 读取当前输入 Release 和已验证开发指针，自动选择对应 GKI commit。每轮锁定本次最新稳定上游提交，尝试移植补丁和编译。**新固件未通过确认时，不会偷偷回退 R62**。
 3. 新 OTA 编译及 ABI/KMI 全绿时，在同一 Artifact 同时下载 `*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img` 与 `*-UNVERIFIED-AnyKernel3.zip`，以及 SHA256、ABI 结果和构建元信息。
 4. 两种形式使用相同 Image。**不用再提交另一轮真机结果才能拿到 AnyKernel3**。更安全的使用方式仍是先 `fastboot boot` 临时测试功能版，再决定是否运行会持久替换活动 boot 内核的 AnyKernel3。
-5. 目前旧 R62 的 [`晋升为 LKG`](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml) 尚不支持直接输入新 OTA 的 Artifact。**新版本日常自定义编译可用不代表新版本 LKG 晋升流程已贯通**。
+5. 目前旧 R62 的 [`晋升为 LKG`](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml) 尚不支持直接输入新 OTA 的 Artifact。**新版本 LKG 现使用独立跨 OTA 入口，代码自动链路已接通，但要等新 OTA 实际真机才能完成首次端到端验收**。
 
 ## 七、常见问题与故障回退
 
@@ -175,3 +175,9 @@ adb shell cat /proc/modules
 ---
 
 **恢复原则**：不跨 HyperOS 版本刷旧 boot，不把 Root 状态备份声称为原厂 pristine boot，不用静态 ABI/CI 结果代替真机启动证据。完整技术限制请看 [OS4 全流程独立审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)。
+
+## 八、确认新 OTA 自定义版本稳定后，怎样晋升当前 LKG？
+
+**取得 IMG/AnyKernel3 无需第二次反馈。** 只有当你后来真正用该功能版在手机上启动、持久安装并确认选用的功能正常，才需要主动标记 LKG：在 [跨 OTA LKG 晋升、复现及归档](../.github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml) 输入原自定义 Run ID、勾选三项真实确认，之后 CI 自动完成原版本源码严格重编、OEM ABI/归一化 Image 校验、原版及复现版 Release 资产 SHA 下载回检、稳定指针 PR 合并与发布。首次新 OTA 从 Gen 4 开始，不再使用旧 R62 晋升入口；失败即停。
+
+当前还没有新 OTA 可用于实机端到端验证；该流程的适用条件、错误恢复及证明边界见 [跨 OTA LKG 文档](xiaomi-17-pro-os4-cross-ota-lkg.md)。

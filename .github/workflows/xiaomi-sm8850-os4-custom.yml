@@ -933,6 +933,59 @@ jobs:
             echo "- 仅 LKG 晋升需要另外明确确认"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "为跨 OTA 稳定晋升保留精确来源与全部功能提交快照"
+        shell: bash
+        env:
+          BAKASU: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          SUSFS: ${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          NOMOUNT: ${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          DROIDSPACES: ${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          NTSYNC: ${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          BBG: ${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          REKERNEL: ${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          BAKASU_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          SUSFS_KIND: ${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          NOMOUNT_KIND: ${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          DROIDSPACES_KIND: ${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          NTSYNC_KIND: ${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          BBG_KIND: ${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          REKERNEL_KIND: ${{ needs.resolve-upstreams.outputs.rekernel_kind }}
+          BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          SUSFS_REF: ${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          NOMOUNT_REF: ${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          DROIDSPACES_REF: ${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          NTSYNC_REF: ${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          BBG_REF: ${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          REKERNEL_REF: ${{ needs.resolve-upstreams.outputs.rekernel_ref }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/ota-custom-output"
+          {
+            for c in BAKASU SUSFS NOMOUNT DROIDSPACES NTSYNC BBG REKERNEL; do
+              value="$(printenv "$c")"
+              [[ "$value" =~ ^[0-9a-f]{40}$ ]] || {
+                echo "::error::$c 上游提交不可信"; exit 1;
+              }
+              printf 'RESOLVED_%s_COMMIT=%s\n' "$c" "$value"
+              kind="$(printenv "${c}_KIND")"
+              ref="$(printenv "${c}_REF")"
+              [[ "$kind" == branch || "$kind" == tag ]] || { echo "::error::invalid upstream kind $c"; exit 1; }
+              [[ "$ref" =~ ^[A-Za-z0-9._/+-]+$ ]] || { echo "::error::invalid upstream ref $c"; exit 1; }
+              printf 'RESOLVED_%s_KIND=%s\nRESOLVED_%s_REF=%s\n' "$c" "$kind" "$c" "$ref"
+            done
+          } > "$OUT/locked-upstreams.env"
+          # If this future GKI cannot be normalized safely, do not block
+          # user-defined custom builds; block promotion until independently
+          # demonstrated normalized equivalence is implemented.
+          if ! python3 scripts/xiaomi-os4/describe-image-reproducibility.py \
+            "$OUT/Image" --output-env "$OUT/image-reproducibility.env"; then
+            rm -f "$OUT/image-reproducibility.env"
+            echo "::warning::未知 GKI 证书/Build ID 格式，LKG 晋升暂被禁止"
+          fi
+          python3 scripts/xiaomi-os4/cross-ota-lkg.py capture \
+            --artifact-dir "$OUT" --run-id "$GITHUB_RUN_ID" --head-sha "$GITHUB_SHA"
+          (cd "$OUT" && sha256sum Image Module.symvers *.img *.zip > SHA256SUMS.txt)
+
       - name: "上传新版本自定义内核：IMG + UNVERIFIED AnyKernel3"
         uses: actions/upload-artifact@v6
         with:
