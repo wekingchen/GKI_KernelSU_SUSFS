@@ -1,4 +1,5 @@
 name: "OS4 dynamic stable upstreams one-shot validation"
+# rerun after production-workflow YAML fix
 
 on:
   push:
