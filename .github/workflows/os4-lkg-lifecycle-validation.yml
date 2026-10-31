@@ -37,23 +37,47 @@ jobs:
         run: |
           set -euo pipefail
           CAND="$RUNNER_TEMP/candidate"
-          mkdir -p "$CAND"
+          RAW="$RUNNER_TEMP/candidate-raw"
+          mkdir -p "$CAND" "$RAW"
           gh run download 41200973690 \
             --repo "$GITHUB_REPOSITORY" \
             --name "os4-dynamic-stable-upstreams-validation" \
-            --dir "$CAND"
-          if [[ ! -s "$CAND/Image" ]]; then
-            AK3="$(find "$CAND" -maxdepth 1 -type f -name '*AnyKernel3.zip' -print -quit)"
-            [[ -n "$AK3" && -s "$AK3" ]] || {
-              echo "::error::实验候选既无 raw Image，也无 AnyKernel3"; exit 1;
+            --dir "$RAW"
+
+          normalize_one() {
+            local name="$1"
+            local found
+            found="$(find "$RAW" -type f -name "$name" -print -quit)"
+            [[ -n "$found" ]] || return 1
+            cp -f "$found" "$CAND/$name"
+          }
+
+          for name in final.config Module.symvers resolved-upstreams.env image-reproducibility.env build-metadata.txt; do
+            normalize_one "$name" || {
+              echo "::error::实验 Artifact 缺少 $name"; exit 1;
             }
+          done
+
+          AK3="$(find "$RAW" -type f -name '*AnyKernel3.zip' -print -quit)"
+          [[ -n "$AK3" && -s "$AK3" ]] || {
+            echo "::error::实验 Artifact 中未找到 AnyKernel3"; exit 1;
+          }
+          cp -f "$AK3" "$CAND/$(basename "$AK3")"
+
+          IMAGE="$(find "$RAW" -type f -name 'Image' -print -quit)"
+          if [[ -n "$IMAGE" && -s "$IMAGE" ]]; then
+            cp -f "$IMAGE" "$CAND/Image"
+          else
             unzip -p "$AK3" Image > "$CAND/Image"
           fi
+
+          BOOT="$(find "$RAW" -type f -name '*FASTBOOT-BOOT-ONLY.img' -print -quit)"
+          [[ -n "$BOOT" && -s "$BOOT" ]] || {
+            echo "::error::实验 Artifact 中未找到 fastboot boot"; exit 1;
+          }
+          cp -f "$BOOT" "$CAND/$(basename "$BOOT")"
+
           test -s "$CAND/Image"
-          test -s "$CAND/final.config"
-          test -s "$CAND/Module.symvers"
-          test -s "$CAND/resolved-upstreams.env"
-          test -s "$CAND/image-reproducibility.env"
 
       - name: "重建生产候选 selection-manifest"
         shell: bash
