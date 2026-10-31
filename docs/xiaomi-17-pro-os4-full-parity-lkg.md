@@ -155,15 +155,27 @@ Generic Netlink family: rekernel
 
 因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
-## 下一项验收：Gen 3 当前 LKG 复现
+## Gen 3 当前 LKG 复现：已验证通过
 
-- 工作流入口：[`小米17 Pro OS4 / 当前 LKG 复现与打包`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-lkg.yml)；
-- 在 `dev` 上运行；该工作流**不会刷新上游或推动 LKG 代次**，只使用当前 `.env` 的精确锁定信息；
-- 成功标准：`EXACT_LKG_SELECTION=1`，`Module.symvers` / `final.config` / kernel release 一致，normalized Image 校验成功，fastboot boot 和 AnyKernel3 生成并上传 Artifact；
-- `REBUILT_IMAGE_BYTE_EXACT=0` 不必然等于失败：构建生成的证书与 GNU build-id 可能变化，须以脚本对允许变化区间之外的归一化一致性检查为准；
-- **不要为了验证复现而直接刷写新生成的 boot**；先完成离线检查，必要时使用已经保存的已知可启动备份恢复。
+截至 2026-10-31，**Gen 3 首次真实复现构建已成功**：
 
-在新的 Gen 3 复现 Run 真正完成之前，不应在文档中声称该步骤已通过。
+| 项目 | 记录 |
+|---|---|
+| 复现工作流 | `小米17 Pro OS4 / 当前 LKG 复现与打包` |
+| 运行 | [Run #41213989920](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/41213989920)（#1，成功） |
+| 运行来源 | `dev` / `d9cb8b16b8cd1836c42eaa50d1d286224281e4bc` |
+| 当前 LKG 代次 | `LKG_PROMOTION_GENERATION=3` |
+| 原始真机验证来源 | `LKG_SOURCE_RUN_ID=41210530544` |
+| 内核标识 | `6.12.69-android16-6-os4r62-custom-4k` |
+| Artifact | `pandora-OS4.0.5.0-R62-CURRENT-LKG` |
+| Artifact ID | `13047254063` |
+| Artifact 保留期 | 至 2026-11-30 15:22 UTC（以 GitHub 实时状态为准） |
+
+该次实际执行并通过了 **当前 LKG 身份、固定 boot fixture / ABI lock、`Module.symvers`、`final.config`、kernel release、归一化 Image、fastboot boot、AnyKernel3 打包及 Artifact 上传** 各步骤。工作流中的 `EXACT_LKG_SELECTION=1` 检查为强制通过条件。
+
+**验证边界：** 此次已证实仓库锁定的 Gen 3 可重新构建并通过归一化哈希校验；构建成功不等于已证明重新生成的 Image 逐字节相同，也不等于将新生成的 boot 再次刷入真机验证。无需仅为离线复现测试再次刷机或晋升。
+
+Artifact 会到期；长期恢复能力应依靠可重建的固定源码 SHA、工具链和 fixture，以及本机已知可启动的备份，不能只依赖临时 Artifact。未来 OTA 或系统版本改变时须重建适配基线。
 
 ## 自定义功能编译
 
