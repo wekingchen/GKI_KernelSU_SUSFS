@@ -182,8 +182,8 @@ OS4 正式自定义工作流恢复旧 OS3 的上游跟随方式，并进一步�
 - Manager 同样只接受 **与本次内核完全同一个 BakaSU SHA、同一个 KSU_VERSION** 的 BakaSU 官方成功构建产物，禁止 Manager / 内核版本错位；
 - 如果 BakaSU 官方 Manager CI 在当前 main 提交刚推送时尚未完成，OS4 workflow 会轮询等待同 SHA 的 Manager，而不是回退到旧 APK；
 - `OS4_BAKASU_COMMIT` 继续保留为“已完成真机验证的参考提交”，只用于判断最新 main 的 `kernel/` 子树是否变化；
-- 如果最新 main 只更新 userspace / Manager，而 `kernel/` 子树与已验证参考相同，默认 Full Parity 仍可走现有 LKG 等价门禁；
-- 如果最新 main 的 `kernel/` 子树发生变化，仍然继续构建最新内核，但自动降级为 `CUSTOM-UNVERIFIED`，继续经过 ABI/KMI 安全门禁并输出 AnyKernel3，直到该新内核完成真机验证；
+- BakaSU 的 Kbuild 会把整个仓库 HEAD 的 commit count / SHA 编入 KSU_VERSION 与版本字符串，因此只要 `main` SHA 前进，即使 `kernel/` 文件本身未变化，也视为新的内核身份；
+- 只要最新 `main` SHA 不等于已验证参考，仍然直接构建最新内核，但自动标记为 `CUSTOM-UNVERIFIED`；`kernel/` tree 是否变化会额外写入元数据，ABI/KMI 安全门禁继续生效，并照常输出 AnyKernel3，直到该新 BakaSU revision 完成真机验证；
 - `root_mode=none` 时自动跳过 BakaSU Manager；
 - 每次 OS4 自定义构建仍会只读检查 `zzh20188/GKI_KernelSU_SUSFS:dev` 和 `kernel-custom.yml` 的新功能变化，绝不自动覆盖 Xiaomi 专用路径。
 
