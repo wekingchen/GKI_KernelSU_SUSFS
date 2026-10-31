@@ -101,10 +101,15 @@ if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
     fi
   fi
 
-  if [[ "$ROOT_MODE" == "bakasu-susfs" && "$SUSFS_EXTRA_FEATURES" == "1" &&
-        "$USE_NOMOUNT" == "1" && "$DROIDSPACES_ENABLED" == "1" &&
-        "$USE_NTSYNC" == "1" && "$USE_BBG" == "1" && "$USE_REKERNEL" == "1" &&
-        "$USE_NETWORKING" == "1" && "$USE_CVE" == "1" ]]; then
+  if [[ "$ROOT_MODE" == "$LKG_ROOT_MODE" &&
+        "$SUSFS_EXTRA_FEATURES" == "$LKG_SUSFS_EXTRA_FEATURES" &&
+        "$USE_NOMOUNT" == "$LKG_USE_NOMOUNT" &&
+        "$DROIDSPACES_ENABLED" == "$LKG_DROIDSPACES" &&
+        "$USE_NTSYNC" == "$LKG_USE_NTSYNC" &&
+        "$USE_BBG" == "$LKG_USE_BBG" &&
+        "$USE_REKERNEL" == "$LKG_USE_REKERNEL" &&
+        "$USE_NETWORKING" == "$LKG_USE_NETWORKING" &&
+        "$USE_CVE" == "$LKG_USE_CVE" ]]; then
     EXACT_LKG_SELECTION=1
   fi
 else
@@ -582,7 +587,11 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
 if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
   if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
-    FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k"
+    [[ "$LKG_KERNEL_RELEASE" == "$OS4_KERNEL_VERSION"-* ]] || {
+      echo "::error::LKG kernel release is not based on $OS4_KERNEL_VERSION: $LKG_KERNEL_RELEASE"
+      exit 1
+    }
+    FEATURE_LOCALVERSION="${LKG_KERNEL_RELEASE#${OS4_KERNEL_VERSION}}"
   else
     FEATURE_LOCALVERSION="-android16-6-os4r62-custom-4k"
   fi
