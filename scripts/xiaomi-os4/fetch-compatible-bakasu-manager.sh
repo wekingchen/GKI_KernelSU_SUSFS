@@ -167,8 +167,12 @@ while IFS=$'\t' read -r NAME URL; do
       exit 1
     }
 
-    cp -f "$APK" "$OUTDIR/$APK_NAME"
-    echo "[BakaSU Manager] keep: $APK_NAME"
+    OUTPUT_NAME="$APK_NAME"
+    if [[ "$NAME" == "Spoofed-Manager-release" ]]; then
+      OUTPUT_NAME="Spoofed-$APK_NAME"
+    fi
+    cp -f "$APK" "$OUTDIR/$OUTPUT_NAME"
+    echo "[BakaSU Manager] keep: $OUTPUT_NAME"
   done < <(find "$EXTRACT" -type f -name '*.apk' -print)
 done < <(jq -r '.[] | [.name, .archive_download_url] | @tsv' <<<"$BEST_ARTIFACTS")
 
