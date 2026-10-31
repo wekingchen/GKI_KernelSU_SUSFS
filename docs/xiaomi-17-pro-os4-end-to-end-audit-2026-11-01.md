@@ -29,6 +29,7 @@
 | `xiaomi-sm8850-os4-promote-lkg.yml` | 历史 R62 自定义 Run 的固定版本晋升 | **仅 R62**；新 OTA 改用独立入口，首次新 OTA 晋升后旧 R62 晋升被禁止 |
 | `xiaomi-sm8850-os4-lkg.yml` | 历史 R62 稳定 LKG 重建与打包 | 新 OTA 在跨版本单一交易工作流中按原始 Run SHA 严格复现 |
 | `xiaomi-sm8850-os4-archive-lkg-release.yml` | 历史 R62 LKG Release 长期归档 | 新 OTA 由新工作流独立归档同一代 Release；无须额外执行此旧入口 |
+| `xiaomi-sm8850-os4-cross-ota-lkg.yml` | 跨 OTA 原始自定义来源核验、固定提交严格重编、原始/复现双包归档、最后晋升 LKG；支持仅修复已合并指针但未公布的草稿 Release | **真正稳定使用新版功能内核后**只需输入源 Run ID 并确认一次；当前无新 OTA 实物进行完整验收 |
 | `xiaomi-upstream-isolation-guard.yml` | 检查 Xiaomi 特有修改不能覆盖上游共享文件，执行 Python 回归、Shell 语法和 Windows 采集器静态完整性检查 | 不需要手动运行；PR 检查自动触发 |
 
 不存在“必须每次功能编译后重新填写一次真机测试，才能获得 AnyKernel3”的要求。**纯 GKI 基线确认**、**功能版编译与打包**、**用户主动晋升稳定 LKG**是三种不同操作。
