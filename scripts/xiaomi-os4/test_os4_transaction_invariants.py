@@ -116,7 +116,7 @@ class TransactionSafety(unittest.TestCase):
 
     def test_stable_lkg_cannot_be_forged_by_legacy_r62_after_first_ota(self):
         self.assertIn('[[ -e .github/config/ota-lkg-current.json ]]', self.legacy)
-        self.assertIn('此晋升流程仍使用 R62 固定 ABI/KMI', self.legacy)
+        self.assertIn('R62 子任务不允许创建冲突代次', self.legacy)
 
     def test_build_ci_does_not_run_flash_commands_on_device(self):
         for path in ("run-cross-ota-lkg.sh", "cross-ota-lkg.py",
