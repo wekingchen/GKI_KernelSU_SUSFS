@@ -1,6 +1,13 @@
-# Xiaomi 17 Pro OS4 Full Parity LKG
+# Xiaomi 17 Pro OS4 当前 LKG 与动态上游策略
 
-本文只记录当前已完成真机闭环的最终状态，不保留中间试错步骤。历史实验、探针和失败工作流已在收尾阶段从活动代码路径移除。
+本文记录 Xiaomi 17 Pro OS4 的当前稳定 LKG、日常自定义编译上游策略，以及 LKG 晋升/复现机制。
+
+核心原则：
+
+- **自定义编译追最新稳定上游**：每次 run 开始时重新解析各功能的稳定渠道，并把本次解析结果锁成精确 SHA；
+- **LKG 是用户显式标记的当前稳定版本**：它会随着真机验证结果晋升，不是永久冻结的初始版本；
+- **旧 LKG 自动归档**：新 LKG 晋升时，旧机器可读状态写入 `.github/config/lkg-history/`；
+- **LKG 只负责稳定复现/回退，不阻止新版构建**：候选版本与 LKG 不同会标记为 `CUSTOM-UNVERIFIED`，但只要安全门禁通过就继续编译并输出 AnyKernel3。
 
 ## 当前适用范围
 
@@ -13,7 +20,7 @@
 
 不要把本结论外推到其他机型、其他 HyperOS 版本或 OTA 后的新 boot 布局。
 
-## 最终 LKG 身份
+## 当前 LKG 身份
 
 ```text
 source_run_id=41068829461
@@ -26,7 +33,7 @@ persistent_package=Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip
 persistent_package_sha256=df1138d26ba02749cb9902a683d01ddc52693b53c279f16119f02b7e69be437f
 ```
 
-唯一机器可读真值在：
+当前机器可读 LKG 指针在：
 
 ```text
 .github/config/pandora-os4-full-parity-lkg.env
@@ -88,7 +95,7 @@ capability,landlock,safesetid,selinux,bpf,baseband_guard
 
 ## Re-Kernel
 
-最终固定版本：
+当前 LKG 已验证版本：
 
 ```text
 Re-Kernel version: 11.7
@@ -97,21 +104,49 @@ Generic Netlink family: rekernel
 
 旧 legacy netlink 保持关闭。
 
-## 稳定 LKG 复现入口
+## 当前 LKG 复现与晋升
 
-稳定 LKG 的严格复现入口为：
+当前 LKG 的严格复现入口：
 
 ```text
 .github/workflows/xiaomi-sm8850-os4-lkg.yml
+小米17 Pro OS4 / 当前 LKG 复现与打包
 ```
 
-它会从固定 R62 源码和固定依赖重新构建 baseline 与 Full Parity LKG，并用已验证 SHA 做强校验，然后生成：
+它不会解析最新上游，而是读取：
 
-- 原始 Image / Module.symvers / final.config
-- fastboot-boot-only 测试镜像
-- AnyKernel3 持久化包
+```text
+.github/config/pandora-os4-full-parity-lkg.env
+```
 
-工作流不依赖历史 Run Artifact，因此旧 Actions 记录过期后不会断链。
+里面记录的：
+
+- 功能选择；
+- 每个外接组件的 ref 类型、ref 名称与精确 commit；
+- kernel release；
+- final.config / Module.symvers；
+- Image normalization 元数据；
+- boot fixture / ABI lock；
+- 来源 run / AnyKernel3 / fastboot boot 哈希。
+
+因此“当前 LKG”始终可以按它被晋升时的精确身份复现。
+
+当某次正式自定义构建经过真机启动、持久化使用并由用户确认稳定后，使用：
+
+```text
+.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml
+小米17 Pro OS4 / 将自定义构建晋升为 LKG
+```
+
+输入该正式 `dev` 自定义 run ID，并明确确认已完成真机稳定验证。晋升流程会：
+
+1. 下载并重新校验该 run 的 Image / config / Module.symvers / fastboot boot / AnyKernel3；
+2. 重新执行 ABI/KMI 固定锁；
+3. 把旧 LKG 自动归档至 `.github/config/lkg-history/`；
+4. 生成下一代当前 LKG 文件；
+5. 创建专用 PR，通过 Xiaomi 上游隔离门禁后再合入 `dev`。
+
+因此 LKG 是“**用户确认后移动的稳定指针**”，而不是永久停在某个历史 SHA。
 
 ## 自定义功能编译
 
@@ -139,63 +174,57 @@ Generic Netlink family: rekernel
 
 依赖关系由构建脚本统一解析。NTSync 可独立于 DroidSpaces 开启；每次构建都会把最终实际生效值写入构建元数据。
 
-### 默认组合
+### 动态稳定上游快照
 
-所有默认项保持开启时，选择必须复现当前 Full Parity 的配置、ABI/KMI 与 normalized Image。由于模块签名证书及 GNU build-id 会在每次构建时自动生成，raw Image SHA256 不要求与历史 LKG 字节级一致。
-
-固定门禁：
+每次正式自定义 workflow 启动时，先运行统一 resolver：
 
 ```text
-final.config SHA256=f31d8fc1fdc998f36c23ce599ac8be54c1d8ed9297e7733ae931be78000c8ef6
-Module.symvers SHA256=f17b4d56fc3b80497a36826e4c9907bd51939662025a739accef20c2c00e0ae8
-normalized Image SHA256=5b28d9aa9cb1581cbca185e49fe9be5d81433c10d8725df734a22fbf326dc889
+scripts/xiaomi-os4/resolve-stable-upstreams.sh
 ```
 
-正式自定义工作流 run `41112359117` 已通过全部门禁；其重建 Full Parity fastboot boot 镜像随后在 Xiaomi 17 Pro / OS4.0.5.0.XBLCNXM 真机临时启动成功，确认 Root、PIDs Controller、Baseband Guard 与 ZRAM/ZSMALLOC 模块链正常。因此 normalized-equivalent Full Parity 重建现在允许直接生成 AnyKernel3 持久化包。
+当前策略：
 
-### 自定义组合
+| 组件 | 自定义编译的稳定来源 |
+|---|---|
+| BakaSU | `main` 当前 HEAD（按用户明确要求） |
+| SUSFS | `gki-android16-6.12` 稳定分支 HEAD |
+| NoMount | GitHub 最新正式 Release（排除 draft/prerelease） |
+| DroidSpaces | GitHub 最新正式 Release（排除 draft/prerelease） |
+| NTSync patch | `Goldzxcbug/Droidspaces_Kernel_patch:main` HEAD |
+| Baseband Guard | GitHub 最新正式 Release |
+| Re-Kernel | GitHub 最新正式 Release |
 
-只要任一功能与默认 LKG 不同：
+resolver 在 run 开始时只解析一次，并输出本次稳定快照 SHA256。内核、BakaSU Manager、ccache key、Artifact 元数据都使用同一份快照；构建过程中上游再更新也不会造成“半新半旧”。
 
-- kernel release 使用 `-android16-6-os4r62-custom-4k`；
-- 必须通过固定 KMI/ABI lock；
-- 同时生成 `fastboot boot` 临时测试镜像与 AnyKernel3；
-- AnyKernel3 文件名和包内 README 明确标记 `CUSTOM-UNVERIFIED`；
-- 未经过该精确组合的真机临时启动验证前，不把它标记为“已验证组合”。
+如果任一启用组件的本次 SHA 与当前 LKG 不同：
 
-这样既保留旧 OS3 的“选择功能 → 编译 → 直接得到 AnyKernel3”使用方式，又把“可生成刷机包”和“已经真机验证”两个状态严格区分。
+- **不会回退到 LKG 旧版本**；
+- 仍直接使用最新稳定版继续适配和编译；
+- ABI/KMI、patch、Kconfig 等安全门禁继续执行；
+- 成功后生成 fastboot 测试镜像与 `CUSTOM-UNVERIFIED` AnyKernel3；
+- 真机稳定后可由用户把该 run 晋升成新的 LKG。
 
-ABI lock 固定当前已验证基线的 19324 个基础导出及 CRC。允许的 51 个可选功能新增导出单独列在：
+只有“功能选择 + 启用组件精确 SHA”都与当前 LKG 相同，构建结果才具有当前 LKG 身份。
 
-```text
-.github/config/pandora-os4-r62-abi-allowed-new-exports.txt
-```
-
-boot 测试镜像直接由已真机验证 fixture 与 candidate Image 重建，不需要每次先完整重编 baseline。
+网络增强（BBR / IPSet / FQ / FQ_CODEL / CAKE / WireGuard / CIFS）目前来自固定 R62 内核源码本身，不存在独立第三方版本 resolver。CVE 修复链则按当前源码状态审计/必要时回补，不作为普通第三方版本号处理。
 
 ### BakaSU Manager 与上游跟进
 
 OS4 正式自定义工作流恢复旧 OS3 的上游跟随方式，并进一步保证同一次构建的内核与 Manager 来源一致：
 
 - 每次 workflow 启动时先解析 `Baka-SU/BakaSU:main` 当前最新 SHA，并把这个 SHA 锁定为本次 run 的统一 BakaSU 来源；
-- `bakasu` / `bakasu-susfs` 内核直接集成这个最新 `main` 提交，不再长期固定在历史 `OS4_BAKASU_COMMIT`；
-- Manager 同样只接受 **与本次内核完全同一个 BakaSU SHA、同一个 KSU_VERSION** 的 BakaSU 官方成功构建产物，禁止 Manager / 内核版本错位；
-- 如果 BakaSU 官方 Manager CI 在当前 main 提交刚推送时尚未完成，OS4 workflow 会轮询等待同 SHA 的 Manager，而不是回退到旧 APK；
-- `OS4_BAKASU_COMMIT` 继续保留为“已完成真机验证的参考提交”，只用于判断最新 main 的 `kernel/` 子树是否变化；
-- BakaSU 的 Kbuild 会把整个仓库 HEAD 的 commit count / SHA 编入 KSU_VERSION 与版本字符串，因此只要 `main` SHA 前进，即使 `kernel/` 文件本身未变化，也视为新的内核身份；
-- 只要最新 `main` SHA 不等于已验证参考，仍然直接构建最新内核，但自动标记为 `CUSTOM-UNVERIFIED`；`kernel/` tree 是否变化会额外写入元数据，ABI/KMI 安全门禁继续生效，并照常输出 AnyKernel3，直到该新 BakaSU revision 完成真机验证；
-- `root_mode=none` 时自动跳过 BakaSU Manager；
-- 每次 OS4 自定义构建仍会只读检查 `zzh20188/GKI_KernelSU_SUSFS:dev` 和 `kernel-custom.yml` 的新功能变化，绝不自动覆盖 Xiaomi 专用路径。
+- `bakasu` / `bakasu-susfs` ### BakaSU Manager
 
-历史已验证参考：
+BakaSU 是动态上游快照的一部分。每次 run 解析 `Baka-SU/BakaSU:main` 当前 SHA 后：
 
-```text
-VALIDATED_BAKASU_REFERENCE=d5e9e025b8b49155f8014684d64c91742b465f65
-VALIDATED_KSU_VERSION=35252
-VALIDATED_MANAGER=BakaSU_v4.2.0-rc3_35252-arm64-v8a-release.apk
-```
+- 内核使用该 SHA；
+- Manager 只接受 BakaSU 官方 `build-manager.yml` 中 **head SHA 完全相同** 的成功构建；
+- Manager `KSU_VERSION` 必须与本次内核目标 KSU 版本完全一致；
+- 普通 Manager 与 Spoofed Manager 分别保留；
+- 如果官方 Manager CI 尚未完成，会等待同 SHA 产物，不回退旧 APK；
+- `root_mode=none` 时自动跳过 Manager。
 
-从本策略生效后，上述提交只代表最后一个已验证参考点，不再代表每次构建固定使用的 BakaSU 版本。
+BakaSU 的 Kbuild 会把整个仓库 HEAD 的 commit count / SHA 写入内核版本身份，因此即使某次更新只动 userspace，只要 BakaSU SHA 前进，也视为新候选内核，直到该 revision 被用户真机验证并晋升为 LKG。
 
 ### 暂未加入菜单
 
