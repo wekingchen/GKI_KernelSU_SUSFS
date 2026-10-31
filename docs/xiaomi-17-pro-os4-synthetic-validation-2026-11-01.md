@@ -50,3 +50,23 @@
 - **保留**：与上游 `zzh20188/GKI_KernelSU_SUSFS` 对应的通用分支和工作流；当前 `dev`、LKG Release/配置、历史已验证成功运行、仍在进行的构建与 PR 核心检查。
 - **清除**：已合并或被现行方案取代的单次 OS4 临时开发分支、临时清理工作流；不存在对应 YAML 的过时 Actions Run；不属于正式用户编译的分支上重复失败/中间门禁日志。
 - 动作前重新读取 GitHub 最新状态并生成审计清单。只清理已完成、符合明确白名单规则的 Run，保留关键运行 ID；删除 Actions Run 无法恢复，且可能连带删除该 Run 的 Artifact，故不能清理任何有稳定包依赖的 Run。
+
+## 六、2026-11-01 实际清理验收
+
+本次清理工作流运行记录：[Run #41237464361](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/41237464361)，实际结论 **success**。GitHub 清理前盘点为 **213** 条 Run；按不可逆删除白名单成功删除 **135** 条，最终再次通过 API 核实剩余 **78** 条（包括本次清理作业本身）。删除分类：
+
+| 类别 | 删除 |
+|---|---:|
+| 合并开发分支上的重复中间隔离门禁 Run | 105 |
+| 无效自定义工作流测试分支 push | 10 |
+| 已废弃 OTA 反馈测试分支 push | 16 |
+| 已删除 YAML 的临时/一次性维护 Run | 4 |
+| **合计** | **135** |
+
+- 删除了两个明确确认失效、SHA 未变化、无未关闭 PR 的 OS4 开发分支：`audit/os4-full-chain-synthetic-cleanup-20261101`（已合并 PR #41）和 `feat/os4-ota-device-test-verification-20261101`（已由正式 OTA 反馈流程取代）。
+- 清理结束后删除了一次性维护 YAML；仓库当前有 **18** 个实际存在的 workflow 文件、**20** 个与上游分支体系一致的分支，未发现本轮产生的悬空开发分支。
+- 明确保留 LKG Gen 3 Release：`pandora-os4-lkg-gen3`，公开状态、**11 个资产**；关键来源构建、严格复现、归档及 PR #36–#41 的成功检查 Run 仍存在。
+- `.github/config/pandora-os4-full-parity-lkg.env` Git blob `44df3c9ed64271154c1d56ed7b7b62d8a18eb820`；R62 fixture Git blob `0886face66d64b2124527f6936d12cf961008976`，两者均与清理前相同。
+- 没有创建 `ota-lkg-current.json`、任何虚构的新 OTA LKG 或新的 Gen 4 Release；没有手机/分区写入。
+
+**注意：**删除 Actions Run 及其旧 Artifact 是不可逆的历史清理操作。本清理专门保留了正式稳定证据所引用的 Run，而不是对所有 78 条现存日志一概删除。
