@@ -118,9 +118,14 @@ def identify(folder, run_id, source_sha):
                  and re.fullmatch(r"[A-Za-z0-9._/+-]+", ref) is not None,
                  "missing pinned upstream kind/ref: " + c)
         upstream_refs[c] = {"kind": kind, "ref": ref}
-    for c in ("BAKASU", "SUSFS", "NOMOUNT", "DROIDSPACES"):
-        required(pins["RESOLVED_" + c + "_COMMIT"] == md.get(c + "_COMMIT"),
-                 "upstream snapshot differs from actual build: " + c)
+    enabled = {"BAKASU": md.get("ROOT_MODE") != "none",
+               "SUSFS": md.get("ROOT_MODE") == "bakasu-susfs",
+               "NOMOUNT": md.get("USE_NOMOUNT") == "1",
+               "DROIDSPACES": md.get("DROIDSPACES_ENABLED") == "1"}
+    for c, is_on in enabled.items():
+        if is_on:
+            required(pins["RESOLVED_" + c + "_COMMIT"] == md.get(c + "_COMMIT"),
+                     "upstream snapshot differs from actual build: " + c)
     for c, prefix in (("BAKASU", "BAKASU"), ("SUSFS", "SUSFS"),
                       ("NOMOUNT", "NOMOUNT"), ("DROIDSPACES", "DROIDSPACES"),
                       ("NTSYNC", "NTSYNC"), ("BBG", "BBG"),
