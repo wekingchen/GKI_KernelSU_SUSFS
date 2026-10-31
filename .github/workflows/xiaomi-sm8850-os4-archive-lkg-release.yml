@@ -1,0 +1,73 @@
+name: "小米17 Pro OS4 / LKG 长期归档 Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      reproduction_run_id:
+        description: "当前 Gen 的成功复现构建 Run ID（必须与当前 LKG 精确一致）"
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - "小米17 Pro OS4 / 当前 LKG 复现与打包"
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: pandora-os4-lkg-release-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    name: "校验真机来源及 CI 复现产物 → Release 长期归档"
+    if: >-
+      github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
+      (github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'dev' &&
+         github.event.workflow_run.path == '.github/workflows/xiaomi-sm8850-os4-lkg.yml'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: "获取 dev 归档脚本与当前 LKG"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - name: "依赖与只读脚本语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/archive-current-lkg-release.sh
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends jq unzip zstd
+
+      - name: "强校验原始 Gen LKG / Manager / 复现来源并长期发布"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPRO_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.reproduction_run_id }}
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/archive-current-lkg-release.sh
+
+      - name: "摘要"
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/pandora-os4-full-parity-lkg.env
+          TAG="pandora-os4-lkg-gen$LKG_PROMOTION_GENERATION"
+          {
+            echo "## Gen $LKG_PROMOTION_GENERATION LKG 长期归档已通过"
+            echo
+            echo "- Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            echo "- 真机确认来源 Run: $LKG_SOURCE_RUN_ID"
+            echo "- 当前 Gen: $LKG_PROMOTION_GENERATION"
+            echo "- 归档同时包含原始真机验证包、严格复现包、BakaSU Manager、完整来源证据及 SHA256"
+            echo "- Release 已经从 GitHub 下载回校验。这里不会闪存设备，不会更改当前 LKG。"
+          } >> "$GITHUB_STEP_SUMMARY"
