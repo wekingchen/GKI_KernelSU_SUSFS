@@ -540,37 +540,37 @@ jobs:
           cp "$RES/os4-selected-source.env" "$OUT/" 2>/dev/null || true
           cp "$RES/os4-selected-config-result.txt" "$OUT/" 2>/dev/null || true
           cat > "$OUT/resolved-upstreams.env" <<'EOF'
-RESOLVED_BAKASU_KIND=${{ needs.resolve-upstreams.outputs.bakasu_kind }}
-RESOLVED_BAKASU_REF=${{ needs.resolve-upstreams.outputs.bakasu_ref }}
-RESOLVED_BAKASU_VERSION=${{ needs.resolve-upstreams.outputs.bakasu_version }}
-RESOLVED_BAKASU_COMMIT=${{ needs.resolve-upstreams.outputs.bakasu_commit }}
-RESOLVED_SUSFS_KIND=${{ needs.resolve-upstreams.outputs.susfs_kind }}
-RESOLVED_SUSFS_REF=${{ needs.resolve-upstreams.outputs.susfs_ref }}
-RESOLVED_SUSFS_VERSION=${{ needs.resolve-upstreams.outputs.susfs_version }}
-RESOLVED_SUSFS_COMMIT=${{ needs.resolve-upstreams.outputs.susfs_commit }}
-RESOLVED_NOMOUNT_KIND=${{ needs.resolve-upstreams.outputs.nomount_kind }}
-RESOLVED_NOMOUNT_REF=${{ needs.resolve-upstreams.outputs.nomount_ref }}
-RESOLVED_NOMOUNT_VERSION=${{ needs.resolve-upstreams.outputs.nomount_version }}
-RESOLVED_NOMOUNT_COMMIT=${{ needs.resolve-upstreams.outputs.nomount_commit }}
-RESOLVED_DROIDSPACES_KIND=${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
-RESOLVED_DROIDSPACES_REF=${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
-RESOLVED_DROIDSPACES_VERSION=${{ needs.resolve-upstreams.outputs.droidspaces_version }}
-RESOLVED_DROIDSPACES_COMMIT=${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
-RESOLVED_NTSYNC_KIND=${{ needs.resolve-upstreams.outputs.ntsync_kind }}
-RESOLVED_NTSYNC_REF=${{ needs.resolve-upstreams.outputs.ntsync_ref }}
-RESOLVED_NTSYNC_VERSION=${{ needs.resolve-upstreams.outputs.ntsync_version }}
-RESOLVED_NTSYNC_COMMIT=${{ needs.resolve-upstreams.outputs.ntsync_commit }}
-RESOLVED_BBG_KIND=${{ needs.resolve-upstreams.outputs.bbg_kind }}
-RESOLVED_BBG_REF=${{ needs.resolve-upstreams.outputs.bbg_ref }}
-RESOLVED_BBG_VERSION=${{ needs.resolve-upstreams.outputs.bbg_version }}
-RESOLVED_BBG_COMMIT=${{ needs.resolve-upstreams.outputs.bbg_commit }}
-RESOLVED_REKERNEL_KIND=${{ needs.resolve-upstreams.outputs.rekernel_kind }}
-RESOLVED_REKERNEL_REF=${{ needs.resolve-upstreams.outputs.rekernel_ref }}
-RESOLVED_REKERNEL_VERSION=${{ needs.resolve-upstreams.outputs.rekernel_version }}
-RESOLVED_REKERNEL_COMMIT=${{ needs.resolve-upstreams.outputs.rekernel_commit }}
-UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}
-CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}
-UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}
+          RESOLVED_BAKASU_KIND=${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          RESOLVED_BAKASU_REF=${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          RESOLVED_BAKASU_VERSION=${{ needs.resolve-upstreams.outputs.bakasu_version }}
+          RESOLVED_BAKASU_COMMIT=${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          RESOLVED_SUSFS_KIND=${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          RESOLVED_SUSFS_REF=${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          RESOLVED_SUSFS_VERSION=${{ needs.resolve-upstreams.outputs.susfs_version }}
+          RESOLVED_SUSFS_COMMIT=${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          RESOLVED_NOMOUNT_KIND=${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          RESOLVED_NOMOUNT_REF=${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          RESOLVED_NOMOUNT_VERSION=${{ needs.resolve-upstreams.outputs.nomount_version }}
+          RESOLVED_NOMOUNT_COMMIT=${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          RESOLVED_DROIDSPACES_KIND=${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          RESOLVED_DROIDSPACES_REF=${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          RESOLVED_DROIDSPACES_VERSION=${{ needs.resolve-upstreams.outputs.droidspaces_version }}
+          RESOLVED_DROIDSPACES_COMMIT=${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          RESOLVED_NTSYNC_KIND=${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          RESOLVED_NTSYNC_REF=${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          RESOLVED_NTSYNC_VERSION=${{ needs.resolve-upstreams.outputs.ntsync_version }}
+          RESOLVED_NTSYNC_COMMIT=${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          RESOLVED_BBG_KIND=${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          RESOLVED_BBG_REF=${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          RESOLVED_BBG_VERSION=${{ needs.resolve-upstreams.outputs.bbg_version }}
+          RESOLVED_BBG_COMMIT=${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          RESOLVED_REKERNEL_KIND=${{ needs.resolve-upstreams.outputs.rekernel_kind }}
+          RESOLVED_REKERNEL_REF=${{ needs.resolve-upstreams.outputs.rekernel_ref }}
+          RESOLVED_REKERNEL_VERSION=${{ needs.resolve-upstreams.outputs.rekernel_version }}
+          RESOLVED_REKERNEL_COMMIT=${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}
+          CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}
+          UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}
 EOF
 
           {
