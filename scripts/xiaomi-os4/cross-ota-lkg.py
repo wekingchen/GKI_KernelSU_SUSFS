@@ -43,7 +43,7 @@ def load(path):
     return x
 
 
-def env(path):
+def env(path, *, strict=False):
     result = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
@@ -52,8 +52,12 @@ def env(path):
         k, v = line.split("=", 1)
         required(re.fullmatch(r"[A-Z0-9_]+", k) is not None and k not in result,
                  "bad/duplicate env field: " + k)
-        required(re.fullmatch(r"[A-Za-z0-9_./+-]*", v) is not None,
-                 "unsafe env value " + k)
+        # Metadata is parsed as inert text, never shell-executed: timestamps,
+        # comma-separated feature lists and other documented values are valid.
+        # Source pins remain a much narrower input class.
+        if strict:
+            required(re.fullmatch(r"[A-Za-z0-9_./+-]*", v) is not None,
+                     "unsafe pinned value " + k)
         result[k] = v
     return result
 
@@ -64,7 +68,7 @@ def identify(folder, run_id, source_sha):
     fix = load(folder / "fixture.json")
     abi = load(folder / "ota-custom-abi-report.json")
     md = env(folder / "build-metadata.txt")
-    pins = env(folder / "locked-upstreams.env")
+    pins = env(folder / "locked-upstreams.env", strict=True)
     build, release = rec.get("stock_build"), rec.get("kernel_release")
     required(isinstance(build, str) and BUILD.fullmatch(build), "bad OS build")
     required(isinstance(release, str) and RELEASE.fullmatch(release), "bad kernel release")
