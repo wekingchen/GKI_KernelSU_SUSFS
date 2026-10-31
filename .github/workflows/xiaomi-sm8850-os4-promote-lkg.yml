@@ -122,7 +122,7 @@ jobs:
           # A versioned OTA LKG supersedes the historical R62 promotion path.
           # Never let the old Gen3 counter issue a competing GenN after that.
           if [[ -e .github/config/ota-lkg-current.json ]]; then
-            echo "::error::当前稳定 LKG 已切换到版本化 OTA 指针；R62 晋升入口不再允许创建冲突代次。"
+            echo "::error::当前稳定 LKG 已切换到新版指针；R62 子任务不允许创建冲突代次。"
             exit 1
           fi
           RUN_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
@@ -147,7 +147,7 @@ jobs:
           ' <<<"$ARTIFACTS")"
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || {
             if jq -e '.artifacts[] | select(.expired == false) | .name | startswith("pandora-OTA-CUSTOM-")' <<<"$ARTIFACTS" >/dev/null; then
-              echo "::error::检测到新 OTA 自定义产物：此晋升流程仍使用 R62 固定 ABI/KMI 和 Gen 3 fixture，尚不支持新 OTA 晋升。禁止跨版本使用旧流程。"
+              echo "::error::发现新 OTA 产物被误分配给 R62 子任务：请检查自动路由；新 OTA 必须走同一工作流的 OTA 严格复现子任务。"
             else
               echo "::error::找不到未过期的 R62 自定义候选 Artifact: $ARTIFACT_NAME"
             fi
