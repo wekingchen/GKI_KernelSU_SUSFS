@@ -478,4 +478,4 @@ R62 #7 baseline Image
 
 只有上传了新 xm.zip 但还没提交成功的真机测试时，会阻止旧版内核回退；新 GKI 上功能补丁或 OEM ABI 比较失败时，也不会输出冒充新版本的文件。
 
-新版本成功编译后只有 fastboot boot 临时启动待测 IMG，BakaSU/SUSFS/NoMount 等功能还需要独立真机验证。Gen 3 LKG 及已验证旧 boot fixture 一直独立保留。
+新版本功能编译通过 ABI/KMI 等门禁后，**同一次构建同时输出 fastboot boot 待测 IMG 和实验性 UNVERIFIED AnyKernel3.zip**，无需再提交第二次测试结果才能拿到安装包。可先 fastboot boot 测试；请注意 AnyKernel3 会持久替换活动 boot 的内核，功能版未经真机验证前存在无法开机风险。以后仅正式晋升 LKG 才需你另外明确确认，Gen 3 LKG 和旧 fixture 一直独立保留。
