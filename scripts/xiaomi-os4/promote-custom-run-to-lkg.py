@@ -42,6 +42,7 @@ def main() -> int:
     ap.add_argument("--current-lkg", required=True)
     ap.add_argument("--candidate-dir", required=True)
     ap.add_argument("--source-run-id", required=True)
+    ap.add_argument("--promotion-run-id", required=True, help="GitHub Actions run id that will trigger automatic LKG reproduction")
     ap.add_argument("--source-run-head", required=True)
     ap.add_argument("--artifact-id", required=True)
     ap.add_argument("--promoted-at", required=True)
@@ -49,6 +50,8 @@ def main() -> int:
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
 
+    if not re.fullmatch(r"[1-9][0-9]*", args.promotion_run_id):
+        raise SystemExit("invalid promotion workflow run id")
     current = parse_env(Path(args.current_lkg))
     cand = Path(args.candidate_dir)
     selection = parse_env(cand / "selection-manifest.txt")
@@ -133,6 +136,7 @@ def main() -> int:
     emit(lines, "LKG_KERNEL_KMI", current["LKG_KERNEL_KMI"])
     emit(lines, "LKG_KERNEL_RELEASE", selection["KERNEL_RELEASE"])
     emit(lines, "LKG_PROMOTION_GENERATION", str(generation))
+    emit(lines, "LKG_PROMOTION_RUN_ID", args.promotion_run_id)
     emit(lines, "LKG_PROMOTED_AT", args.promoted_at)
     emit(lines, "LKG_PROMOTION_NOTE", safe_note(args.note))
     emit(lines, "LKG_PROMOTION_SOURCE_SAFETY", selection["SAFETY"])
