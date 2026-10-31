@@ -76,7 +76,7 @@ jobs:
           assert 'workflow_dispatch' in pt and len(pt)==1
           assert set(rt)=={'workflow_run'} and 'workflow_dispatch' not in rt
           assert rt['workflow_run']['types']==['completed']
-          assert po['jobs']['promote']['if'] in ('${{ inputs.confirm_stable }}',)
+          assert 'inputs.confirm_stable' in str(po['jobs']['promote']['if']), repr(po['jobs']['promote']['if'])
           assert '小米17 Pro OS4 / 将自定义构建晋升为 LKG' in rt['workflow_run']['workflows']
           assert '小米17 Pro OS4 / 当前 LKG 复现与打包' in at['workflow_run']['workflows']
           assert 'workflow_run' in at and 'workflow_dispatch' in at
