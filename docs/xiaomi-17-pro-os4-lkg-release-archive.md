@@ -22,10 +22,12 @@ GitHub Release 不受 Actions Artifact 自动 30 天过期规则限制，但 Git
 
 生产归档 Workflow：.github/workflows/xiaomi-sm8850-os4-archive-lkg-release.yml
 
-正常情况下，每次在 dev 成功完成当前 LKG 复现，工作流自动尝试归档；也能手动输入成功的 reproduction_run_id。首次归档必须在原始 Actions Artifact 到期前完成。
+从下一次正式 LKG 晋升开始，**不需要手动复现或打包**：用户在「晋升为 LKG」中确认真机稳定，晋升自动合并到 dev 并记录 `LKG_PROMOTION_RUN_ID`；晋升 Workflow 成功完成后由 `workflow_run` 自动复现（必须核对相同晋升 Run ID）；复现成功后第二级 `workflow_run` 自动尝试归档 Release，下载回检完成才公开。失败即停止，不会把失败复现发布为稳定版。仅当自动归档意外失败需要排障时，保留归档 Workflow 的手动补救入口；**正式复现入口不再提供手动 workflow_dispatch**。首次归档必须在原始 Actions Artifact 到期前完成。
 
 下载并校验已发布 Release：运行
 `bash scripts/xiaomi-os4/verify-lkg-release.sh pandora-os4-lkg-gen3 ./gen3-download`
 （依赖 gh、sha256sum、tar 和 zstd）。通过时输出 RELEASE_RECOVERY_VERIFY=PASS。此命令**不依赖旧的 Actions Artifact**。
+
+历史 Gen 3 的完整 Release 已于 2026-10-31 通过手动归档验收成功；新的两级自动接力需要等待下一次正式晋升（Gen 4）才能获得真实端到端验证，不能用旧记录替代。GitHub `workflow_run` 最多支持三层接力；本方案使用晋升 → 复现 → 归档的两级接力。
 
 当前 Gen 3 系统为 pandora / OS4.0.5.0.XBLCNXM。不得将此 boot 直接刷入其它系统版本；保留本机原有的已知可启动备份。归档不会晋升新 LKG、改内核、刷设备；未来 Gen 4 发布为不同的 pandora-os4-lkg-gen4 标签。

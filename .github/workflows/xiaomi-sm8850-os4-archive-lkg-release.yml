@@ -23,12 +23,13 @@ concurrency:
 
 jobs:
   archive:
-    name: "校验真机来源及 CI 复现产物 → Release 长期归档"
+    name: "晋升→自动复现通过→校验归档 Release"
     if: >-
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
       (github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'workflow_run' &&
          github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'workflow_run' &&
          github.event.workflow_run.head_branch == 'dev' &&
          github.event.workflow_run.path == '.github/workflows/xiaomi-sm8850-os4-lkg.yml'))
     runs-on: ubuntu-24.04
