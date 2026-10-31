@@ -330,7 +330,10 @@ def main():
                  and rebuilt.get("rebuild_device_tested") is False,
                  "rebuild lacks strict reproducibility report")
         current = load(args.current) if args.current.exists() else None
-        legacy = env(args.legacy_current, strict=True)
+        # Parse the historical R62 env as inert data, not shell code: it
+        # legitimately contains timestamps and user-readable punctuation.
+        # Only the numeric generation is used and validated strictly below.
+        legacy = env(args.legacy_current)
         required(re.fullmatch(r"[1-9][0-9]*", legacy.get("LKG_PROMOTION_GENERATION", "")) is not None,
                  "missing trusted legacy LKG generation")
         legacy_generation = int(legacy["LKG_PROMOTION_GENERATION"])
