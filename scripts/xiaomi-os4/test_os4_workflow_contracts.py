@@ -46,11 +46,14 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn('ota-custom-abi-report.json', source)
         self.assertIn('不建议进行 AnyKernel3 持久安装', source)
 
-    def test_lkg_promotion_is_explicitly_r62_only(self):
+    def test_lkg_promotion_entry_auto_routes_r62_and_new_ota(self):
         source = self.read("xiaomi-sm8850-os4-promote-lkg.yml")
         self.assertIn('ARTIFACT_NAME="pandora-OS4-R62-CUSTOM-run-$SOURCE_RUN_ID"', source)
-        self.assertIn("此晋升流程仍使用 R62 固定 ABI/KMI", source)
-        self.assertIn('确认该构建已完成真机启动与持久化使用验证', source)
+        self.assertIn('select-lkg-promotion-route.py', source)
+        self.assertIn("needs.select-route.outputs.mode == 'legacy'", source)
+        self.assertIn("needs.select-route.outputs.mode == 'ota'", source)
+        self.assertIn('confirm_persistent:', source)
+        self.assertIn('confirm_runtime:', source)
 
     def test_os4_docs_do_not_contain_superseded_claims(self):
         base = (DOCS / "xiaomi-17-pro-os4-ota-auto-baseline.md").read_text()
@@ -61,7 +64,7 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn("不需要再回报一次", base)
         self.assertIn("adb shell uname -r", howto)
         self.assertIn("模块数量", howto)
-        self.assertIn("仅限来自 R62", lkg)
+        self.assertIn("统一晋升入口", lkg)
         for old in ("仅提交 .github/config/ota-verified/<新 build>/fixture.json 与 verification.json 两个新文件",
                     "新 OTA 首次功能版不会自动生成可持久刷入的 AnyKernel3"):
             self.assertNotIn(old, base)
