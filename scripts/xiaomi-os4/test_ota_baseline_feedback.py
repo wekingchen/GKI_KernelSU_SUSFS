@@ -167,6 +167,12 @@ class SyntheticFeedback(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("byte-identical", r.stdout + r.stderr)
 
+    def test_module_symvers_tampering_is_rejected(self):
+        self.symvers.write_bytes(b"modified symvers contents")
+        r = self.finalize()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Module.symvers", r.stdout + r.stderr)
+
     def test_schema2_rejects_other_build_and_tampering(self):
         r = self.finalize()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
