@@ -14,7 +14,7 @@ RESULT="$STAGE/results"
 mkdir -p "$RESULT"
 
 checkout_locked() {
-  local url="$1" ref="$2" sha="$3" dir="$4"
+  local url="$1" ref="$2" kind="$3" sha="$4" dir="$5"
   [[ ! -e "$dir" ]] || {
     echo "::error::Parity dependency path already exists: $dir"
     exit 1
@@ -22,11 +22,16 @@ checkout_locked() {
   git init -q "$dir"
   git -C "$dir" remote add origin "$url"
   if ! git -C "$dir" fetch -q --depth=1 origin "$sha"; then
-    git -C "$dir" fetch -q --depth=1 origin "refs/heads/$ref"
+    case "$kind" in
+      branch) git -C "$dir" fetch -q --depth=1 origin "refs/heads/$ref" ;;
+      tag) git -C "$dir" fetch -q --depth=1 origin "refs/tags/$ref" ;;
+      *) echo "::error::Unsupported parity ref kind: $kind"; exit 1 ;;
+    esac
   fi
-  git -C "$dir" checkout -q --detach FETCH_HEAD
-  [[ "$(git -C "$dir" rev-parse HEAD)" == "$sha" ]] || {
-    echo "::error::Parity dependency drift: $url"
+  actual="$(git -C "$dir" rev-parse 'FETCH_HEAD^{commit}')"
+  git -C "$dir" checkout -q --detach "$actual"
+  [[ "$actual" == "$sha" ]] || {
+    echo "::error::Parity dependency drift: $url ($kind:$ref)"
     exit 1
   }
 }
@@ -43,11 +48,11 @@ case "$MODE" in
     REKERNEL_SHA="${OS4_REKERNEL_COMMIT:?missing OS4_REKERNEL_COMMIT}"
 
     echo "[OS4 parity] checkout pinned NTSync/BBG/Re-Kernel sources"
-    checkout_locked "$OS4_NTSYNC_PATCH_REPO" "$OS4_NTSYNC_PATCH_REF" "$NTSYNC_SHA" "$STAGE/ntsync-patch"
-    checkout_locked "$OS4_BBG_REPO" "$OS4_BBG_REF" "$BBG_SHA" "$SRC/Baseband-guard"
-    checkout_locked "$OS4_REKERNEL_REPO" "$OS4_REKERNEL_REF" "$REKERNEL_SHA" "$STAGE/rekernel"
+    checkout_locked "$OS4_NTSYNC_PATCH_REPO" "$OS4_NTSYNC_PATCH_REF" "$OS4_NTSYNC_REF_KIND" "$NTSYNC_SHA" "$STAGE/ntsync-patch"
+    checkout_locked "$OS4_BBG_REPO" "$OS4_BBG_REF" "$OS4_BBG_REF_KIND" "$BBG_SHA" "$SRC/Baseband-guard"
+    checkout_locked "$OS4_REKERNEL_REPO" "$OS4_REKERNEL_REF" "$OS4_REKERNEL_REF_KIND" "$REKERNEL_SHA" "$STAGE/rekernel"
 
-    # Android 16 / 6.12 already carries the NTSync driver. The pinned patch is
+    # Android 16 / 6.12 already carries the NTSync driver. The selected compatibility patch is
     # only allowed to remove the BROKEN gate. Never replace the R62 driver with
     # an older ntsync_base.patch.
     NTSYNC_COMPAT="$STAGE/ntsync-patch/NTsync/ntsync_compat_android16-6.12.patch"
@@ -72,7 +77,7 @@ case "$MODE" in
     # Baseband Guard: reproduce only its modern GKI integration. We deliberately
     # do not run upstream setup.sh because setup.sh can perform mutable fetches.
     [[ -s "$SRC/Baseband-guard/Kconfig" && -s "$SRC/Baseband-guard/Makefile" ]] || {
-      echo "::error::Pinned Baseband Guard source incomplete"
+      echo "::error::Selected Baseband Guard source incomplete"
       exit 1
     }
 
@@ -141,7 +146,7 @@ if pos < 0:
 p.write_text(s[:pos]+"\n"+line+s[pos:])
 PY
 
-    # Re-Kernel: same built-in conversion as the OS3 proven path, pinned to the
+    # Re-Kernel: same built-in conversion as the OS3 proven path, locked to the
     # current audited commit and using Generic Netlink rather than legacy raw netlink.
     [[ -d "$STAGE/rekernel/LKM-Source" ]] || {
       echo "::error::Pinned Re-Kernel LKM-Source missing"
