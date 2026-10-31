@@ -269,13 +269,15 @@ ZRAM / LZ4K / LZ4KD 仍属于待适配功能，在完成 OS4 模块形态、ABI 
 
 ## 新固件 / OTA
 
-OTA 后不要直接沿用当前 LKG。先使用：
+OTA 后不要直接沿用当前 LKG。先用新版 `collect-pandora-stock-input.cmd` 只读采集新系统和 OEM 模块，再把新的 `*-xm.zip` 上传到固定的 stock-input Release。
+
+现行 OTA 主工作流：
 
 ```text
-.github/workflows/xiaomi-sm8850-os4-stock-intake.yml
+.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml
 ```
 
-只读检查新 `xm.zip` 与 stock boot，再重新建立版本级 fixture、ABI/KMI 基线和真机验证。
+它会自动检查新固件、构建候选 GKI、静态对比 OEM 模块 ABI/KMI；仅在检查允许时输出**不可刷写的 fastboot boot 临时待测包**。真机测试、版本 fixture 固化和 LKG 晋升仍需要后续确认。旧的独立 stock-intake Workflow 已删除。
 
 详细步骤见：
 
