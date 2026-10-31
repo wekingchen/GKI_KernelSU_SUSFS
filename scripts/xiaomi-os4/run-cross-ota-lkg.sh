@@ -104,7 +104,8 @@ fi
 POINTER="$WORK/promotion.json"
 python3 scripts/xiaomi-os4/cross-ota-lkg.py promote --source-dir "$SRC" \
   --rebuild-report "$RES/reproduction-report.json" \
-  --current .github/config/ota-lkg-current.json --run-id "$SOURCE_RUN_ID" \
+  --current .github/config/ota-lkg-current.json \
+  --legacy-current .github/config/pandora-os4-full-parity-lkg.env --run-id "$SOURCE_RUN_ID" \
   --head-sha "$SOURCE_SHA" --promotion-run-id "$GITHUB_RUN_ID" \
   --note "$PROMOTION_NOTE" --output "$POINTER"
 GEN="$(jq -r .generation "$POINTER")"
