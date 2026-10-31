@@ -41,7 +41,7 @@
 
 ## 当前状态与验证
 
-当前 Release 中的 `xm.zip` 对应 `OS4.0.5.0.XBLCNXM`。预期结果是 `SAME_PINNED_BUILD`、跳过 GKI 候选编译。**没有新 OTA 输入时，不应为了实验人为晋升 Gen 4 或制造虚假已验证的 OTA 基线。**
+当前 Release 中的 `xm.zip` 对应 `OS4.0.5.0.XBLCNXM`，历史包只包含 `boot_OS4.0.5.0.XBLCNXM.img` 与 `init_boot_OS4.0.5.0.XBLCNXM.img`，不包含新版 `README.txt`。因此只允许其 **boot SHA256 与当前固定 stock boot 完全一致** 时视为 `SAME_PINNED_BUILD`、跳过 GKI 候选编译。任何新 OTA 缺少 README 必须失败，不能从 ZIP 文件名推测系统版本。**没有新 OTA 输入时，不应为了实验人为晋升 Gen 4 或制造虚假已验证的 OTA 基线。**
 
 源代码：
 
