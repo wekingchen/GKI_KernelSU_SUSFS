@@ -708,7 +708,7 @@ jobs:
 
 
   ota-build:
-    name: "pandora / 当前已验证新 OTA / 自定义内核（临时启动待测）"
+    name: "pandora / 当前已验证新 OTA / 自定义内核（IMG + 实验性 AnyKernel3）"
     needs: [select-baseline, resolve-upstreams]
     if: needs.select-baseline.outputs.mode == 'ota'
     runs-on: ubuntu-24.04
@@ -887,6 +887,7 @@ jobs:
       - name: "同时生成新 OTA 实验性 AnyKernel3（无须二次反馈）"
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
         run: |
           set -euo pipefail
@@ -895,6 +896,13 @@ jobs:
           RECORD=".github/config/ota-verified/$VERIFIED_BUILD/verification.json"
           FIXTURE=".github/config/ota-verified/$VERIFIED_BUILD/fixture.json"
           EXPECTED="$(jq -r .kernel_release "$RECORD")"
+          CURRENT_STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          [[ "$(jq -r '[.assets[] | select(.name | endswith("xm.zip"))] | length' <<<"$CURRENT_STOCK")" -eq 1 ]] || {
+            echo "::error::当前 stock-input 数量异常，拒绝实验性安装包"; exit 1;
+          }
+          [[ "$(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$CURRENT_STOCK")" == "$(jq -r .stock_release_asset_id "$RECORD")" ]] || {
+            echo "::error::生成实验性 AnyKernel3 前检测到 OTA 已更换"; exit 1;
+          }
           [[ "$(jq -r .gate "$RES/ota-custom-abi-report.json")" == "PASS" ]] || {
             echo "::error::功能内核 ABI 检查未通过，不能打包实验性 AnyKernel3"; exit 1;
           }
