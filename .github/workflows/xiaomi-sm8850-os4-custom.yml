@@ -65,8 +65,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-bakasu:
+    name: "解析 BakaSU main 最新提交"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      validated_reference: ${{ steps.resolve.outputs.validated_reference }}
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v7
+
+      - name: "锁定本次 BakaSU main"
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/config/xiaomi-sm8850-os4-6.12.69.env
+          LATEST_SHA="$(git ls-remote "$OS4_BAKASU_REPO" "refs/heads/$OS4_BAKASU_REF" | awk '{print $1}')"
+          [[ "$LATEST_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::无法解析 BakaSU main 最新提交"
+            exit 1
+          }
+          echo "sha=$LATEST_SHA" >> "$GITHUB_OUTPUT"
+          echo "validated_reference=$OS4_BAKASU_COMMIT" >> "$GITHUB_OUTPUT"
+          {
+            echo "## BakaSU main"
+            echo
+            echo "- 本次锁定提交：$LATEST_SHA"
+            echo "- 已验证参考提交：$OS4_BAKASU_COMMIT"
+            if [[ "$LATEST_SHA" == "$OS4_BAKASU_COMMIT" ]]; then
+              echo "- 状态：main 与已验证参考一致"
+            else
+              echo "- 状态：main 已更新；本次内核与 Manager 均使用上面的最新提交"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
     name: "pandora / OS4 R62 / 自定义功能"
+    needs: resolve-bakasu
     runs-on: ubuntu-24.04
     timeout-minutes: 240
 
@@ -106,6 +143,7 @@ jobs:
           Re-Kernel：${{ inputs.use_rekernel }}
           网络增强：${{ inputs.use_networking }}
           CVE 修复链：${{ inputs.use_cve }}
+          BakaSU main：${{ needs.resolve-bakasu.outputs.sha }}
           EOF
 
       - name: "检查上游更新与功能漂移"
@@ -175,7 +213,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-os4/ccache-r62
-          key: xiaomi-pandora-os4-ccache-r62-custom-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/susfs-task-mmu-compat.py', '.github/config/xiaomi-sm8850-os4-6.12.69.env', 'security_patch/**') }}
+          key: xiaomi-pandora-os4-ccache-r62-custom-${{ needs.resolve-bakasu.outputs.sha }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/susfs-task-mmu-compat.py', '.github/config/xiaomi-sm8850-os4-6.12.69.env', 'security_patch/**') }}
           restore-keys: |
             xiaomi-pandora-os4-ccache-r62-lkg-
             xiaomi-pandora-os4-ccache-r62-parity-
@@ -210,6 +248,7 @@ jobs:
           XIAOMI_OS4_USE_REKERNEL: ${{ inputs.use_rekernel && '1' || '0' }}
           XIAOMI_OS4_USE_NETWORKING: ${{ inputs.use_networking && '1' || '0' }}
           XIAOMI_OS4_USE_CVE: ${{ inputs.use_cve && '1' || '0' }}
+          XIAOMI_OS4_BAKASU_COMMIT: ${{ needs.resolve-bakasu.outputs.sha }}
         run: |
           set -euo pipefail
           bash scripts/xiaomi-os4/build-r62-features.sh
@@ -459,7 +498,8 @@ jobs:
 
 
   bakasu-manager:
-    name: "BakaSU Manager / 匹配 OS4 内核固定版本"
+    name: "BakaSU Manager / 与本次 main 内核同提交"
+    needs: resolve-bakasu
     if: ${{ inputs.root_mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -474,7 +514,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends curl git jq unzip
 
-      - name: "获取不高于内核版本的 BakaSU Manager"
+      - name: "获取与本次 BakaSU main 完全同提交的 Manager"
         id: manager
         continue-on-error: true
         shell: bash
@@ -482,7 +522,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bash scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh "${{ runner.temp }}/bakasu-manager"
+          bash scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh \
+            "${{ runner.temp }}/bakasu-manager" \
+            "${{ needs.resolve-bakasu.outputs.sha }}"
 
       - name: "Manager 获取失败提示"
         if: steps.manager.outcome == 'failure'
@@ -519,5 +561,5 @@ jobs:
             sed "s/^/- /" "$OUT/manager-metadata.txt"
             sed "s/^/- SHA256: /" "$OUT/MANAGER-SHA256SUMS.txt"
             echo
-            echo "Manager 按当前 OS4 固定 BakaSU 提交选择，不允许版本高于本次内核。"
+            echo "Manager 与本次内核使用同一个 BakaSU main 提交，不允许版本错位。"
           } >> "$GITHUB_STEP_SUMMARY"
