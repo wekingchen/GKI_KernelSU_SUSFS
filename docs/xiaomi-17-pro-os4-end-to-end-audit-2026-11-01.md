@@ -10,7 +10,7 @@
 | 已实现且经过 GitHub 自动化检查 | OTA 工作流、OEM ABI 只读门禁、测试结果回报、开发指针、按当前 OTA 路由自定义构建、同次打包 IMG + 实验性 AnyKernel3、现有 R62 LKG 流程、上游隔离与 Python 合成回归 |
 | 已修复、仍待真机端到端复查 | 新 OTA 的 Windows `collect-pandora-stock-input.cmd` 之前曾包含截断 PowerShell 与重复旧打包段；本次恢复完整模块采集并加静态门禁；**不能把 Linux CI 静态测试当成 Windows 真机采集成功** |
 | 尚无真实新 OTA 测试样本 | 新 OTA 纯 GKI 候选编译→模块 CRC→`fastboot boot`→反馈→开发指针→新内核功能编译→IMG/AnyKernel3 这条完整路径尚未在另一个 HyperOS 新版本上端到端验证 |
-| **未贯通** | **新 OTA 的功能版自动晋升 LKG、跨版本严格 LKG 复现和对应 Release 归档**。现有晋升/复现脚本依赖 R62 配置及其 ABI 锁，不可用它们晋升新 OTA；不能声称这条链已全自动闭环 |
+| **代码已接入、尚待真实新 OTA 验收** | 新增独立的跨 OTA LKG 交易入口：原始自定义 Run 核验、固定源重编、严格 Image/config/symvers 等价、草稿 Release 全资产下载回检、最后晋升指针及公布 Release；没有真实新 OTA 样本，仍不能声称真机端到端通过 |
 
 **验证术语**：
 - `NEW_OTA_CANDIDATE`：识别到新版输入，不等于可启动。
@@ -82,7 +82,7 @@
 | P0 已修复，待 Windows 实机复验 | Windows 采集器中 PowerShell 命令截断、双套 ZIP 打包逻辑冲突 | 修复为单套 root 只读 TAR 流采集 + OEM 数量/大小/完整文件清单 + SHA + 最终 ZIP；新增静态完整性回归 |
 | P1 已修复 | 无法启动 Android 时，反馈表单却要求实际 uname/build | fail 允许空值，使用候选来源 build 登记 Issue；pass 仍要求真值 |
 | P1 已修复 | 新 OTA 的 ccache 与 R62 共用缓存目录 | 新 OTA 缓存目录按官方 GKI commit 隔离；旧 R62 LKG 缓存不变 |
-| P1 尚未实现 | 新 OTA 自定义功能包 → 新 LKG 晋升 → 复现 → 永久归档 | 旧版 workflow 写死 R62 Artifact、ABI、版本、LKG fixture；需新版本化升级方案 |
+| P1 已实现但待真实新 OTA 验收 | 新 OTA 自定义功能包 → 新 LKG 晋升 → 复现 → 永久归档 | 新版本化交易 workflow 已实现并具备合成错误场景回归；旧 R62 晋升仍单独存在，跨 OTA 首次完整实测尚未发生 |
 | P1 技术限制 | OEM vendor module 静态 CRC/vermagic / KMI | 只能验证采集到的模块、vmlinux 导出符号与特定版本；不能证明驱动运行、跨模块依赖、早期启动时序和设备树兼容 |
 | P2 待新 OTA 验证 | R62 时代的 SYSVIPC/PIDs、Re-Kernel、SUSFS 等源码修改 | 新版本可能改变代码锚点/布局，编译门禁会阻断，但“自动解决兼容问题”尚不存在 |
 | P2 文档已更新 | OTA 文档残留“只生成 IMG”“仅两份验证文件”“新版本无法自定义构建”等旧描述 | 统一为三份开发基线记录、新版自动路由与 IMG + 未验证 AnyKernel3 双产物 |
@@ -105,7 +105,7 @@
 - [ ] 直接运行原自定义工作流，输出 build 和 GKI commit 均为新 OTA；指定功能的补丁/配置/ABI 全部通过。
 - [ ] 同次 Artifact 有 IMG 与未验证 AnyKernel3，ZIP 内 Image SHA 与编译 Image 一致。
 - [ ] 用户用 IMG 单独测试本次功能版，再决定是否人工持久安装 ZIP。**无须第二次反馈才能拿到 ZIP**。
-- [ ] 新 OTA LKG 晋升在新版版本化逻辑尚未实现前不得操作旧 R62 晋升工作流。
+- [ ] 新 OTA 功能版实际稳定后，通过**跨 OTA LKG** 新入口执行原始包来源校验、固定提交严格复现、Release 下载回检及版本化指针晋升；不能把此 Run 输入旧 R62 晋升入口。
 
 ## 八、关联文档
 
@@ -114,3 +114,5 @@
 - [当前 R62 / Gen 3 LKG 功能及上游策略](xiaomi-17-pro-os4-full-parity-lkg.md)
 - [Gen 3 长期恢复、严格复现与归档](xiaomi-17-pro-os4-lkg-release-archive.md)
 - [OS3/6.12.23 历史研究资料（已过时）](xiaomi-sm8850.md)
+
+详见 [跨 OTA LKG 晋升、严格复现与归档设计](xiaomi-17-pro-os4-cross-ota-lkg.md)。
