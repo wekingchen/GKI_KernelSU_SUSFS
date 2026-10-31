@@ -40,26 +40,3 @@ jobs:
       - name: "确认 Xiaomi 改动不覆盖上游共用文件"
         shell: bash
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
-
-  audit-retired-xiaomi-workflow-menu:
-    name: "只读检查过期小米工作流及运行记录"
-    needs: isolation
-    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/xiaomi-os4-prune-obsolete-workflows-20261101' && github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 8
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: "列出旧实验工作流准确 ID、路径、状态与运行次数"
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows?per_page=100" \
-            --jq '.workflows[] | select(.name | contains("小米")) | [.id,.name,.path,.state] | @tsv' |
-            while IFS=$'\t' read -r id name path state; do
-              runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$id/runs?per_page=1" --jq '.total_count')"
-              printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$name" "$path" "$state" "$runs"
-            done
