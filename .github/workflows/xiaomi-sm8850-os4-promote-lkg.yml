@@ -4,19 +4,34 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: "仅 R62 / OS4.0.5.0 已真机验证的自定义 Run ID；新 OTA 暂不支持此晋升入口"
-        required: true
+        description: "已真机稳定使用的 OS4 自定义 Run ID（自动识别 R62 / 新 OTA）"
         type: string
-      confirm_stable:
-        description: "我确认该构建已完成真机启动与持久化使用验证，可晋升为当前稳定 LKG"
         required: true
+      confirm_boot:
+        description: "确认此 Run 已在真机成功启动"
         type: boolean
+        required: true
+        default: false
+      confirm_persistent:
+        description: "确认该内核已经持久安装并稳定使用"
+        type: boolean
+        required: true
+        default: false
+      confirm_runtime:
+        description: "确认本次选择的 Root、SUSFS、NoMount 等功能运行正常"
+        type: boolean
+        required: true
+        default: false
+      repair_draft_release:
+        description: "仅修复已成功晋升但未公开的新 OTA LKG 草稿 Release"
+        type: boolean
+        required: true
         default: false
       note:
         description: "稳定版备注（可选）"
-        required: false
         type: string
-        default: "user-promoted-stable"
+        required: false
+        default: "user-confirmed-stable"
 
 permissions:
   contents: write
@@ -24,7 +39,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: xiaomi-os4-pandora-lkg-promotion
+  group: pandora-os4-unified-lkg-promotion
   cancel-in-progress: false
 
 jobs:
