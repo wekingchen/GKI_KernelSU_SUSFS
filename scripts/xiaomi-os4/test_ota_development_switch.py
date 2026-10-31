@@ -76,18 +76,18 @@ class DynamicOTA(unittest.TestCase):
         (self.root / self.fixture_path).write_text(json.dumps(self.fixture))
         self.report_path.write_text(json.dumps(self.stock))
 
-    def run(self, *args):
+    def run_cmd(self, *args):
         return subprocess.run([sys.executable, *map(str, args)],
                               cwd=self.root, capture_output=True, text=True)
 
     def new_pointer(self):
-        p = self.run(ROUTER, "create", "--record", self.record_path,
+        p = self.run_cmd(ROUTER, "create", "--record", self.record_path,
                      "--fixture", self.fixture_path,
                      "--output", self.pointer_path)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def select(self):
-        return self.run(ROUTER, "select", "--stock-report", self.report_path,
+        return self.run_cmd(ROUTER, "select", "--stock-report", self.report_path,
                         "--root", self.root, "--pointer", self.pointer_path,
                         "--output", self.root / "route.txt")
 
@@ -147,12 +147,12 @@ class DynamicOTA(unittest.TestCase):
                 "--stock-report", self.report_path,
                 "--pointer", self.pointer_path, "--candidate-dir", self.candidate,
                 "--output", output)
-        x = self.run(*args)
+        x = self.run_cmd(*args)
         self.assertEqual(x.returncode, 0, x.stdout + x.stderr)
         self.assertIn("OS4_KERNEL_VERSION=6.12.80", output.read_text())
         self.assertIn("OS4_GKI_COMMON_COMMIT=" + "d" * 40, output.read_text())
         (self.candidate / "Image").write_bytes(b"tampered candidate")
-        self.assertNotEqual(self.run(*args).returncode, 0)
+        self.assertNotEqual(self.run_cmd(*args).returncode, 0)
 
     def test_custom_features_drifted_kernel_abi_is_blocked(self):
         candidate_symvers = self.root / "feature.symvers"
@@ -165,7 +165,7 @@ class DynamicOTA(unittest.TestCase):
             "FLASHABLE=NO\nSELECTABLE_BUILD=1\n"
         )
         def check():
-            return self.run(ABI,
+            return self.run_cmd(ABI,
                 "--baseline-symvers", self.candidate / "Module.symvers",
                 "--feature-symvers", candidate_symvers,
                 "--baseline-record", self.root / self.record_path,
