@@ -1,0 +1,274 @@
+name: "小米17 Pro OS4 / 将自定义构建晋升为 LKG"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "已完成真机稳定验证的正式自定义构建 Run ID"
+        required: true
+        type: string
+      confirm_stable:
+        description: "我确认该构建已完成真机启动与持久化使用验证，可晋升为当前稳定 LKG"
+        required: true
+        type: boolean
+        default: false
+      note:
+        description: "稳定版备注（可选）"
+        required: false
+        type: string
+        default: "user-promoted-stable"
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: xiaomi-os4-pandora-lkg-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: "验证候选 → 归档旧 LKG → 创建晋升 PR"
+    if: ${{ inputs.confirm_stable }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: "检出 dev"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: "安装校验依赖"
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends jq unzip
+
+      - name: "校验来源 run 并下载候选 Artifact"
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::source_run_id 必须是数字"
+            exit 1
+          }
+
+          RUN_JSON="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          [[ "$(jq -r '.status' <<<"$RUN_JSON")" == "completed" ]] || {
+            echo "::error::来源 run 尚未完成"; exit 1;
+          }
+          [[ "$(jq -r '.conclusion' <<<"$RUN_JSON")" == "success" ]] || {
+            echo "::error::来源 run 不是 success"; exit 1;
+          }
+          [[ "$(jq -r '.path' <<<"$RUN_JSON")" == ".github/workflows/xiaomi-sm8850-os4-custom.yml" ]] || {
+            echo "::error::只允许晋升正式 OS4 自定义 workflow 的产物"; exit 1;
+          }
+          [[ "$(jq -r '.head_branch' <<<"$RUN_JSON")" == "dev" ]] || {
+            echo "::error::只允许晋升 dev 分支上的正式自定义构建"; exit 1;
+          }
+
+          HEAD_SHA="$(jq -r '.head_sha' <<<"$RUN_JSON")"
+          ARTIFACT_NAME="pandora-OS4-R62-CUSTOM-run-$SOURCE_RUN_ID"
+          ARTIFACTS="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
+          ARTIFACT_ID="$(jq -r --arg name "$ARTIFACT_NAME" '
+            [.artifacts[] | select(.name == $name and .expired == false)][0].id // empty
+          ' <<<"$ARTIFACTS")"
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || {
+            echo "::error::找不到未过期的候选 Artifact: $ARTIFACT_NAME"
+            exit 1
+          }
+
+          CAND="$RUNNER_TEMP/candidate"
+          mkdir -p "$CAND"
+          gh run download "$SOURCE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir "$CAND"
+
+          for required in \
+            Image Module.symvers final.config build-metadata.txt selection-manifest.txt \
+            resolved-upstreams.env image-reproducibility.env abi-lock-check.txt; do
+            [[ -s "$CAND/$required" ]] || {
+              echo "::error::候选 Artifact 缺少晋升所需文件: $required"
+              exit 1
+            }
+          done
+
+          echo "source_head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+          echo "candidate_dir=$CAND" >> "$GITHUB_OUTPUT"
+
+      - name: "重新核对候选文件身份"
+        shell: bash
+        env:
+          CAND: ${{ steps.source.outputs.candidate_dir }}
+        run: |
+          set -euo pipefail
+          source "$CAND/selection-manifest.txt"
+          source "$CAND/resolved-upstreams.env"
+          source "$CAND/image-reproducibility.env"
+          source .github/config/pandora-os4-full-parity-lkg.env
+
+          [[ "$DEVICE" == "$LKG_DEVICE" ]]
+          [[ "$SYSTEM_BUILD" == "$LKG_SYSTEM_BUILD" ]]
+
+          [[ "$(sha256sum "$CAND/Image" | awk '{print $1}')" == "$IMAGE_SHA256" ]]
+          [[ "$(sha256sum "$CAND/final.config" | awk '{print $1}')" == "$CONFIG_SHA256" ]]
+          [[ "$(sha256sum "$CAND/Module.symvers" | awk '{print $1}')" == "$SYMVERS_SHA256" ]]
+          [[ "$IMAGE_SHA256" == "$(sed -n 's/^IMAGE_SHA256=//p' "$CAND/image-reproducibility.env")" ]]
+
+          [[ -s "$CAND/$FASTBOOT_BOOT" ]] || {
+            echo "::error::fastboot boot 文件缺失: $FASTBOOT_BOOT"; exit 1;
+          }
+          [[ "$(sha256sum "$CAND/$FASTBOOT_BOOT" | awk '{print $1}')" == "$FASTBOOT_BOOT_SHA256" ]]
+
+          [[ -s "$CAND/$ANYKERNEL3" ]] || {
+            echo "::error::AnyKernel3 文件缺失: $ANYKERNEL3"; exit 1;
+          }
+          [[ "$(sha256sum "$CAND/$ANYKERNEL3" | awk '{print $1}')" == "$ANYKERNEL3_SHA256" ]]
+          unzip -t "$CAND/$ANYKERNEL3" >/dev/null
+          [[ "$(unzip -p "$CAND/$ANYKERNEL3" Image | sha256sum | awk '{print $1}')" == "$IMAGE_SHA256" ]]
+
+          grep -qx "BAKASU_COMMIT=$RESOLVED_BAKASU_COMMIT" "$CAND/build-metadata.txt"
+          grep -qx "SUSFS_COMMIT=$RESOLVED_SUSFS_COMMIT" "$CAND/build-metadata.txt"
+          grep -qx "NOMOUNT_COMMIT=$RESOLVED_NOMOUNT_COMMIT" "$CAND/build-metadata.txt"
+          grep -qx "DROIDSPACES_COMMIT=$RESOLVED_DROIDSPACES_COMMIT" "$CAND/build-metadata.txt"
+
+      - name: "重新执行 KMI / ABI 固定锁"
+        shell: bash
+        env:
+          CAND: ${{ steps.source.outputs.candidate_dir }}
+        run: |
+          set -euo pipefail
+          source .github/config/pandora-os4-full-parity-lkg.env
+          python3 - "$CAND/Module.symvers" "$LKG_ABI_ALLOWED_NEW_EXPORTS" "$LKG_ABI_LOCK_BASE_EXPORTS" "$LKG_ABI_LOCK_SHA256" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import sys
+
+          symvers, allow_path, expected_count, expected_sha = sys.argv[1:]
+          allowed = {
+              line.strip()
+              for line in Path(allow_path).read_text().splitlines()
+              if line.strip() and not line.lstrip().startswith("#")
+          }
+          entries = {}
+          for line in Path(symvers).read_text(errors="replace").splitlines():
+              parts = line.split()
+              if len(parts) >= 2:
+                  crc, symbol = parts[0], parts[1]
+                  if symbol not in allowed:
+                      entries[symbol] = crc
+          canonical = "".join(f"{symbol}\t{entries[symbol]}\n" for symbol in sorted(entries))
+          actual_sha = hashlib.sha256(canonical.encode()).hexdigest()
+          if len(entries) != int(expected_count) or actual_sha != expected_sha:
+              raise SystemExit(
+                  f"ABI lock mismatch: count={len(entries)} sha={actual_sha}"
+              )
+          print("ABI_LOCK=PASS")
+          PY
+
+      - name: "归档旧 LKG 并生成下一代 LKG"
+        id: render
+        shell: bash
+        env:
+          CAND: ${{ steps.source.outputs.candidate_dir }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_HEAD: ${{ steps.source.outputs.source_head }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          LKG=".github/config/pandora-os4-full-parity-lkg.env"
+          source "$LKG"
+          OLD_GEN="$LKG_PROMOTION_GENERATION"
+          OLD_RUN="$LKG_SOURCE_RUN_ID"
+          HISTORY_DIR=".github/config/lkg-history"
+          mkdir -p "$HISTORY_DIR"
+          HISTORY="$HISTORY_DIR/pandora-os4-r62-gen-${OLD_GEN}-run-${OLD_RUN}.env"
+          [[ ! -e "$HISTORY" ]] || {
+            echo "::error::LKG 历史快照已存在: $HISTORY"; exit 1;
+          }
+          cp "$LKG" "$HISTORY"
+
+          PROMOTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 scripts/xiaomi-os4/promote-custom-run-to-lkg.py \
+            --current-lkg "$HISTORY" \
+            --candidate-dir "$CAND" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-run-head "$SOURCE_HEAD" \
+            --artifact-id "$ARTIFACT_ID" \
+            --promoted-at "$PROMOTED_AT" \
+            --note "$NOTE" \
+            --output "$LKG"
+
+          source "$LKG"
+          [[ "$LKG_PROMOTION_GENERATION" -eq $((OLD_GEN + 1)) ]]
+          [[ "$LKG_SOURCE_RUN_ID" == "$SOURCE_RUN_ID" ]]
+          echo "history=$HISTORY" >> "$GITHUB_OUTPUT"
+          echo "generation=$LKG_PROMOTION_GENERATION" >> "$GITHUB_OUTPUT"
+
+      - name: "静态校验新 LKG"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n .github/config/pandora-os4-full-parity-lkg.env
+          python3 -m py_compile scripts/xiaomi-os4/promote-custom-run-to-lkg.py
+          source .github/config/pandora-os4-full-parity-lkg.env
+          for v in \
+            LKG_SOURCE_RUN_ID LKG_IMAGE_SHA256 LKG_SYMVERS_SHA256 \
+            LKG_FINAL_CONFIG_SHA256 LKG_IMAGE_NORMALIZED_SHA256 \
+            LKG_BAKASU_COMMIT LKG_SUSFS_COMMIT LKG_NOMOUNT_COMMIT \
+            LKG_DROIDSPACES_COMMIT LKG_NTSYNC_PATCH_COMMIT LKG_BBG_COMMIT \
+            LKG_REKERNEL_COMMIT; do
+            [[ -n "${!v:-}" ]] || { echo "::error::新 LKG 字段为空: $v"; exit 1; }
+          done
+
+      - name: "创建 LKG 晋升 PR"
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          BRANCH="lkg/promote-run-${SOURCE_RUN_ID}-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add \
+            .github/config/pandora-os4-full-parity-lkg.env \
+            .github/config/lkg-history/
+          git commit -m "xiaomi(os4): promote run $SOURCE_RUN_ID to current LKG"
+          git push origin "$BRANCH"
+
+          PR_URL="$(gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base dev \
+            --head "$BRANCH" \
+            --title "xiaomi(os4): promote run $SOURCE_RUN_ID to current LKG" \
+            --body "User-confirmed real-device stable candidate. Source run: $SOURCE_RUN_ID. Promotion generation: ${{ steps.render.outputs.generation }}. Note: $NOTE. Old LKG archived at ${{ steps.render.outputs.history }}.")"
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "$PR_URL"
+
+      - name: "摘要"
+        shell: bash
+        run: |
+          {
+            echo "## LKG 晋升候选已生成"
+            echo
+            echo "- 来源 Run ID: ${{ inputs.source_run_id }}"
+            echo "- 新 LKG 代次: ${{ steps.render.outputs.generation }}"
+            echo "- 旧 LKG 归档: ${{ steps.render.outputs.history }}"
+            echo "- PR: ${{ steps.pr.outputs.url }}"
+            echo
+            echo "晋升 workflow 不会自行把未审查的 PR 强推到 dev；PR 通过 Xiaomi 上游隔离门禁后再合入。"
+          } >> "$GITHUB_STEP_SUMMARY"
