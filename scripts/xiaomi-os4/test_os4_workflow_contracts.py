@@ -59,7 +59,7 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn("三份", base)
         self.assertIn("AnyKernel3", base)
         self.assertIn("不需要再回报一次", base)
-        self.assertIn("实际 uname", howto)
+        self.assertIn("adb shell uname -r", howto)
         self.assertIn("模块数量", howto)
         self.assertIn("仅限来自 R62", lkg)
         for old in ("仅提交 .github/config/ota-verified/<新 build>/fixture.json 与 verification.json 两个新文件",
