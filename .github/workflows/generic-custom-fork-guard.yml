@@ -1,0 +1,39 @@
+name: "自定义内核 / 隔离修复版回归与上游保护"
+on:
+  push:
+    branches:
+      - "fix/generic-custom-*"
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/build-fork-custom.yml"
+      - ".github/workflows/kernel-custom-fork.yml"
+      - ".github/workflows/generic-custom-fork-guard.yml"
+      - "scripts/generic-custom/**"
+      - "docs/generic-custom-build-fork.md"
+permissions:
+  contents: read
+jobs:
+  fork-build-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: "不允许改动上游共用路径"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch -q origin dev:refs/remotes/origin/dev
+          bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
+      - name: "检查隔离工作流 YAML、host ld 脚本和资源设置"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }' \
+            .github/workflows/kernel-custom-fork.yml \
+            .github/workflows/build-fork-custom.yml
+          bash -n scripts/generic-custom/prepare-host-linker.sh
+          python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
