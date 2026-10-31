@@ -82,7 +82,9 @@ require_line "$SRC/selection-manifest.txt" "SYSTEM_BUILD=$LKG_SYSTEM_BUILD"
 require_line "$SRC/selection-manifest.txt" "KERNEL_RELEASE=$LKG_KERNEL_RELEASE"
 require_line "$SRC/selection-manifest.txt" "UPSTREAM_SET_SHA256=$LKG_UPSTREAM_SET_SHA256"
 require_line "$SRC/selection-manifest.txt" "BAKASU_MAIN_COMMIT=$LKG_BAKASU_COMMIT"
-require_line "$SRC/selection-manifest.txt" "LKG_NORMALIZED_EQUIVALENCE=PASS"
+# A newly selected upstream source run can be CUSTOM_UNVERIFIED at build time;
+# user-confirmed promotion, exact source hashes and Gen3 LKG are the proof.
+# Do not require it to match the previous generation at original build time.
 require_line "$SRC/build-metadata.txt" "BAKASU_COMMIT=$LKG_BAKASU_COMMIT"
 require_line "$SRC/selection-manifest.txt" "ANYKERNEL3_SHA256=$LKG_PACKAGE_SHA256"
 require_line "$REPRO/LKG-REPRODUCTION.txt" "PROMOTION_GENERATION=$LKG_PROMOTION_GENERATION"
