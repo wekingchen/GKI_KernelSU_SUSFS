@@ -73,7 +73,8 @@ def main() -> None:
     args = ap.parse_args()
 
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
-    if fixture.get("schema") != 1:
+    schema = fixture.get("schema")
+    if schema not in (1, 2):
         fail("unsupported fixture schema")
     if fixture.get("safe_to_flash") is not False:
         fail("fixture must remain fastboot-boot-only")
@@ -115,9 +116,22 @@ def main() -> None:
 
     out = bytearray(header)
     out += image
-    out += b"\0" * (align(len(image)) - len(image))
-    out += ramdisk_region
-    out += suffix
+    if schema == 2:
+        # New OTA fixtures preserve the fixed same-OTA stock boot partition
+        # length as a compact integer instead of embedding megabytes of NULs.
+        target_size = fixture.get("boot_size")
+        if (not isinstance(target_size, int) or
+            target_size < PAGE_SIZE + align(len(image)) or
+            target_size > 200 * 1024 * 1024):
+            fail("candidate cannot fit in this OTA's recorded boot image")
+        if (ramdisk_size != 0 or fixture.get("signature_size") != 0
+            or ramdisk_region or suffix):
+            fail("schema 2 only supports zero-ramdisk/zero-signature/zero-suffix boot")
+        out += b"\0" * (target_size - len(out))
+    else:
+        out += b"\0" * (align(len(image)) - len(image))
+        out += ramdisk_region
+        out += suffix
 
     if out[:8] != BOOT_MAGIC or struct.unpack_from("<I", out, 40)[0] != 4:
         fail("output boot-v4 validation failed")
@@ -127,6 +141,9 @@ def main() -> None:
         fail("output unexpectedly contains an AVB footer")
 
     out_sha = sha256(bytes(out))
+    if schema == 2 and image_sha == fixture.get("baseline_kernel_sha256"):
+        if out_sha != fixture.get("tested_boot_sha256"):
+            fail("recorded human-tested baseline cannot be reconstructed byte-for-byte")
     if args.expected_output_sha256 and out_sha != args.expected_output_sha256:
         fail(f"output SHA256 mismatch: {out_sha}")
 

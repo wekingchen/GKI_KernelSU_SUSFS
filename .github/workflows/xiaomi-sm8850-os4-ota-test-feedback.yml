@@ -1,0 +1,295 @@
+name: "小米17 Pro OS4 / 提交 OTA 真机测试结果与固化基线"
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "生成待测 boot 的 OTA 工作流 Run ID"
+        required: true
+        type: string
+      result:
+        description: "fastboot boot 真机结果"
+        required: true
+        type: choice
+        options: [pass, fail]
+      tested_boot_sha256:
+        description: "实际测试 IMG 的 SHA256（64位小写）"
+        required: true
+        type: string
+      observed_build:
+        description: "adb getprop ro.mi.os.version.incremental"
+        required: true
+        type: string
+      observed_uname:
+        description: "adb uname -r"
+        required: true
+        type: string
+      confirmed_boot_completed:
+        description: "已进入 Android 桌面，sys.boot_completed=1，设备为 pandora"
+        required: true
+        type: boolean
+        default: false
+      confirmed_modules:
+        description: "关键厂商模块和基础功能正常（失败时无需勾选）"
+        required: true
+        type: boolean
+        default: false
+      note:
+        description: "异常或补充说明（可选，不含密钥）"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pandora-os4-ota-real-device-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: "核验来源 → 人工测试证据 → 同 OTA fixture 归档"
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      TEST_RESULT: ${{ inputs.result }}
+      TESTED_SHA: ${{ inputs.tested_boot_sha256 }}
+      OBSERVED_BUILD: ${{ inputs.observed_build }}
+      OBSERVED_UNAME: ${{ inputs.observed_uname }}
+      CONFIRM_BOOT: ${{ inputs.confirmed_boot_completed }}
+      CONFIRM_MODULES: ${{ inputs.confirmed_modules }}
+      TEST_NOTE: ${{ inputs.note }}
+    steps:
+      - name: "检出可信 dev"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: "语法检查与新 OTA 自测"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/finalize-ota-baseline.py scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_baseline_feedback.py' -v
+
+      - name: "强制校验用户输入、来源工作流与候选 Artifact"
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          [[ "$TESTED_SHA" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          [[ "$TEST_RESULT" == pass || "$TEST_RESULT" == fail ]] || exit 1
+          [[ "$OBSERVED_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]] || exit 1
+          [[ "$OBSERVED_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || exit 1
+          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          jq -e '
+            .status == "completed" and .conclusion == "success" and .head_branch == "dev" and
+            .path == ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml" and
+            (.event == "release" or .event == "schedule" or .event == "workflow_dispatch")
+          ' <<<"$RUN" >/dev/null || { echo "::error::OTA Run 身份或完成状态错误"; exit 1; }
+          HEAD="$(jq -r '.head_sha' <<<"$RUN")"
+          [[ "$HEAD" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          ARTIFACTS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
+          BASE_FILTER='[.artifacts[] | select(.expired == false) | .name | select(startswith("pandora-OTA-UNVERIFIED-GKI-") and endswith("-" + $id))]'
+          BOOT_FILTER='[.artifacts[] | select(.expired == false) | .name | select(startswith("pandora-OTA-OEM-ABI-TESTBOOT-") and endswith("-" + $id))]'
+          [[ "$(jq --arg id "$SOURCE_RUN_ID" "$BASE_FILTER | length" <<<"$ARTIFACTS")" == 1 ]] || exit 1
+          [[ "$(jq --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | length" <<<"$ARTIFACTS")" == 1 ]] || exit 1
+          BASE="$(jq -r --arg id "$SOURCE_RUN_ID" "$BASE_FILTER | .[0]" <<<"$ARTIFACTS")"
+          TEST="$(jq -r --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | .[0]" <<<"$ARTIFACTS")"
+          BASE_BUILD="$(echo "$BASE" | sed -e 's/^pandora-OTA-UNVERIFIED-GKI-//' -e "s/-$SOURCE_RUN_ID$//")"
+          TEST_BUILD="$(echo "$TEST" | sed -e 's/^pandora-OTA-OEM-ABI-TESTBOOT-//' -e "s/-$SOURCE_RUN_ID$//")"
+          [[ "$BASE_BUILD" == "$OBSERVED_BUILD" && "$TEST_BUILD" == "$OBSERVED_BUILD" ]] || {
+            echo "::error::两个 Artifact 对应版本与真机版本不同"; exit 1;
+          }
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "test=$TEST" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: "测试失败：保存 GitHub Issue，禁止任何基线晋级"
+        if: inputs.result == 'fail'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/failure.md" <<'PY'
+          import os, pathlib, sys
+          d = os.environ
+          lines = [
+              "# OTA fastboot boot 真机测试失败",
+              "来源 Run: https://github.com/" + d["GITHUB_REPOSITORY"] + "/actions/runs/" + d["SOURCE_RUN_ID"],
+              "系统: " + d["OBSERVED_BUILD"],
+              "实际 uname: " + d["OBSERVED_UNAME"],
+              "测试 IMG SHA256: " + d["TESTED_SHA"],
+              "启动完成: " + d["CONFIRM_BOOT"],
+              "模块检测: " + d["CONFIRM_MODULES"],
+              "报告人: " + d["GITHUB_ACTOR"],
+              "本次反馈 Run: " + d["GITHUB_RUN_ID"],
+              "备注: " + d.get("TEST_NOTE", "")[:1000],
+              "此报告不生成 fixture、不修改已有 LKG。"
+          ]
+          pathlib.Path(sys.argv[1]).write_text("\n\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          URL="$(gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "pandora $OBSERVED_BUILD / Run $SOURCE_RUN_ID 真机启动失败" \
+            --body-file "$RUNNER_TEMP/failure.md")"
+          echo "失败报告 Issue: $URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "通过：必须两项明确真机确认"
+        if: inputs.result == 'pass'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRM_BOOT" == true && "$CONFIRM_MODULES" == true ]] || {
+            echo "::error::通过测试必须确认 Android 启动完成和关键模块正常"; exit 1;
+          }
+
+      - name: "下载来源 Run 的原始 GKI、ABI 与当前 Release 输入"
+        if: inputs.result == 'pass'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ota-base" "$RUNNER_TEMP/ota-test" "$RUNNER_TEMP/ota-stock"
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "${{ steps.source.outputs.base }}" --dir "$RUNNER_TEMP/ota-base"
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "${{ steps.source.outputs.test }}" --dir "$RUNNER_TEMP/ota-test"
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          IDS="$(jq -r '[.assets[] | select(.name | endswith("xm.zip"))] | if length == 1 then .[0].id else empty end' <<<"$STOCK")"
+          [[ "$IDS" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$(jq -r .github_asset_id "$RUNNER_TEMP/ota-base/stock-report.json")" == "$IDS" ]] || {
+            echo "::error::Release 已换到不同的 OTA 输入"; exit 1;
+          }
+          echo "ASSET_ID=$IDS" >> "$GITHUB_ENV"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern '*xm.zip' --dir "$RUNNER_TEMP/ota-stock"
+          [[ "$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip' | wc -l)" -eq 1 ]] || exit 1
+          [[ "$(find "$RUNNER_TEMP/ota-test" -maxdepth 1 -type f -name '*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img' | wc -l)" -eq 1 ]] || exit 1
+          ZIP="$(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip')"
+          IMG="$(find "$RUNNER_TEMP/ota-test" -maxdepth 1 -type f -name '*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img')"
+          echo "STOCK_ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "TEST_BOOT=$IMG" >> "$GITHUB_ENV"
+          for f in Image Module.symvers final.config build-metadata.txt stock-report.json gki-candidate.json; do
+            test -s "$RUNNER_TEMP/ota-base/$f" || exit 1
+          done
+          test -s "$RUNNER_TEMP/ota-test/ota-abi-report.json"
+          test -s "$RUNNER_TEMP/ota-test/TESTBOOT-SHA256SUMS.txt"
+          RECORDED="$(awk 'NR==1 {print $1}' "$RUNNER_TEMP/ota-test/TESTBOOT-SHA256SUMS.txt")"
+          [[ "$RECORDED" == "$TESTED_SHA" ]] || exit 1
+          [[ "$(sha256sum "$IMG" | cut -d' ' -f1)" == "$RECORDED" ]] || exit 1
+
+      - name: "重新生成完全相同的 boot，固化隔离的新 OTA fixture"
+        id: fixture
+        if: inputs.result == 'pass'
+        shell: bash
+        env:
+          SOURCE_HEAD: ${{ steps.source.outputs.head }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-base"
+          python3 scripts/xiaomi-os4/finalize-ota-baseline.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$DIR/stock-report.json" \
+            --gki-candidate "$DIR/gki-candidate.json" \
+            --abi-report "$RUNNER_TEMP/ota-test/ota-abi-report.json" \
+            --metadata "$DIR/build-metadata.txt" \
+            --image "$DIR/Image" \
+            --symvers "$DIR/Module.symvers" \
+            --testboot "$TEST_BOOT" \
+            --output-dir "$RUNNER_TEMP/verified-ota" \
+            --source-run-id "$SOURCE_RUN_ID" --source-head-sha "$SOURCE_HEAD" \
+            --asset-id "$ASSET_ID" --tested-sha256 "$TESTED_SHA" \
+            --observed-uname "$OBSERVED_UNAME" --observed-build "$OBSERVED_BUILD" \
+            --actor "$GITHUB_ACTOR" --verification-run-id "$GITHUB_RUN_ID" \
+            --verified-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "build=$(jq -r .stock_build "$RUNNER_TEMP/verified-ota/verification.json")" >> "$GITHUB_OUTPUT"
+
+      - name: "仅提交两份新版本记录；强制 PR diff 和上游隔离校验"
+        id: commit
+        if: inputs.result == 'pass'
+        shell: bash
+        env:
+          VERIFIED_BUILD: ${{ steps.fixture.outputs.build }}
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git rev-parse HEAD)"
+          DEST=".github/config/ota-verified/$VERIFIED_BUILD"
+          [[ "$VERIFIED_BUILD" == "$OBSERVED_BUILD" ]] || exit 1
+          [[ ! -e "$DEST" ]] || {
+            echo "::error::该固件已存在人工验证记录，拒绝重复覆盖"; exit 1;
+          }
+          mkdir -p "$DEST"
+          cp "$RUNNER_TEMP/verified-ota/fixture.json" "$DEST/fixture.json"
+          cp "$RUNNER_TEMP/verified-ota/verification.json" "$DEST/verification.json"
+          BRANCH="ota/verified-$VERIFIED_BUILD-$GITHUB_RUN_ID"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add "$DEST/fixture.json" "$DEST/verification.json"
+          [[ "$(git diff --cached --name-only | wc -l)" -eq 2 ]] || exit 1
+          git diff --cached --name-only | grep -Fxq "$DEST/fixture.json"
+          git diff --cached --name-only | grep -Fxq "$DEST/verification.json"
+          git commit -m "xiaomi(os4): verify OTA $VERIFIED_BUILD GKI baseline"
+          bash scripts/xiaomi-os4/check-upstream-isolation.sh "$BASE_SHA" --committed
+          git push origin "$BRANCH"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          cat > "$RUNNER_TEMP/pr.md" <<EOF
+          Human-attested pandora fastboot boot baseline, independently reproduced from the exact same OTA stock-input and CI Image.
+          Source Run: $SOURCE_RUN_ID
+          Verification Run: $GITHUB_RUN_ID
+          Build: $VERIFIED_BUILD
+          Observed uname: $OBSERVED_UNAME
+          Boot SHA256: $TESTED_SHA
+          Allowed: start BakaSU/SUSFS/NoMount adaptation on this new version.
+          Forbidden: automatic flash, old R62 fixture reuse, feature LKG promotion.
+          EOF
+          URL="$(gh pr create --repo "$GITHUB_REPOSITORY" --base dev --head "$BRANCH" \
+            --title "xiaomi(os4): verified GKI baseline $VERIFIED_BUILD" \
+            --body-file "$RUNNER_TEMP/pr.md")"
+          NUMBER="$(basename "$URL")"
+          PR="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER")"
+          jq -e --arg b "$BRANCH" --arg sha "$HEAD_SHA" \
+            '.state == "open" and .draft == false and .base.ref == "dev" and .head.ref == $b and .head.sha == $sha' <<<"$PR" >/dev/null
+          FILES="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files?per_page=100" --jq '.[].filename')"
+          [[ "$(wc -l <<<"$FILES")" -eq 2 ]] || exit 1
+          grep -Fxq "$DEST/fixture.json" <<<"$FILES"
+          grep -Fxq "$DEST/verification.json" <<<"$FILES"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
+            echo "::error::dev 已变化，保留 PR 请重新审核"; exit 1;
+          }
+          MERGEABLE=null
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            MERGEABLE="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER" --jq .mergeable)"
+            [[ "$MERGEABLE" != null ]] && break
+            sleep 3
+          done
+          [[ "$MERGEABLE" == true ]] || { echo "::error::PR 不能安全自动合并：$URL"; exit 1; }
+          MERGE="$(gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/merge" \
+            -f merge_method=squash -f sha="$HEAD_SHA" \
+            -f commit_title="xiaomi(os4): verify new OTA $VERIFIED_BUILD baseline")"
+          jq -e '.merged == true and (.sha | length) == 40' <<<"$MERGE" >/dev/null
+          echo "pr_url=$URL" >> "$GITHUB_OUTPUT"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null || {
+            echo "::warning::成功合并但临时分支未删除：$BRANCH";
+          }
+
+      - name: "运行摘要"
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## OTA 真机测试反馈"
+            echo "- 候选 Run: $SOURCE_RUN_ID"
+            echo "- 固件: $OBSERVED_BUILD"
+            echo "- 实际内核: $OBSERVED_UNAME"
+            echo "- boot SHA256: $TESTED_SHA"
+            echo "- 用户选择: $TEST_RESULT"
+            echo "- 已合并验证 PR（若成功）: ${{ steps.commit.outputs.pr_url }}"
+            echo "- 通过后隔离归档: .github/config/ota-verified/$OBSERVED_BUILD/"
+            echo "- 现有 Gen 3 LKG 不更新；功能版仍需独立适配、编译和真机测试"
+          } >> "$GITHUB_STEP_SUMMARY"
