@@ -34,6 +34,6 @@ GitHub Release 不受 Actions Artifact 自动 30 天过期规则限制，但 Git
 
 ## 新 OTA 的版本化归档（2026-11-01 实现，尚待真机验收）
 
-对已经用 AnyKernel3 持久安装、运行稳定的**新 OTA 自定义 Run**，使用[跨 OTA LKG 晋升、复现与归档工作流](../.github/workflows/xiaomi-sm8850-os4-cross-ota-lkg.yml)。它在同一工作流中先核对源码/上游/fixture 和用户真机确认，再检出原始 Git SHA 重编，严格核对相同内核配置、Module.symvers 与可证明的 normalized Image；准备 `pandora-os4-lkg-genN` 草稿 Release，下载核验所有原始与复现资产 SHA；然后才合并新的当前 LKG 指针并公开 Release。源真机版本和复现版本分别标明验证等级，不允许将 CI 重编冒充用户刷机验证。
+对已经用 AnyKernel3 持久安装、运行稳定的**新 OTA 自定义 Run**，使用[唯一的「将自定义构建晋升为 LKG」入口](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)。它在同一工作流中先核对源码/上游/fixture 和用户真机确认，再检出原始 Git SHA 重编，严格核对相同内核配置、Module.symvers 与可证明的 normalized Image；准备 `pandora-os4-lkg-genN` 草稿 Release，下载核验所有原始与复现资产 SHA；然后才合并新的当前 LKG 指针并公开 Release。源真机版本和复现版本分别标明验证等级，不允许将 CI 重编冒充用户刷机验证。
 
 如果指针已合并但最后发布 Release 失败，在同一个入口勾选 `repair_draft_release`，只做当前代指针、草稿及 SHA 的核验与发布，不会再次晋升。完整说明见 [跨 OTA LKG 可靠性设计](xiaomi-17-pro-os4-cross-ota-lkg.md)。**代码层面的合成 CI 已建立，真实新 OTA 端到端仍未执行。**
