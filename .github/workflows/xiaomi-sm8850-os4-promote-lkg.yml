@@ -262,8 +262,9 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --base dev \
             --head "$BRANCH" \
+            --draft \
             --title "xiaomi(os4): promote run $SOURCE_RUN_ID to current LKG" \
-            --body "User-confirmed real-device stable candidate. Source run: $SOURCE_RUN_ID. Promotion generation: ${{ steps.render.outputs.generation }}. Note: $NOTE. Old LKG archived at ${{ steps.render.outputs.history }}.")"
+            --body "User-confirmed real-device stable candidate. Source run: $SOURCE_RUN_ID. Promotion generation: ${{ steps.render.outputs.generation }}. Note: $NOTE. Old LKG archived at ${{ steps.render.outputs.history }}. DRAFT: Bot-created PR checks may require clicking Approve workflows to run. Wait for Xiaomi isolation PASS, then mark Ready for review and merge.")"
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "$PR_URL"
 
@@ -278,5 +279,5 @@ jobs:
             echo "- 旧 LKG 归档: ${{ steps.render.outputs.history }}"
             echo "- PR: ${{ steps.pr.outputs.url }}"
             echo
-            echo "晋升 workflow 不会自行把未审查的 PR 强推到 dev；PR 通过 Xiaomi 上游隔离门禁后再合入。"
+            echo "晋升前已经执行上游隔离预检。PR 默认草稿；机器人创建的 PR 可能需要点击 Approve workflows to run，等待隔离门禁成功，再标记 Ready for review 并合并。不可提前合并。"
           } >> "$GITHUB_STEP_SUMMARY"
