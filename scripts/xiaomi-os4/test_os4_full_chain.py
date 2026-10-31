@@ -192,7 +192,7 @@ class OS4FullChain(unittest.TestCase):
                     "--source-head-sha", RUN_HEAD, "--asset-id", "3711",
                     "--tested-sha256", digest(testboot.read_bytes()),
                     "--observed-uname", FIXED_UNAME, "--observed-build", FIXED_BUILD,
-                    "--actor", "SIMULATED-NOT-REAL-DEVICE", "--verification-run-id", "872000",
+                    "--actor", "SIMULATED-NOT-REAL-DEVICE", "--verification-run-id", "872003",
                     "--verified-at", "2026-11-01T00:00:00Z")
         record = json.loads((self.versioned / "verification.json").read_text())
         self.assertEqual(record["status"], "HUMAN_ATTESTED_BASELINE_BOOTED")
