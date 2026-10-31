@@ -64,44 +64,63 @@ BEST_HEAD_SHA=""
 BEST_HEAD_BRANCH=""
 BEST_ARTIFACTS=""
 
-for PAGE in $(seq 1 10); do
-  RUNS="$(curl_api "$API_ROOT/actions/workflows/build-manager.yml/runs?status=success&per_page=30&page=$PAGE")"
-  RUN_COUNT="$(jq '.workflow_runs | length' <<<"$RUNS")"
-  [[ "$RUN_COUNT" -gt 0 ]] || break
+# The exact main commit may have been pushed seconds before this Xiaomi run.
+# Wait for BakaSU's own signed Manager workflow to finish so the APK and kernel
+# always come from the exact same source commit.
+for ATTEMPT in $(seq 1 10); do
+  echo "[BakaSU Manager] 查找与 $TARGET_COMMIT 完全匹配的成功构建（$ATTEMPT/10）"
+  BEST_VERSION=0
+  BEST_RUN_ID=""
+  BEST_HEAD_SHA=""
+  BEST_HEAD_BRANCH=""
+  BEST_ARTIFACTS=""
 
-  for INDEX in $(seq 0 $((RUN_COUNT - 1))); do
-    RUN_ID="$(jq -r ".workflow_runs[$INDEX].id" <<<"$RUNS")"
-    HEAD_SHA="$(jq -r ".workflow_runs[$INDEX].head_sha" <<<"$RUNS")"
-    HEAD_BRANCH="$(jq -r ".workflow_runs[$INDEX].head_branch // \"\"" <<<"$RUNS")"
-    RUN_EVENT="$(jq -r ".workflow_runs[$INDEX].event // \"\"" <<<"$RUNS")"
+  for PAGE in $(seq 1 10); do
+    RUNS="$(curl_api "$API_ROOT/actions/workflows/build-manager.yml/runs?status=success&per_page=30&page=$PAGE")"
+    RUN_COUNT="$(jq '.workflow_runs | length' <<<"$RUNS")"
+    [[ "$RUN_COUNT" -gt 0 ]] || break
 
-    # PR workflows may build refs/pull/<n>/merge while exposing the PR head SHA.
-    # That makes the APK version impossible to prove from head_sha alone.
-    if [[ "$RUN_EVENT" == "pull_request" ]]; then
-      continue
-    fi
+    for INDEX in $(seq 0 $((RUN_COUNT - 1))); do
+      RUN_ID="$(jq -r ".workflow_runs[$INDEX].id" <<<"$RUNS")"
+      HEAD_SHA="$(jq -r ".workflow_runs[$INDEX].head_sha" <<<"$RUNS")"
+      HEAD_BRANCH="$(jq -r ".workflow_runs[$INDEX].head_branch // \"\"" <<<"$RUNS")"
+      RUN_EVENT="$(jq -r ".workflow_runs[$INDEX].event // \"\"" <<<"$RUNS")"
 
-    RUN_VERSION="$(calculate_version "$HEAD_SHA" || true)"
-    [[ "$RUN_VERSION" =~ ^[0-9]+$ ]] || continue
-    [[ "$HEAD_SHA" == "$TARGET_COMMIT" ]] || continue
-    (( RUN_VERSION == TARGET_KSU_VERSION )) || continue
+      # PR workflows may build refs/pull/<n>/merge while exposing the PR head
+      # SHA, so only use normal main/push/manual runs whose exposed SHA is the
+      # actual source commit.
+      if [[ "$RUN_EVENT" == "pull_request" ]]; then
+        continue
+      fi
+      [[ "$HEAD_SHA" == "$TARGET_COMMIT" ]] || continue
 
-    ARTIFACTS="$(curl_api "$API_ROOT/actions/runs/$RUN_ID/artifacts?per_page=100")"
-    CANDIDATES="$(jq -c '
-      [.artifacts[]
-       | select(.expired == false)
-       | select(.name == "Manager-release" or .name == "Spoofed-Manager-release")
-       | {name, archive_download_url}]
-    ' <<<"$ARTIFACTS")"
-    [[ "$(jq 'length' <<<"$CANDIDATES")" -gt 0 ]] || continue
+      RUN_VERSION="$(calculate_version "$HEAD_SHA" || true)"
+      [[ "$RUN_VERSION" =~ ^[0-9]+$ ]] || continue
+      (( RUN_VERSION == TARGET_KSU_VERSION )) || continue
 
-    BEST_VERSION="$RUN_VERSION"
-    BEST_RUN_ID="$RUN_ID"
-    BEST_HEAD_SHA="$HEAD_SHA"
-    BEST_HEAD_BRANCH="$HEAD_BRANCH"
-    BEST_ARTIFACTS="$CANDIDATES"
-    break 2
+      ARTIFACTS="$(curl_api "$API_ROOT/actions/runs/$RUN_ID/artifacts?per_page=100")"
+      CANDIDATES="$(jq -c '
+        [.artifacts[]
+         | select(.expired == false)
+         | select(.name == "Manager-release" or .name == "Spoofed-Manager-release")
+         | {name, archive_download_url}]
+      ' <<<"$ARTIFACTS")"
+      [[ "$(jq 'length' <<<"$CANDIDATES")" -gt 0 ]] || continue
+
+      BEST_VERSION="$RUN_VERSION"
+      BEST_RUN_ID="$RUN_ID"
+      BEST_HEAD_SHA="$HEAD_SHA"
+      BEST_HEAD_BRANCH="$HEAD_BRANCH"
+      BEST_ARTIFACTS="$CANDIDATES"
+      break 2
+    done
   done
+
+  [[ -n "$BEST_RUN_ID" ]] && break
+  if (( ATTEMPT < 10 )); then
+    echo "[BakaSU Manager] 精确提交的官方 Manager 尚未完成，30 秒后重试"
+    sleep 30
+  fi
 done
 
 [[ -n "$BEST_RUN_ID" && -n "$BEST_ARTIFACTS" ]] || {
