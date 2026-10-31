@@ -4,6 +4,7 @@ set -euo pipefail
 # Xiaomi 17 Pro OS4 R62 selectable builder. Custom combinations remain fastboot-boot test only until validated.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
+source "$ROOT/.github/config/pandora-os4-full-parity-lkg.env"
 STAGE="$RUNNER_TEMP/xiaomi-os4-integrated"
 SRC="$STAGE/common"
 OUT="$STAGE/out"
@@ -100,10 +101,15 @@ if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
     fi
   fi
 
-  if [[ "$ROOT_MODE" == "bakasu-susfs" && "$SUSFS_EXTRA_FEATURES" == "1" &&
-        "$USE_NOMOUNT" == "1" && "$DROIDSPACES_ENABLED" == "1" &&
-        "$USE_NTSYNC" == "1" && "$USE_BBG" == "1" && "$USE_REKERNEL" == "1" &&
-        "$USE_NETWORKING" == "1" && "$USE_CVE" == "1" ]]; then
+  if [[ "$ROOT_MODE" == "$LKG_ROOT_MODE" &&
+        "$SUSFS_EXTRA_FEATURES" == "$LKG_SUSFS_EXTRA_FEATURES" &&
+        "$USE_NOMOUNT" == "$LKG_USE_NOMOUNT" &&
+        "$DROIDSPACES_ENABLED" == "$LKG_DROIDSPACES" &&
+        "$USE_NTSYNC" == "$LKG_USE_NTSYNC" &&
+        "$USE_BBG" == "$LKG_USE_BBG" &&
+        "$USE_REKERNEL" == "$LKG_USE_REKERNEL" &&
+        "$USE_NETWORKING" == "$LKG_USE_NETWORKING" &&
+        "$USE_CVE" == "$LKG_USE_CVE" ]]; then
     EXACT_LKG_SELECTION=1
   fi
 else
@@ -192,73 +198,93 @@ make_ver="$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} /^SUBLEVEL = /{s=$3}
 [[ "$(sed -n 's/^KMI_GENERATION=//p' "$SRC/build.config.constants")" == "$OS4_KMI_GENERATION" ]] || exit 1
 [[ "$(sed -n 's/^CLANG_VERSION=//p' "$SRC/build.config.constants")" == "$OS4_GKI_EXPECTED_CLANG" ]] || exit 1
 
-# The first feature build uses only commits that passed the source/Kconfig preflight.
-# Stop if upstream history cannot supply the exact object; never substitute branch HEAD.
+# Custom builds receive a per-run stable-upstream snapshot through OS4_*.
+# LKG reproduction injects the exact component set recorded in the movable LKG.
 SUSFS_SHA="N/A"
 BAKASU_SHA="N/A"
 NOMOUNT_SHA="N/A"
 DROIDSPACES_SHA="N/A"
 [[ "$USE_SUSFS" != "1" ]] || SUSFS_SHA="${OS4_SUSFS_COMMIT:?missing OS4_SUSFS_COMMIT}"
-[[ "$USE_BAKASU" != "1" ]] || BAKASU_SHA="${XIAOMI_OS4_BAKASU_COMMIT:-${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}}"
+[[ "$USE_BAKASU" != "1" ]] || BAKASU_SHA="${OS4_BAKASU_COMMIT:?missing OS4_BAKASU_COMMIT}"
 [[ "$USE_NOMOUNT" != "1" ]] || NOMOUNT_SHA="${OS4_NOMOUNT_COMMIT:?missing OS4_NOMOUNT_COMMIT}"
 [[ "$DROIDSPACES_CORE_NAMESPACES" != "1" ]] || DROIDSPACES_SHA="${OS4_DROIDSPACES_COMMIT:?missing OS4_DROIDSPACES_COMMIT}"
+
 checkout_locked() {
-  local url="$1" ref="$2" sha="$3" dir="$4"
+  local url="$1" ref="$2" kind="$3" sha="$4" dir="$5"
   git init -q "$dir"
   git -C "$dir" remote add origin "$url"
   if ! git -C "$dir" fetch -q --depth=1 origin "$sha"; then
-    # Some servers refuse single-SHA shallow fetch. The pinned branch HEAD
-    # is usable only if it still equals the audit-approved commit.
-    git -C "$dir" fetch -q --depth=1 origin "refs/heads/$ref"
+    case "$kind" in
+      branch) git -C "$dir" fetch -q --depth=1 origin "refs/heads/$ref" ;;
+      tag) git -C "$dir" fetch -q --depth=1 origin "refs/tags/$ref" ;;
+      *) echo "::error::unsupported upstream ref kind: $kind"; exit 1 ;;
+    esac
   fi
-  git -C "$dir" checkout -q --detach FETCH_HEAD
-  [[ "$(git -C "$dir" rev-parse HEAD)" == "$sha" ]] || {
-    echo "::error::Upstream commit drift for $url; refuse unreviewed code"
+  actual="$(git -C "$dir" rev-parse 'FETCH_HEAD^{commit}')"
+  git -C "$dir" checkout -q --detach "$actual"
+  [[ "$actual" == "$sha" ]] || {
+    echo "::error::Upstream identity drift for $url ($kind:$ref): $actual != $sha"
     exit 1
   }
 }
-echo "[OS4] 固定已审核上游提交，不随上游 HEAD 漂移"
+
+echo "[OS4] 使用本次 run 已解析并锁定的上游稳定版本"
 if [[ "$USE_SUSFS" == "1" ]]; then
-  checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$SUSFS_SHA" "$STAGE/susfs"
+  checkout_locked "$OS4_SUSFS_REPO" "$OS4_SUSFS_BRANCH" "$OS4_SUSFS_REF_KIND" "$SUSFS_SHA" "$STAGE/susfs"
 fi
 if [[ "$USE_BAKASU" == "1" ]]; then
-  checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$BAKASU_SHA" "$STAGE/bakasu"
+  checkout_locked "$OS4_BAKASU_REPO" "$OS4_BAKASU_REF" "$OS4_BAKASU_REF_KIND" "$BAKASU_SHA" "$STAGE/bakasu"
+fi
+if [[ "$USE_NOMOUNT" == "1" ]]; then
+  checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$OS4_NOMOUNT_REF_KIND" "$NOMOUNT_SHA" "$SRC/NoMount"
+fi
+if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
+  checkout_locked "$OS4_DROIDSPACES_REPO" "$OS4_DROIDSPACES_REF" "$OS4_DROIDSPACES_REF_KIND" "$DROIDSPACES_SHA" "$STAGE/droidspaces"
+fi
 
-  # The formal OS4 custom workflow tracks BakaSU main at run start. The
-  # historical OS4_BAKASU_COMMIT remains the last real-device-validated
-  # reference. BakaSU's Kbuild derives KSU_VERSION and KSU_VERSION_FULL from
-  # the whole repository HEAD, so even a userspace-only upstream commit changes
-  # the compiled kernel identity. Therefore any newer BakaSU SHA is treated as
-  # CUSTOM-UNVERIFIED until that exact source revision passes real-device test.
-  if [[ "$BAKASU_SHA" == "$OS4_BAKASU_COMMIT" ]]; then
+UPSTREAM_IDENTITY_MATCH_LKG=1
+UPSTREAM_CHANGED_COMPONENTS=()
+
+mark_component_change() {
+  local name="$1" actual="$2" stable="$3"
+  if [[ "$actual" != "$stable" ]]; then
+    UPSTREAM_IDENTITY_MATCH_LKG=0
+    UPSTREAM_CHANGED_COMPONENTS+=("$name")
+    echo "[OS4] $name 已从当前 LKG 前进: $stable -> $actual"
+  fi
+}
+
+[[ "$USE_BAKASU" != "1" ]] || mark_component_change BAKASU "$BAKASU_SHA" "$LKG_BAKASU_COMMIT"
+[[ "$USE_SUSFS" != "1" ]] || mark_component_change SUSFS "$SUSFS_SHA" "$LKG_SUSFS_COMMIT"
+[[ "$USE_NOMOUNT" != "1" ]] || mark_component_change NOMOUNT "$NOMOUNT_SHA" "$LKG_NOMOUNT_COMMIT"
+[[ "$DROIDSPACES_ENABLED" != "1" ]] || mark_component_change DROIDSPACES "$DROIDSPACES_SHA" "$LKG_DROIDSPACES_COMMIT"
+[[ "$USE_NTSYNC" != "1" ]] || mark_component_change NTSYNC "$OS4_NTSYNC_PATCH_COMMIT" "$LKG_NTSYNC_PATCH_COMMIT"
+[[ "$USE_BBG" != "1" ]] || mark_component_change BBG "$OS4_BBG_COMMIT" "$LKG_BBG_COMMIT"
+[[ "$USE_REKERNEL" != "1" ]] || mark_component_change REKERNEL "$OS4_REKERNEL_COMMIT" "$LKG_REKERNEL_COMMIT"
+
+if [[ "$UPSTREAM_IDENTITY_MATCH_LKG" != "1" && "$EXACT_LKG_SELECTION" == "1" ]]; then
+  EXACT_LKG_SELECTION=0
+  echo "::warning::功能组合与 LKG 相同，但上游稳定版本已更新；继续构建最新版并标记 CUSTOM-UNVERIFIED"
+fi
+
+if [[ "$USE_BAKASU" == "1" ]]; then
+  if [[ "$BAKASU_SHA" == "$LKG_BAKASU_COMMIT" ]]; then
     BAKASU_KERNEL_TREE_EQUIVALENT=1
   else
-    git -C "$STAGE/bakasu" fetch -q --no-tags --depth=1 origin "$OS4_BAKASU_COMMIT" || {
-      echo "::error::cannot fetch validated BakaSU reference $OS4_BAKASU_COMMIT"
+    git -C "$STAGE/bakasu" fetch -q --no-tags origin "$LKG_BAKASU_COMMIT" || {
+      echo "::error::cannot fetch current LKG BakaSU reference $LKG_BAKASU_COMMIT"
       exit 1
     }
     SELECTED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$BAKASU_SHA:kernel")"
-    VALIDATED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$OS4_BAKASU_COMMIT:kernel")"
+    VALIDATED_BAKASU_KERNEL_TREE="$(git -C "$STAGE/bakasu" rev-parse "$LKG_BAKASU_COMMIT:kernel")"
     if [[ "$SELECTED_BAKASU_KERNEL_TREE" == "$VALIDATED_BAKASU_KERNEL_TREE" ]]; then
       BAKASU_KERNEL_TREE_EQUIVALENT=1
-      echo "[OS4] BakaSU main 的 kernel/ 子树未变，但仓库 HEAD/KSU_VERSION 已变化"
     else
       BAKASU_KERNEL_TREE_EQUIVALENT=0
-      echo "[OS4] BakaSU main 的 kernel/ 子树也已变化"
-    fi
-    if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
-      EXACT_LKG_SELECTION=0
-      echo "::warning::BakaSU main 已前进到 $BAKASU_SHA；本次直接构建最新版并标记 CUSTOM-UNVERIFIED"
     fi
   fi
 else
   BAKASU_KERNEL_TREE_EQUIVALENT=0
-fi
-if [[ "$USE_NOMOUNT" == "1" ]]; then
-  checkout_locked "$OS4_NOMOUNT_REPO" "$OS4_NOMOUNT_REF" "$NOMOUNT_SHA" "$SRC/NoMount"
-fi
-if [[ "$DROIDSPACES_CORE_NAMESPACES" == "1" ]]; then
-  checkout_locked "$OS4_DROIDSPACES_REPO" "main" "$DROIDSPACES_SHA" "$STAGE/droidspaces"
 fi
 
 if [[ "$USE_SUSFS" == "1" ]]; then
@@ -561,7 +587,11 @@ make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$BUILD_JOBS" gki_defconfig > "$RESU
 # Experimental kernel identity must never masquerade as the Xiaomi OEM release.
 if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
   if [[ "$EXACT_LKG_SELECTION" == "1" ]]; then
-    FEATURE_LOCALVERSION="-android16-6-os4r62-dspids-dscore-full-parity-kmi-4k"
+    [[ "$LKG_KERNEL_RELEASE" == "$OS4_KERNEL_VERSION"-* ]] || {
+      echo "::error::LKG kernel release is not based on $OS4_KERNEL_VERSION: $LKG_KERNEL_RELEASE"
+      exit 1
+    }
+    FEATURE_LOCALVERSION="${LKG_KERNEL_RELEASE#${OS4_KERNEL_VERSION}}"
   else
     FEATURE_LOCALVERSION="-android16-6-os4r62-custom-4k"
   fi
@@ -857,6 +887,8 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "USE_NETWORKING=$USE_NETWORKING"
   echo "USE_CVE=$USE_CVE"
   echo "EXACT_LKG_SELECTION=$EXACT_LKG_SELECTION"
+  echo "UPSTREAM_IDENTITY_MATCH_LKG=$UPSTREAM_IDENTITY_MATCH_LKG"
+  echo "UPSTREAM_CHANGED_COMPONENTS=$(IFS=,; echo "${UPSTREAM_CHANGED_COMPONENTS[*]}")"
   if [[ "$OS3_PARITY_EXTRAS" == "1" ]]; then
     cat "$RESULT/os3-parity-source.env"
   elif [[ "$SELECTED_EXTRAS" == "1" ]]; then
@@ -865,10 +897,24 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "FLASHABLE=NO"
   echo "SUSFS_COMMIT=$SUSFS_SHA"
   echo "BAKASU_COMMIT=$BAKASU_SHA"
-  echo "BAKASU_VALIDATED_REFERENCE=$OS4_BAKASU_COMMIT"
+  echo "BAKASU_VALIDATED_REFERENCE=$LKG_BAKASU_COMMIT"
   echo "BAKASU_KERNEL_TREE_EQUIVALENT=$BAKASU_KERNEL_TREE_EQUIVALENT"
   echo "NOMOUNT_COMMIT=$NOMOUNT_SHA"
   echo "DROIDSPACES_COMMIT=$DROIDSPACES_SHA"
+  echo "SUSFS_REF_KIND=$OS4_SUSFS_REF_KIND"
+  echo "SUSFS_REF=$OS4_SUSFS_BRANCH"
+  echo "BAKASU_REF_KIND=$OS4_BAKASU_REF_KIND"
+  echo "BAKASU_REF=$OS4_BAKASU_REF"
+  echo "NOMOUNT_REF_KIND=$OS4_NOMOUNT_REF_KIND"
+  echo "NOMOUNT_REF=$OS4_NOMOUNT_REF"
+  echo "DROIDSPACES_REF_KIND=$OS4_DROIDSPACES_REF_KIND"
+  echo "DROIDSPACES_REF=$OS4_DROIDSPACES_REF"
+  echo "NTSYNC_REF_KIND=$OS4_NTSYNC_REF_KIND"
+  echo "NTSYNC_REF=$OS4_NTSYNC_PATCH_REF"
+  echo "BBG_REF_KIND=$OS4_BBG_REF_KIND"
+  echo "BBG_REF=$OS4_BBG_REF"
+  echo "REKERNEL_REF_KIND=$OS4_REKERNEL_REF_KIND"
+  echo "REKERNEL_REF=$OS4_REKERNEL_REF"
   echo "IMAGE_BUILD_SECONDS=$image_elapsed"
   echo "IMAGE_AND_MODULES_BUILD_SECONDS=$elapsed"
   echo "SYMVERS_FROM=make_modules"

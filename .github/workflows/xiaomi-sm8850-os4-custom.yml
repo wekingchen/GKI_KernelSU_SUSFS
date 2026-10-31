@@ -65,45 +65,116 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  resolve-bakasu:
-    name: "解析 BakaSU main 最新提交"
+  resolve-upstreams:
+    name: "解析本次最新稳定上游快照"
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
-      sha: ${{ steps.resolve.outputs.sha }}
-      validated_reference: ${{ steps.resolve.outputs.validated_reference }}
+      bakasu_kind: ${{ steps.resolve.outputs.bakasu_kind }}
+      bakasu_ref: ${{ steps.resolve.outputs.bakasu_ref }}
+      bakasu_version: ${{ steps.resolve.outputs.bakasu_version }}
+      bakasu_commit: ${{ steps.resolve.outputs.bakasu_commit }}
+      susfs_kind: ${{ steps.resolve.outputs.susfs_kind }}
+      susfs_ref: ${{ steps.resolve.outputs.susfs_ref }}
+      susfs_version: ${{ steps.resolve.outputs.susfs_version }}
+      susfs_commit: ${{ steps.resolve.outputs.susfs_commit }}
+      nomount_kind: ${{ steps.resolve.outputs.nomount_kind }}
+      nomount_ref: ${{ steps.resolve.outputs.nomount_ref }}
+      nomount_version: ${{ steps.resolve.outputs.nomount_version }}
+      nomount_commit: ${{ steps.resolve.outputs.nomount_commit }}
+      droidspaces_kind: ${{ steps.resolve.outputs.droidspaces_kind }}
+      droidspaces_ref: ${{ steps.resolve.outputs.droidspaces_ref }}
+      droidspaces_version: ${{ steps.resolve.outputs.droidspaces_version }}
+      droidspaces_commit: ${{ steps.resolve.outputs.droidspaces_commit }}
+      ntsync_kind: ${{ steps.resolve.outputs.ntsync_kind }}
+      ntsync_ref: ${{ steps.resolve.outputs.ntsync_ref }}
+      ntsync_version: ${{ steps.resolve.outputs.ntsync_version }}
+      ntsync_commit: ${{ steps.resolve.outputs.ntsync_commit }}
+      bbg_kind: ${{ steps.resolve.outputs.bbg_kind }}
+      bbg_ref: ${{ steps.resolve.outputs.bbg_ref }}
+      bbg_version: ${{ steps.resolve.outputs.bbg_version }}
+      bbg_commit: ${{ steps.resolve.outputs.bbg_commit }}
+      rekernel_kind: ${{ steps.resolve.outputs.rekernel_kind }}
+      rekernel_ref: ${{ steps.resolve.outputs.rekernel_ref }}
+      rekernel_version: ${{ steps.resolve.outputs.rekernel_version }}
+      rekernel_commit: ${{ steps.resolve.outputs.rekernel_commit }}
+      match_lkg: ${{ steps.resolve.outputs.match_lkg }}
+      changed_components: ${{ steps.resolve.outputs.changed_components }}
+      snapshot_sha256: ${{ steps.resolve.outputs.snapshot_sha256 }}
     steps:
       - name: "检出仓库"
         uses: actions/checkout@v7
 
-      - name: "锁定本次 BakaSU main"
+      - name: "解析各组件最新稳定版本"
         id: resolve
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          source .github/config/xiaomi-sm8850-os4-6.12.69.env
-          LATEST_SHA="$(git ls-remote "$OS4_BAKASU_REPO" "refs/heads/$OS4_BAKASU_REF" | awk '{print $1}')"
-          [[ "$LATEST_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::无法解析 BakaSU main 最新提交"
-            exit 1
+          OUT="$RUNNER_TEMP/resolved-upstreams.env"
+          bash scripts/xiaomi-os4/resolve-stable-upstreams.sh "$OUT"
+          source "$OUT"
+
+          emit() {
+            local key="$1" value="$2"
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
           }
-          echo "sha=$LATEST_SHA" >> "$GITHUB_OUTPUT"
-          echo "validated_reference=$OS4_BAKASU_COMMIT" >> "$GITHUB_OUTPUT"
+
+          emit bakasu_kind "$RESOLVED_BAKASU_KIND"
+          emit bakasu_ref "$RESOLVED_BAKASU_REF"
+          emit bakasu_version "$RESOLVED_BAKASU_VERSION"
+          emit bakasu_commit "$RESOLVED_BAKASU_COMMIT"
+          emit susfs_kind "$RESOLVED_SUSFS_KIND"
+          emit susfs_ref "$RESOLVED_SUSFS_REF"
+          emit susfs_version "$RESOLVED_SUSFS_VERSION"
+          emit susfs_commit "$RESOLVED_SUSFS_COMMIT"
+          emit nomount_kind "$RESOLVED_NOMOUNT_KIND"
+          emit nomount_ref "$RESOLVED_NOMOUNT_REF"
+          emit nomount_version "$RESOLVED_NOMOUNT_VERSION"
+          emit nomount_commit "$RESOLVED_NOMOUNT_COMMIT"
+          emit droidspaces_kind "$RESOLVED_DROIDSPACES_KIND"
+          emit droidspaces_ref "$RESOLVED_DROIDSPACES_REF"
+          emit droidspaces_version "$RESOLVED_DROIDSPACES_VERSION"
+          emit droidspaces_commit "$RESOLVED_DROIDSPACES_COMMIT"
+          emit ntsync_kind "$RESOLVED_NTSYNC_KIND"
+          emit ntsync_ref "$RESOLVED_NTSYNC_REF"
+          emit ntsync_version "$RESOLVED_NTSYNC_VERSION"
+          emit ntsync_commit "$RESOLVED_NTSYNC_COMMIT"
+          emit bbg_kind "$RESOLVED_BBG_KIND"
+          emit bbg_ref "$RESOLVED_BBG_REF"
+          emit bbg_version "$RESOLVED_BBG_VERSION"
+          emit bbg_commit "$RESOLVED_BBG_COMMIT"
+          emit rekernel_kind "$RESOLVED_REKERNEL_KIND"
+          emit rekernel_ref "$RESOLVED_REKERNEL_REF"
+          emit rekernel_version "$RESOLVED_REKERNEL_VERSION"
+          emit rekernel_commit "$RESOLVED_REKERNEL_COMMIT"
+          emit match_lkg "$UPSTREAMS_MATCH_LKG"
+          emit changed_components "$CHANGED_COMPONENTS"
+          emit snapshot_sha256 "$UPSTREAM_SET_SHA256"
+
           {
-            echo "## BakaSU main"
+            echo "## 本次上游稳定快照"
             echo
-            echo "- 本次锁定提交：$LATEST_SHA"
-            echo "- 已验证参考提交：$OS4_BAKASU_COMMIT"
-            if [[ "$LATEST_SHA" == "$OS4_BAKASU_COMMIT" ]]; then
-              echo "- 状态：main 与已验证参考一致"
-            else
-              echo "- 状态：main 已更新；本次内核与 Manager 均使用上面的最新提交"
-            fi
+            echo "| 组件 | 稳定来源 | 本次版本 | SHA |"
+            echo "|---|---|---|---|"
+            echo "| BakaSU | branch | $RESOLVED_BAKASU_VERSION | $RESOLVED_BAKASU_COMMIT |"
+            echo "| SUSFS | branch | $RESOLVED_SUSFS_VERSION | $RESOLVED_SUSFS_COMMIT |"
+            echo "| NoMount | release | $RESOLVED_NOMOUNT_VERSION | $RESOLVED_NOMOUNT_COMMIT |"
+            echo "| DroidSpaces | release | $RESOLVED_DROIDSPACES_VERSION | $RESOLVED_DROIDSPACES_COMMIT |"
+            echo "| NTSync patch | branch | $RESOLVED_NTSYNC_VERSION | $RESOLVED_NTSYNC_COMMIT |"
+            echo "| Baseband Guard | release | $RESOLVED_BBG_VERSION | $RESOLVED_BBG_COMMIT |"
+            echo "| Re-Kernel | release | $RESOLVED_REKERNEL_VERSION | $RESOLVED_REKERNEL_COMMIT |"
+            echo
+            echo "- Snapshot SHA256: $UPSTREAM_SET_SHA256"
+            echo "- 与当前 LKG 组件集完全一致: $UPSTREAMS_MATCH_LKG"
+            echo "- 已变化组件: ${CHANGED_COMPONENTS:-无}"
           } >> "$GITHUB_STEP_SUMMARY"
+
 
   build:
     name: "pandora / OS4 R62 / 自定义功能"
-    needs: resolve-bakasu
+    needs: resolve-upstreams
     runs-on: ubuntu-24.04
     timeout-minutes: 240
 
@@ -143,7 +214,13 @@ jobs:
           Re-Kernel：${{ inputs.use_rekernel }}
           网络增强：${{ inputs.use_networking }}
           CVE 修复链：${{ inputs.use_cve }}
-          BakaSU main：${{ needs.resolve-bakasu.outputs.sha }}
+          BakaSU：${{ needs.resolve-upstreams.outputs.bakasu_version }} @ ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          SUSFS：${{ needs.resolve-upstreams.outputs.susfs_version }} @ ${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          NoMount：${{ needs.resolve-upstreams.outputs.nomount_version }} @ ${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          DroidSpaces：${{ needs.resolve-upstreams.outputs.droidspaces_version }} @ ${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          NTSync：${{ needs.resolve-upstreams.outputs.ntsync_version }} @ ${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          BBG：${{ needs.resolve-upstreams.outputs.bbg_version }} @ ${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          Re-Kernel：${{ needs.resolve-upstreams.outputs.rekernel_version }} @ ${{ needs.resolve-upstreams.outputs.rekernel_commit }}
           EOF
 
       - name: "检查上游更新与功能漂移"
@@ -173,10 +250,12 @@ jobs:
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           bash -n scripts/xiaomi-os4/check-upstream-drift.sh
           bash -n scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh
+          bash -n scripts/xiaomi-os4/resolve-stable-upstreams.sh
           python3 -m py_compile \
             scripts/xiaomi-os4/susfs-task-mmu-compat.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
-            scripts/xiaomi-os4/verify-lkg-image-equivalence.py
+            scripts/xiaomi-os4/verify-lkg-image-equivalence.py \
+            scripts/xiaomi-os4/describe-image-reproducibility.py
           ! grep -R -nE 'fastboot[[:space:]]+flash|dd[[:space:]].*of=/dev/block' \
             scripts/xiaomi-os4/package-validated-anykernel3.sh \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
@@ -213,7 +292,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-os4/ccache-r62
-          key: xiaomi-pandora-os4-ccache-r62-custom-${{ needs.resolve-bakasu.outputs.sha }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/susfs-task-mmu-compat.py', '.github/config/xiaomi-sm8850-os4-6.12.69.env', 'security_patch/**') }}
+          key: xiaomi-pandora-os4-ccache-r62-custom-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/susfs-task-mmu-compat.py', '.github/config/xiaomi-sm8850-os4-6.12.69.env', 'security_patch/**') }}
           restore-keys: |
             xiaomi-pandora-os4-ccache-r62-lkg-
             xiaomi-pandora-os4-ccache-r62-parity-
@@ -248,7 +327,27 @@ jobs:
           XIAOMI_OS4_USE_REKERNEL: ${{ inputs.use_rekernel && '1' || '0' }}
           XIAOMI_OS4_USE_NETWORKING: ${{ inputs.use_networking && '1' || '0' }}
           XIAOMI_OS4_USE_CVE: ${{ inputs.use_cve && '1' || '0' }}
-          XIAOMI_OS4_BAKASU_COMMIT: ${{ needs.resolve-bakasu.outputs.sha }}
+          OS4_BAKASU_COMMIT: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          OS4_BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          OS4_BAKASU_REF_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          OS4_SUSFS_COMMIT: ${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          OS4_SUSFS_BRANCH: ${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          OS4_SUSFS_REF_KIND: ${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          OS4_NOMOUNT_COMMIT: ${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          OS4_NOMOUNT_REF: ${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          OS4_NOMOUNT_REF_KIND: ${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          OS4_DROIDSPACES_COMMIT: ${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          OS4_DROIDSPACES_REF: ${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          OS4_DROIDSPACES_REF_KIND: ${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          OS4_NTSYNC_PATCH_COMMIT: ${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          OS4_NTSYNC_PATCH_REF: ${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          OS4_NTSYNC_REF_KIND: ${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          OS4_BBG_COMMIT: ${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          OS4_BBG_REF: ${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          OS4_BBG_REF_KIND: ${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          OS4_REKERNEL_COMMIT: ${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          OS4_REKERNEL_REF: ${{ needs.resolve-upstreams.outputs.rekernel_ref }}
+          OS4_REKERNEL_REF_KIND: ${{ needs.resolve-upstreams.outputs.rekernel_kind }}
         run: |
           set -euo pipefail
           bash scripts/xiaomi-os4/build-r62-features.sh
@@ -304,6 +403,10 @@ jobs:
           RES="${{ runner.temp }}/xiaomi-os4-integrated/results"
           OUT="${{ runner.temp }}/custom-out"
           mkdir -p "$OUT"
+
+          python3 scripts/xiaomi-os4/describe-image-reproducibility.py "$RES/Image" \
+            --output-env "$OUT/image-reproducibility.env"
+          source "$OUT/image-reproducibility.env"
 
           IMAGE_SHA="$(sha256sum "$RES/Image" | awk '{print $1}')"
           SYMVERS_SHA="$(sha256sum "$RES/Module.symvers" | awk '{print $1}')"
@@ -369,6 +472,12 @@ jobs:
 
           {
             echo "ACTUAL_IMAGE_SHA256=$IMAGE_SHA"
+            echo "ACTUAL_IMAGE_SIZE=$IMAGE_SIZE"
+            echo "ACTUAL_IMAGE_BUILD_ID_PAYLOAD_OFFSET=$IMAGE_BUILD_ID_PAYLOAD_OFFSET"
+            echo "ACTUAL_IMAGE_MODULE_CERT_OFFSET=$IMAGE_MODULE_CERT_OFFSET"
+            echo "ACTUAL_IMAGE_MODULE_CERT_LENGTH=$IMAGE_MODULE_CERT_LENGTH"
+            echo "ACTUAL_IMAGE_NORMALIZED_SHA256=$NORMALIZED_IMAGE_SHA256"
+            echo "ACTUAL_MODULE_SIGNING_CERT_SHA256=$MODULE_SIGNING_CERT_SHA256"
             echo "ACTUAL_SYMVERS_SHA256=$SYMVERS_SHA"
             echo "ACTUAL_CONFIG_SHA256=$CONFIG_SHA"
             echo "ACTUAL_KERNEL_RELEASE=$RELEASE"
@@ -430,6 +539,39 @@ jobs:
           cp "$RES/os3-parity-config-result.txt" "$OUT/" 2>/dev/null || true
           cp "$RES/os4-selected-source.env" "$OUT/" 2>/dev/null || true
           cp "$RES/os4-selected-config-result.txt" "$OUT/" 2>/dev/null || true
+          cat > "$OUT/resolved-upstreams.env" <<'EOF'
+          RESOLVED_BAKASU_KIND=${{ needs.resolve-upstreams.outputs.bakasu_kind }}
+          RESOLVED_BAKASU_REF=${{ needs.resolve-upstreams.outputs.bakasu_ref }}
+          RESOLVED_BAKASU_VERSION=${{ needs.resolve-upstreams.outputs.bakasu_version }}
+          RESOLVED_BAKASU_COMMIT=${{ needs.resolve-upstreams.outputs.bakasu_commit }}
+          RESOLVED_SUSFS_KIND=${{ needs.resolve-upstreams.outputs.susfs_kind }}
+          RESOLVED_SUSFS_REF=${{ needs.resolve-upstreams.outputs.susfs_ref }}
+          RESOLVED_SUSFS_VERSION=${{ needs.resolve-upstreams.outputs.susfs_version }}
+          RESOLVED_SUSFS_COMMIT=${{ needs.resolve-upstreams.outputs.susfs_commit }}
+          RESOLVED_NOMOUNT_KIND=${{ needs.resolve-upstreams.outputs.nomount_kind }}
+          RESOLVED_NOMOUNT_REF=${{ needs.resolve-upstreams.outputs.nomount_ref }}
+          RESOLVED_NOMOUNT_VERSION=${{ needs.resolve-upstreams.outputs.nomount_version }}
+          RESOLVED_NOMOUNT_COMMIT=${{ needs.resolve-upstreams.outputs.nomount_commit }}
+          RESOLVED_DROIDSPACES_KIND=${{ needs.resolve-upstreams.outputs.droidspaces_kind }}
+          RESOLVED_DROIDSPACES_REF=${{ needs.resolve-upstreams.outputs.droidspaces_ref }}
+          RESOLVED_DROIDSPACES_VERSION=${{ needs.resolve-upstreams.outputs.droidspaces_version }}
+          RESOLVED_DROIDSPACES_COMMIT=${{ needs.resolve-upstreams.outputs.droidspaces_commit }}
+          RESOLVED_NTSYNC_KIND=${{ needs.resolve-upstreams.outputs.ntsync_kind }}
+          RESOLVED_NTSYNC_REF=${{ needs.resolve-upstreams.outputs.ntsync_ref }}
+          RESOLVED_NTSYNC_VERSION=${{ needs.resolve-upstreams.outputs.ntsync_version }}
+          RESOLVED_NTSYNC_COMMIT=${{ needs.resolve-upstreams.outputs.ntsync_commit }}
+          RESOLVED_BBG_KIND=${{ needs.resolve-upstreams.outputs.bbg_kind }}
+          RESOLVED_BBG_REF=${{ needs.resolve-upstreams.outputs.bbg_ref }}
+          RESOLVED_BBG_VERSION=${{ needs.resolve-upstreams.outputs.bbg_version }}
+          RESOLVED_BBG_COMMIT=${{ needs.resolve-upstreams.outputs.bbg_commit }}
+          RESOLVED_REKERNEL_KIND=${{ needs.resolve-upstreams.outputs.rekernel_kind }}
+          RESOLVED_REKERNEL_REF=${{ needs.resolve-upstreams.outputs.rekernel_ref }}
+          RESOLVED_REKERNEL_VERSION=${{ needs.resolve-upstreams.outputs.rekernel_version }}
+          RESOLVED_REKERNEL_COMMIT=${{ needs.resolve-upstreams.outputs.rekernel_commit }}
+          UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}
+          CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}
+          UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}
+          EOF
 
           {
             echo "DEVICE=pandora"
@@ -443,10 +585,20 @@ jobs:
             echo "REQUEST_REKERNEL=${{ inputs.use_rekernel }}"
             echo "REQUEST_NETWORKING=${{ inputs.use_networking }}"
             echo "REQUEST_CVE=${{ inputs.use_cve }}"
+            echo "UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}"
+            echo "UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}"
+            echo "UPSTREAM_CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}"
             echo "BAKASU_MAIN_COMMIT=$ACTUAL_BAKASU_COMMIT"
             echo "BAKASU_KERNEL_TREE_EQUIVALENT=$ACTUAL_BAKASU_KERNEL_TREE_EQUIVALENT"
             echo "KERNEL_RELEASE=$ACTUAL_KERNEL_RELEASE"
             echo "IMAGE_SHA256=$ACTUAL_IMAGE_SHA256"
+            echo "IMAGE_SIZE=$ACTUAL_IMAGE_SIZE"
+            echo "IMAGE_BUILD_ID_PAYLOAD_OFFSET=$ACTUAL_IMAGE_BUILD_ID_PAYLOAD_OFFSET"
+            echo "IMAGE_MODULE_CERT_OFFSET=$ACTUAL_IMAGE_MODULE_CERT_OFFSET"
+            echo "IMAGE_MODULE_CERT_LENGTH=$ACTUAL_IMAGE_MODULE_CERT_LENGTH"
+            echo "IMAGE_NORMALIZED_SHA256=$ACTUAL_IMAGE_NORMALIZED_SHA256"
+            echo "MODULE_SIGNING_CERT_SHA256=$ACTUAL_MODULE_SIGNING_CERT_SHA256"
+            echo "CONFIG_SHA256=$ACTUAL_CONFIG_SHA256"
             echo "SYMVERS_SHA256=$ACTUAL_SYMVERS_SHA256"
             echo "FASTBOOT_BOOT=$BOOT_NAME"
             echo "FASTBOOT_BOOT_SHA256=$BOOT_SHA256"
@@ -487,9 +639,12 @@ jobs:
             echo "## Xiaomi 17 Pro OS4 自定义内核"
             echo
             echo "- Kernel: `$ACTUAL_KERNEL_RELEASE`"
-            echo "- BakaSU main: \`$ACTUAL_BAKASU_COMMIT\`"
+            echo "- 上游快照 SHA256: \`${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}\`"
+            echo "- 相比当前 LKG 已变化组件: \`${{ needs.resolve-upstreams.outputs.changed_components }}\`"
+            echo "- BakaSU: \`$ACTUAL_BAKASU_COMMIT\`"
             echo "- BakaSU kernel/ tree 与已验证参考相同: \`$ACTUAL_BAKASU_KERNEL_TREE_EQUIVALENT\`"
             echo "- Image SHA256: `$ACTUAL_IMAGE_SHA256`"
+            echo "- normalized Image SHA256: `$ACTUAL_IMAGE_NORMALIZED_SHA256`"
             echo "- fastboot boot SHA256: `$BOOT_SHA256`"
             echo "- AnyKernel3: `$ANYKERNEL3_NAME`"
             echo "- AnyKernel3 SHA256: `$ANYKERNEL3_SHA256`"
@@ -509,8 +664,8 @@ jobs:
 
 
   bakasu-manager:
-    name: "BakaSU Manager / 与本次 main 内核同提交"
-    needs: resolve-bakasu
+    name: "BakaSU Manager / 与本次稳定快照内核同提交"
+    needs: resolve-upstreams
     if: ${{ inputs.root_mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -535,7 +690,7 @@ jobs:
           set -euo pipefail
           bash scripts/xiaomi-os4/fetch-compatible-bakasu-manager.sh \
             "${{ runner.temp }}/bakasu-manager" \
-            "${{ needs.resolve-bakasu.outputs.sha }}"
+            "${{ needs.resolve-upstreams.outputs.bakasu_commit }}"
 
       - name: "Manager 获取失败提示"
         if: steps.manager.outcome == 'failure'
