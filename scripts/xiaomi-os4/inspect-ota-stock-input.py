@@ -60,10 +60,34 @@ def main() -> None:
         bo = [x for x in z.infolist() if not x.is_dir() and
               re.fullmatch(r"boot(?:_[^/]*)?\.img", x.filename.replace("\\", "/").rsplit("/", 1)[-1], re.I)]
         rd = members(z, "README.txt")
-        if len(bo) != 1 or len(rd) != 1:
-            abort("ZIP must contain exactly one boot*.img and one README.txt")
+        if len(bo) != 1 or len(rd) > 1:
+            abort("ZIP must contain exactly one boot*.img and at most one README.txt")
         boot = z.read(bo[0])
-        readme = z.read(rd[0]).decode("utf-8", "replace")
+        readme = z.read(rd[0]).decode("utf-8", "replace") if rd else ""
+    if not rd:
+        # Old OS4.0.5.0 input contained only boot and init_boot. It may be
+        # recognized ONLY by the previously confirmed exact stock boot SHA.
+        # New OTA inputs without version/slot/uname manifest are rejected.
+        previous = env(args.stock_config)
+        boot_hash = sha(boot)
+        if boot_hash != previous.get("OS4_STOCK_BOOT_SHA256", ""):
+            abort("new OTA requires README.txt; legacy two-image zip is only accepted for the already pinned exact boot SHA")
+        report = {
+            "schema": 1, "status": "SAME_PINNED_BUILD", "device": "pandora",
+            "build": previous.get("OS4_STOCK_INPUT_BUILD", ""), "slot": "UNKNOWN_LEGACY",
+            "uname": "UNKNOWN_LEGACY", "kernel_version": "UNKNOWN_LEGACY",
+            "kmi": "UNKNOWN_LEGACY", "kernel_release_marker": "NOT_INSPECTED_LEGACY",
+            "stock_boot_sha256": boot_hash, "ota_source_id": sha(args.zip.read_bytes()),
+            "github_asset_id": args.github_asset_id, "may_build_gki_candidate": False,
+            "source_provenance": "LEGACY_PINNED_BOOT_SHA256_ONLY",
+            "safe_to_flash": False, "fixture_promoted": False, "lkg_unchanged": True,
+            "next_gate": "NOOP_CURRENT_BUILD",
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        print("OTA_AUTO_INTAKE=NO_CHANGE_LEGACY_PINNED_SHA")
+        return
     fields = {}
     for line in readme.splitlines():
         if "=" not in line:
