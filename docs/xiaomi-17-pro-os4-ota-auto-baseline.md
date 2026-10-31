@@ -111,6 +111,6 @@ GitHub 对 pass 会自动完成：
 
 新版本功能编译检查补丁适用性、Kconfig 与 OEM 核心导出符号/CRC：保留新 OTA baseline 原有的全部 vmlinux 导出符号及 CRC，且实际 kernelrelease 必须与新 OTA 验证记录一致。任一校验不通过就停止，不输出可能不可用的包。
 
-成功后只生成该 OTA 版本的未验证 FASTBOOT-BOOT-ONLY.img，需人工 fastboot boot 进行新一轮功能版真机验证。新 OTA 首次功能版不会自动生成可持久刷入的 AnyKernel3，也不会自动晋升 LKG。
+新 OTA 功能编译通过全部门禁后，同一次构建**同时输出 FASTBOOT-BOOT-ONLY.img 与标明 OTA_CUSTOM_UNVERIFIED 的实验性 AnyKernel3.zip**，使用同一份内核 Image，**不需要再次提交真机测试才能获取 AnyKernel3**。推荐先 fastboot boot 临时测试；AnyKernel3 是会持久替换活动 boot 内核的安装包，未经该功能版本真机验证，可能造成无法开机，务必保留已知可启动的恢复 boot。仅正式晋升 LKG 需要你另外明确确认；编译成功不会自动晋升。
 
 注意：自动选择与尝试编译已接通，但新版本真实适配仍可能因上游源码差异失败。现有自动化单测不能代替未发生的新 OTA 真机验证。
