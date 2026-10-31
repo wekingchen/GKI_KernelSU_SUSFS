@@ -25,6 +25,11 @@ case "$MODE" in
     VALIDATION_LEVEL="VERIFIED_FULL_PARITY_REBUILD"
     DEFAULT_PACKAGE="Xiaomi17Pro-pandora-OS4.0.5.0-R62-FULL-PARITY-AnyKernel3.zip"
     ;;
+  validated-rebuild)
+    PROFILE_LABEL="Validated current LKG rebuild"
+    VALIDATION_LEVEL="VERIFIED_CURRENT_LKG_REBUILD"
+    DEFAULT_PACKAGE="Xiaomi17Pro-pandora-OS4.0.5.0-R62-LKG-AnyKernel3.zip"
+    ;;
   custom)
     PROFILE_LABEL="Custom selectable build (UNVERIFIED)"
     VALIDATION_LEVEL="CUSTOM_UNVERIFIED"
@@ -52,9 +57,9 @@ case "$MODE" in
       exit 1
     }
     ;;
-  full-parity-rebuild)
+  full-parity-rebuild|validated-rebuild)
     [[ "$EXPECTED_RELEASE" == "$LKG_KERNEL_RELEASE" ]] || {
-      echo "::error::Full Parity rebuild release drift: $EXPECTED_RELEASE"
+      echo "::error::validated rebuild release drift: $EXPECTED_RELEASE"
       exit 1
     }
     python3 "$ROOT/scripts/xiaomi-os4/verify-lkg-image-equivalence.py" "$IMAGE"       --expected-size "$LKG_IMAGE_SIZE"       --build-id-payload-offset "$LKG_IMAGE_BUILD_ID_PAYLOAD_OFFSET"       --cert-offset "$LKG_IMAGE_MODULE_CERT_OFFSET"       --cert-length "$LKG_IMAGE_MODULE_CERT_LENGTH"       --expected-normalized-sha256 "$LKG_IMAGE_NORMALIZED_SHA256"
@@ -164,7 +169,11 @@ text = p.read_text()
 warning = (
     'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
     if mode == "custom" else
-    'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+    (
+        'ui_print "Current promoted LKG rebuild: real-device validation PASS.";'
+        if mode == "validated-rebuild"
+        else 'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+    )
 )
 replacements = {
     "@@PROFILE_LABEL@@": profile,
@@ -197,7 +206,7 @@ $(if [[ "$MODE" == "custom" ]]; then
   echo "WARNING: this exact custom feature combination has not completed a real-device boot validation."
   echo "Keep a known-good boot image available for recovery."
 else
-  echo "This Full Parity path has passed Xiaomi 17 Pro OS4 real-device temporary-boot validation."
+  echo "This package rebuilds a user-promoted Xiaomi 17 Pro OS4 LKG that has completed real-device validation."
 fi)
 
 Do not use on another device or OS build.
