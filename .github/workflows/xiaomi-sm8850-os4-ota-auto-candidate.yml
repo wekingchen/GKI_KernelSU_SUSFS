@@ -1,0 +1,284 @@
+name: "小米17 Pro OS4 / OTA 自动识别与非刷机 GKI 基线候选"
+
+on:
+  release:
+    types: [published, edited]
+  schedule:
+    - cron: '41 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pandora-os4-ota-candidate
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: "读取 stock-input Release → 自动判断是否为新 OTA"
+    if: >-
+      github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
+      (github.event_name != 'release' ||
+       github.event.release.tag_name == 'pandora-os4-stock-input')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      build_candidate: ${{ steps.resolve.outputs.build_candidate }}
+      ota_build: ${{ steps.audit.outputs.ota_build }}
+      input_sha: ${{ steps.audit.outputs.input_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+      - name: "验证 stock-input Release 恰有一个 xm.zip"
+        id: obtain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          jq -e '.draft == false and .tag_name == "pandora-os4-stock-input"' <<<"$RELEASE" >/dev/null
+          mapfile -t IDS < <(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$RELEASE")
+          [[ "${#IDS[@]}" -eq 1 && "${IDS[0]}" =~ ^[0-9]+$ ]] || {
+            echo "::error::固定 Release 中必须且只能保留一个 xm.zip"; exit 1;
+          }
+          mkdir -p "$RUNNER_TEMP/ota-stock"
+          gh release download pandora-os4-stock-input --pattern '*xm.zip' \
+            --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/ota-stock"
+          mapfile -t FILES < <(find "$RUNNER_TEMP/ota-stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          [[ "${#FILES[@]}" -eq 1 ]] || exit 1
+          echo "zip_path=${FILES[0]}" >> "$GITHUB_OUTPUT"
+          echo "asset_id=${IDS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: "只读身份审计、与当前已适配版本比较"
+        id: audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ota-report"
+          python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
+            --zip "${{ steps.obtain.outputs.zip_path }}" \
+            --stock-config .github/config/pandora-os4-stock-input.env \
+            --github-asset-id "${{ steps.obtain.outputs.asset_id }}" \
+            --output "$RUNNER_TEMP/ota-report/stock-report.json"
+          REPORT="$RUNNER_TEMP/ota-report/stock-report.json"
+          echo "ota_build=$(jq -r .build "$REPORT")" >> "$GITHUB_OUTPUT"
+          echo "input_sha=$(jq -r .ota_source_id "$REPORT")" >> "$GITHUB_OUTPUT"
+          echo "new_ota=$(jq -r '.status == "NEW_OTA_CANDIDATE" and .may_build_gki_candidate' "$REPORT")" >> "$GITHUB_OUTPUT"
+
+      - name: "自动从 Android 官方 GKI 发布记录选择候选源码"
+        if: steps.audit.outputs.new_ota == 'true'
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/resolve-ota-gki-candidate.py \
+            --ota-report "$RUNNER_TEMP/ota-report/stock-report.json" \
+            --output "$RUNNER_TEMP/ota-report/gki-candidate.json" \
+            --env "$RUNNER_TEMP/ota-report/gki-candidate.env"
+
+      - name: "重复处理防护：候选归档已存在则跳过，不覆盖不同版本"
+        id: resolve
+        if: steps.audit.outputs.new_ota == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OTA_BUILD: ${{ steps.audit.outputs.ota_build }}
+          OTA_SHA: ${{ steps.audit.outputs.input_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="pandora-os4-ota-candidate-$OTA_BUILD"
+          if RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" 2>/dev/null)"; then
+            jq -e --arg sha "$OTA_SHA" \
+              '.prerelease == true and (.body | contains("OTA_INPUT_SHA256=" + $sha))' <<<"$RELEASE" >/dev/null || {
+              echo "::error::同名 OTA 候选 Release 的来源 SHA 不一致，拒绝覆盖"; exit 1;
+            }
+            echo "::notice::该 OTA 的基线候选已经归档，不再重复编译"
+            echo "build_candidate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_candidate=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "保存新固件只读报告与候选源码快照"
+        if: always() && steps.obtain.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-ota-input-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-report/*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: "中文摘要"
+        if: always()
+        shell: bash
+        run: |
+          echo "## pandora OS4 OTA 自动识别" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -s "$RUNNER_TEMP/ota-report/stock-report.json" ]]; then
+            echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/ota-report/stock-report.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "不修改当前 LKG、R62 fixture 或 stock-input 配置；不生成可刷镜像。" >> "$GITHUB_STEP_SUMMARY"
+
+  baseline:
+    name: "隔离构建新 OTA 未验证 GKI 基线候选（不打包 boot）"
+    needs: inspect
+    if: needs.inspect.outputs.build_candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - name: "下载本次只读审计和锁定源码版本"
+        uses: actions/download-artifact@v4
+        with:
+          name: pandora-ota-input-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-input
+
+      - name: "安装仅供 GKI 分析编译的依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/build-ota-gki-baseline-candidate.sh
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq libdw-dev \
+            libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils \
+            zip zstd dwarves
+
+      - name: "固定 r536225 工具链缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+
+      - name: "构建未验证 GKI Image / Module.symvers"
+        shell: bash
+        env:
+          OTA_CANDIDATE_ENV: ${{ runner.temp }}/ota-input/gki-candidate.env
+          XIAOMI_OS4_JOBS: '6'
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-ota-gki-baseline-candidate.sh
+          cp "$RUNNER_TEMP/ota-input/stock-report.json" "$RUNNER_TEMP/ota-candidate/results/"
+          cp "$RUNNER_TEMP/ota-input/gki-candidate.json" "$RUNNER_TEMP/ota-candidate/results/"
+
+      - name: "上传不可刷写的 GKI 基线候选"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-UNVERIFIED-GKI-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ota-candidate/results/Image
+            ${{ runner.temp }}/ota-candidate/results/Module.symvers
+            ${{ runner.temp }}/ota-candidate/results/final.config
+            ${{ runner.temp }}/ota-candidate/results/build-metadata.txt
+            ${{ runner.temp }}/ota-candidate/results/STATUS.txt
+            ${{ runner.temp }}/ota-candidate/results/SHA256SUMS.txt
+            ${{ runner.temp }}/ota-candidate/results/locked-candidate.env
+            ${{ runner.temp }}/ota-candidate/results/stock-report.json
+            ${{ runner.temp }}/ota-candidate/results/gki-candidate.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  archive:
+    name: "永久归档不可刷写候选供后续人工 ABI/真机审核"
+    needs: [inspect, baseline]
+    if: needs.baseline.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+      - name: "下载刚完成的 GKI 候选"
+        uses: actions/download-artifact@v4
+        with:
+          name: pandora-OTA-UNVERIFIED-GKI-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-release
+
+      - name: "强制来源不变、校验 SHA 后发布 prerelease"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.inspect.outputs.ota_build }}
+          INPUT_SHA: ${{ needs.inspect.outputs.input_sha }}
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-release"
+          source "$DIR/locked-candidate.env"
+          [[ "$OTA_BUILD" == "$BUILD" && "$OTA_INPUT_SHA256" == "$INPUT_SHA" ]]
+          jq -e --arg b "$BUILD" --arg s "$INPUT_SHA" \
+            '.build == $b and .ota_source_id == $s and .safe_to_flash == false' "$DIR/stock-report.json" >/dev/null
+          jq -e --arg b "$BUILD" --arg s "$INPUT_SHA" \
+            '.build == $b and .ota_source_id == $s and .safe_to_flash == false' "$DIR/gki-candidate.json" >/dev/null
+          grep -Fxq 'FLASHABLE=NO' "$DIR/STATUS.txt"
+          grep -Fxq 'FLASHABLE=NO' "$DIR/build-metadata.txt"
+          grep -Fxq 'FASTBOOT_BOOT=NOT_BUILT' "$DIR/build-metadata.txt"
+          grep -Fxq 'ANYKERNEL3=NOT_BUILT' "$DIR/build-metadata.txt"
+          (cd "$DIR" && sha256sum -c SHA256SUMS.txt)
+          # Verify the fixed input has not changed while the lengthy GKI build ran.
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          ASSET_ID="$(jq -r .github_asset_id "$DIR/stock-report.json")"
+          jq -e --argjson id "$ASSET_ID" \
+            '[.assets[] | select(.id == $id and (.name | endswith("xm.zip")))] | length == 1' <<<"$STOCK" >/dev/null || {
+            echo "::error::stock-input 资产在构建期间被替换；拒绝发布"; exit 1;
+          }
+          TAG="pandora-os4-ota-candidate-$BUILD"
+          cat > "$DIR/README-NO-FLASH.md" <<EOF
+          # Xiaomi 17 Pro / $BUILD — 未验证的 OTA GKI 源码候选
+
+          OTA_INPUT_SHA256=$INPUT_SHA
+
+          **NO FLASH / 不可刷机。**
+          仅根据 stock boot 内核版本和 Android 官方发布记录选取纯 GKI 源码候选，
+          已编译 Image、Module.symvers、final.config，未匹配 Xiaomi vendor ABI/KMI，
+          未建立经过真机验证的 boot-v4 fixture。严禁把此 Image 或任何旧 boot 直接刷入手机。
+          后续必须经过版本级 ABI 审核、可临时启动 boot 生成和用户真机验证。
+          当前 Gen 3 LKG 不变。
+          EOF
+          (cd "$DIR" && find . -maxdepth 1 -type f ! -name 'RELEASE-SHA256SUMS.txt' -printf '%f\0' \
+            | LC_ALL=C sort -z | xargs -0 sha256sum > RELEASE-SHA256SUMS.txt)
+          if EXISTING="$(gh release view "$TAG" --json isDraft,isPrerelease,body --jq '.' 2>/dev/null)"; then
+            jq -e --arg sha "$INPUT_SHA" \
+              '.isDraft == true and .isPrerelease == true and (.body | contains("OTA_INPUT_SHA256=" + $sha))' <<<"$EXISTING" >/dev/null || {
+              echo "::error::对应 Release 已存在且不是同一输入的草稿，禁止覆盖"; exit 1;
+            }
+            echo "::notice::继续上传此前未完成的候选草稿"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
+              --title "pandora $BUILD / UNVERIFIED GKI OTA candidate — DO NOT FLASH" \
+              --notes-file "$DIR/README-NO-FLASH.md" --draft --prerelease --latest=false
+          fi
+          for file in "$DIR"/*; do
+            name="$(basename "$file")"
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              echo "Candidate asset already in draft: $name (will verify downloaded copy)"
+            else
+              gh release upload "$TAG" "$file"
+            fi
+          done
+          VERIFY="$RUNNER_TEMP/ota-release-download-verify"
+          mkdir -p "$VERIFY"
+          gh release download "$TAG" --dir "$VERIFY"
+          cmp -s "$DIR/RELEASE-SHA256SUMS.txt" "$VERIFY/RELEASE-SHA256SUMS.txt" || {
+            echo "::error::Release download manifest mismatch"; exit 1;
+          }
+          (cd "$VERIFY" && sha256sum -c RELEASE-SHA256SUMS.txt)
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == false ]] || exit 1
+          echo "OTA_GKI_CANDIDATE_ARCHIVED=YES (NO_FLASH)"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

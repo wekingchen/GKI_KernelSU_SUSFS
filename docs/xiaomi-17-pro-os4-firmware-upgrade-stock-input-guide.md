@@ -1,5 +1,8 @@
 # 小米 17 Pro（pandora）OS4 固件升级后的 stock input 操作指南
 
+> **自动化更新（2026-11-01）**：只需在 OTA 后按本指南采集并替换固定 Release 的 `*-xm.zip`。新版 [OTA 自动识别与纯 GKI 候选基线工作流](../.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml) 已配置 Release 更新触发和每日补查：自动审计、比对固件版本、尝试解析官方 GKI 源码并生成**不能刷机**的研究候选。下文「手动运行只读检查」仍可作为故障排查入口，不再是每次升级后的必做步骤。详见 [自动化边界及人机验证门禁](xiaomi-17-pro-os4-ota-auto-baseline.md)。
+
+
 > 适用设备：Xiaomi 17 Pro / `pandora`  
 > 用途：HyperOS / OS4 升级后，为新的内核适配建立**可信、版本化、可追溯**的 boot 输入。  
 > 原则：**先只读采集，后适配，再生成临时启动镜像。禁止直接把旧 fixture / 旧功能内核套到新固件。**
@@ -491,7 +494,7 @@ R62 #7 baseline Image
 3. platform-tools 里运行 collect-pandora-stock-input.cmd
 4. 得到新的 *-xm.zip
 5. 固定 Release 删除旧 xm.zip，只上传新的一个
-6. 先跑“检查新固件 xm.zip（只读）”
+6. 等待 OTA 自动检查（Release 编辑事件 / 每日补查）；必要时手动运行只读检查
 7. 根据检查结果完成新版本适配和 baseline 真机测试
 8. 再固化 fixture
 9. 最后才生成新的功能版 FASTBOOT-BOOT-ONLY.img
