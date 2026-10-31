@@ -5,6 +5,10 @@ MODE="${1:?usage: apply-os4-selected-extras.sh <source|config|validate>}"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/.github/config/xiaomi-sm8850-os4-6.12.69.env"
+if [[ "${XIAOMI_OS4_NEW_OTA:-0}" == "1" ]]; then
+  [[ -s "${XIAOMI_OS4_VERIFIED_OTA_ENV:-}" ]] || { echo "::error::missing verified OTA source env"; exit 1; }
+  source "$XIAOMI_OS4_VERIFIED_OTA_ENV"
+fi
 
 STAGE="${RUNNER_TEMP:?RUNNER_TEMP is required}/xiaomi-os4-integrated"
 SRC="$STAGE/common"

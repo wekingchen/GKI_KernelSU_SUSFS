@@ -98,3 +98,19 @@ GitHub 对 pass 会自动完成：
 **保持边界**：旧 OS4.0.5.0 / R62 / Gen 3 fixture、现有 LKG 和固定 R62 自定义工作流均不修改。新版本后续要另行完成新的 GKI/KMI/ABI、BakaSU main、SUSFS、NoMount 等功能适配、功能版编译和真机复测，最后由你决定是否晋升新的 LKG。当前固化动作不自动 flash、不发布持久包、不自动晋升 LKG。
 
 源 Actions Artifact 默认 30 天保留期；一旦过期必须重新建立可追溯候选，不能手工绕过认证。
+
+## 已验证新 OTA → 当前自定义编译自动切换（2026-11-01）
+
+真机测试 pass 的 GitHub 门禁通过后，在同一 PR 中归档新版本的 fixture.json、verification.json，并更新 .github/config/ota-development-current.json 开发指针。这不是 LKG 晋升，Gen 3 LKG 保持不变。
+
+现有「小米17 Pro OS4 / 自定义内核」入口在执行前重新读取当前 stock-input Release 的 xm.zip，严格核对当前开发指针：
+
+- 当前仍是已验证旧固件且未建立新指针：使用原 R62 流程；
+- 已上传新 OTA，但未成功提交真机测试，或新固件与指针不一致：直接失败，不偷偷使用 R62 生成旧包；
+- 已验证新 OTA：锁定该版本 GKI 源码 commit、tag、工具链及官方 baseline Image/Module.symvers，同时解析本次最新稳定的 BakaSU main、SUSFS、NoMount、DroidSpaces、NTSync、BBG、Re-Kernel 等，使用用户选择的功能尝试构建。
+
+新版本功能编译检查补丁适用性、Kconfig 与 OEM 核心导出符号/CRC：保留新 OTA baseline 原有的全部 vmlinux 导出符号及 CRC，且实际 kernelrelease 必须与新 OTA 验证记录一致。任一校验不通过就停止，不输出可能不可用的包。
+
+成功后只生成该 OTA 版本的未验证 FASTBOOT-BOOT-ONLY.img，需人工 fastboot boot 进行新一轮功能版真机验证。新 OTA 首次功能版不会自动生成可持久刷入的 AnyKernel3，也不会自动晋升 LKG。
+
+注意：自动选择与尝试编译已接通，但新版本真实适配仍可能因上游源码差异失败。现有自动化单测不能代替未发生的新 OTA 真机验证。

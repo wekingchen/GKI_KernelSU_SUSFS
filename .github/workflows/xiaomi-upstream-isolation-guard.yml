@@ -48,3 +48,9 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/xiaomi-os4/finalize-ota-baseline.py scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_baseline_feedback.py' -v
+          python3 -m py_compile scripts/xiaomi-os4/ota-development-pointer.py \
+            scripts/xiaomi-os4/check-ota-feature-abi.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_development_switch.py' -v
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
+          bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
