@@ -19,6 +19,9 @@ jq -e '.status=="completed" and .conclusion=="success" and .event=="workflow_dis
   .head_branch=="dev" and .path==".github/workflows/xiaomi-sm8850-os4-custom.yml"' <<<"$RUN" >/dev/null
 SOURCE_SHA="$(jq -r .head_sha <<<"$RUN")"
 [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+git merge-base --is-ancestor "$SOURCE_SHA" "$BASE_SHA" || {
+  echo "::error::源代码提交不属于当前受信任的 dev 历史"; exit 1;
+}
 A="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
 ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
   [.artifacts[] | select(.expired==false) | .name |
@@ -56,7 +59,11 @@ source "$WORK/gki.env"
 source "$WORK/features.env"
 set +a
 export XIAOMI_OS4_VERIFIED_OTA_ENV="$WORK/gki.env"
-bash scripts/xiaomi-os4/build-r62-features.sh
+# The rebuild must use the actual source-tree revision which generated the
+# user's original image, not today's potentially changed build scripts.
+git worktree add --detach "$WORK/pinned-source" "$SOURCE_SHA"
+[[ "$(git -C "$WORK/pinned-source" rev-parse HEAD)" == "$SOURCE_SHA" ]] || exit 1
+bash "$WORK/pinned-source/scripts/xiaomi-os4/build-r62-features.sh"
 BUILT="$RUNNER_TEMP/xiaomi-os4-integrated/results"
 for f in Image Module.symvers final.config build-metadata.txt; do
   [[ -s "$BUILT/$f" ]] || exit 1
@@ -151,10 +158,11 @@ mkdir -p "$WORK/check-release"
 gh release download "$TAG" --dir "$WORK/check-release"
 cmp -s "$OUT/SHA256SUMS-$TAG.txt" "$WORK/check-release/SHA256SUMS-$TAG.txt"
 (cd "$WORK/check-release" && sha256sum -c "SHA256SUMS-$TAG.txt")
-gh release edit "$TAG" --draft=false --latest=false
-[[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == false ]] || exit 1
-
-# Pointer moves last, only after successful independent Release verification.
+# Keep the independently SHA-verified Release as a draft until the PR is
+# actually merged. A failed PR must never leave a public "stable" release.
+# If the final publish fails after merge, a separate verified repair step
+# can publish this already-complete draft without rebuilding / re-promoting.
+# Pointer moves only after successful independent Release verification.
 [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
  echo "::error::dev changed during build; recovery Release preserved, pointer untouched"; exit 1;
 }
@@ -204,5 +212,12 @@ gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$NUM/merge" \
  -f merge_method=squash -f sha="$HEAD_SHA" -f commit_title="xiaomi(os4): LKG Gen $GEN $BUILD" \
  | jq -e '.merged==true and (.sha|length)==40' >/dev/null
 gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null || true
+# Reject switched/mismatched pointer; the submitted generation must match.
+LIVE="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/config/ota-lkg-current.json?ref=dev" --jq .content | base64 -d)"
+jq -e --argjson run "$GITHUB_RUN_ID" --argjson gen "$GEN" --arg tag "$TAG"   '.promotion_run_id == $run and .generation == $gen and .archive_tag == $tag' <<<"$LIVE" >/dev/null
+gh release edit "$TAG" --draft=false --latest=false
+[[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == false ]] || {
+  echo "::error::LKG pointer已提交但Release仍是草稿；可用经过身份与SHA验证的归档修复入口恢复"; exit 1;
+}
 echo "CROSS_OTA_LKG=PASS generation=$GEN build=$BUILD release=$TAG"
 echo "Cross OTA LKG Gen $GEN: source attested; strict CI rebuild and Release verified; $URL" >> "$GITHUB_STEP_SUMMARY"
