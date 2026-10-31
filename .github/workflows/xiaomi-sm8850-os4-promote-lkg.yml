@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: "已完成真机稳定验证的正式自定义构建 Run ID"
+        description: "仅 R62 / OS4.0.5.0 已真机验证的自定义 Run ID；新 OTA 暂不支持此晋升入口"
         required: true
         type: string
       confirm_stable:
@@ -81,7 +81,11 @@ jobs:
             [.artifacts[] | select(.name == $name and .expired == false)][0].id // empty
           ' <<<"$ARTIFACTS")"
           [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || {
-            echo "::error::找不到未过期的候选 Artifact: $ARTIFACT_NAME"
+            if jq -e '.artifacts[] | select(.expired == false) | .name | startswith("pandora-OTA-CUSTOM-")' <<<"$ARTIFACTS" >/dev/null; then
+              echo "::error::检测到新 OTA 自定义产物：此晋升流程仍使用 R62 固定 ABI/KMI 和 Gen 3 fixture，尚不支持新 OTA 晋升。禁止跨版本使用旧流程。"
+            else
+              echo "::error::找不到未过期的 R62 自定义候选 Artifact: $ARTIFACT_NAME"
+            fi
             exit 1
           }
 

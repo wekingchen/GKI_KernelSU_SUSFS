@@ -561,7 +561,11 @@ export RUSTC=rustc BINDGEN=bindgen LIBCLANG_PATH="$TOOL_CACHE/clang19/lib"
 # Preserve compiler output across experimental CI runs; Rust expects CC as one executable.
 CLANG_CC=clang
 if command -v ccache >/dev/null 2>&1; then
-  export CCACHE_DIR="$HOME/.cache/xiaomi-os4/ccache-r62"
+  if [[ "$NEW_OTA_MODE" == "1" ]]; then
+    export CCACHE_DIR="$HOME/.cache/xiaomi-os4/ccache-ota-$OS4_GKI_COMMON_COMMIT"
+  else
+    export CCACHE_DIR="$HOME/.cache/xiaomi-os4/ccache-r62"
+  fi
   export CCACHE_COMPILERCHECK="string:android-r536225"
   export CCACHE_BASEDIR="$STAGE"
   mkdir -p "$CCACHE_DIR" "$STAGE/.compiler"

@@ -16,12 +16,12 @@ on:
         required: true
         type: string
       observed_build:
-        description: "adb getprop ro.mi.os.version.incremental"
-        required: true
+        description: "实际 build；无法进入 Android 时可留空（仅 fail）"
+        required: false
         type: string
       observed_uname:
-        description: "adb uname -r"
-        required: true
+        description: "实际 uname -r；未开机无法读取时可留空（仅 fail）"
+        required: false
         type: string
       confirmed_boot_completed:
         description: "已进入 Android 桌面，sys.boot_completed=1，设备为 pandora"
@@ -86,8 +86,18 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
           [[ "$TESTED_SHA" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$TEST_RESULT" == pass || "$TEST_RESULT" == fail ]] || exit 1
-          [[ "$OBSERVED_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]] || exit 1
-          [[ "$OBSERVED_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || exit 1
+          if [[ "$TEST_RESULT" == pass ]]; then
+            [[ "$OBSERVED_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]] || {
+              echo "::error::pass 必须填写实际系统版本"; exit 1;
+            }
+            [[ "$OBSERVED_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || {
+              echo "::error::pass 必须填写实际 uname -r"; exit 1;
+            }
+          else
+            # A boot-looping or unbootable device cannot provide getprop/uname.
+            [[ -z "$OBSERVED_BUILD" || "$OBSERVED_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]] || exit 1
+            [[ -z "$OBSERVED_UNAME" || "$OBSERVED_UNAME" =~ ^6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+$ ]] || exit 1
+          fi
           RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
           jq -e '
             .status == "completed" and .conclusion == "success" and .head_branch == "dev" and
@@ -105,9 +115,15 @@ jobs:
           TEST="$(jq -r --arg id "$SOURCE_RUN_ID" "$BOOT_FILTER | .[0]" <<<"$ARTIFACTS")"
           BASE_BUILD="$(echo "$BASE" | sed -e 's/^pandora-OTA-UNVERIFIED-GKI-//' -e "s/-$SOURCE_RUN_ID$//")"
           TEST_BUILD="$(echo "$TEST" | sed -e 's/^pandora-OTA-OEM-ABI-TESTBOOT-//' -e "s/-$SOURCE_RUN_ID$//")"
-          [[ "$BASE_BUILD" == "$OBSERVED_BUILD" && "$TEST_BUILD" == "$OBSERVED_BUILD" ]] || {
-            echo "::error::两个 Artifact 对应版本与真机版本不同"; exit 1;
+          [[ "$BASE_BUILD" == "$TEST_BUILD" ]] || {
+            echo "::error::来源 Run 的 GKI 与待测 boot 版本不一致"; exit 1;
           }
+          if [[ "$TEST_RESULT" == pass || -n "$OBSERVED_BUILD" ]]; then
+            [[ "$BASE_BUILD" == "$OBSERVED_BUILD" ]] || {
+              echo "::error::报告的系统版本与候选来源不一致"; exit 1;
+            }
+          fi
+          echo "SOURCE_EXPECTED_BUILD=$BASE_BUILD" >> "$GITHUB_ENV"
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "test=$TEST" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
@@ -123,8 +139,9 @@ jobs:
           lines = [
               "# OTA fastboot boot 真机测试失败",
               "来源 Run: https://github.com/" + d["GITHUB_REPOSITORY"] + "/actions/runs/" + d["SOURCE_RUN_ID"],
-              "系统: " + d["OBSERVED_BUILD"],
-              "实际 uname: " + d["OBSERVED_UNAME"],
+              "候选固件版本: " + d["SOURCE_EXPECTED_BUILD"],
+              "实际读到的系统版本: " + (d.get("OBSERVED_BUILD") or "未能开机读取"),
+              "实际 uname: " + (d.get("OBSERVED_UNAME") or "未能开机读取"),
               "测试 IMG SHA256: " + d["TESTED_SHA"],
               "启动完成: " + d["CONFIRM_BOOT"],
               "模块检测: " + d["CONFIRM_MODULES"],
@@ -136,7 +153,7 @@ jobs:
           pathlib.Path(sys.argv[1]).write_text("\n\n".join(lines) + "\n", encoding="utf-8")
           PY
           URL="$(gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "pandora $OBSERVED_BUILD / Run $SOURCE_RUN_ID 真机启动失败" \
+            --title "pandora $SOURCE_EXPECTED_BUILD / Run $SOURCE_RUN_ID 真机启动失败" \
             --body-file "$RUNNER_TEMP/failure.md")"
           echo "失败报告 Issue: $URL" >> "$GITHUB_STEP_SUMMARY"
 
@@ -209,7 +226,7 @@ jobs:
             --verified-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "build=$(jq -r .stock_build "$RUNNER_TEMP/verified-ota/verification.json")" >> "$GITHUB_OUTPUT"
 
-      - name: "仅提交两份新版本记录；强制 PR diff 和上游隔离校验"
+      - name: "仅提交版本 fixture、验证记录及开发基线指针；强制 PR diff 和上游隔离校验"
         id: commit
         if: inputs.result == 'pass'
         shell: bash
@@ -227,7 +244,10 @@ jobs:
           cp "$RUNNER_TEMP/verified-ota/fixture.json" "$DEST/fixture.json"
           cp "$RUNNER_TEMP/verified-ota/verification.json" "$DEST/verification.json"
           # Latest verified OTA is the development target; never mutate the LKG.
-          python3 scripts/xiaomi-os4/ota-development-pointer.py             create --record "$DEST/verification.json"             --fixture "$DEST/fixture.json"             --output ".github/config/ota-development-current.json"
+          python3 scripts/xiaomi-os4/ota-development-pointer.py create \
+            --record "$DEST/verification.json" \
+            --fixture "$DEST/fixture.json" \
+            --output ".github/config/ota-development-current.json"
           BRANCH="ota/verified-$VERIFIED_BUILD-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

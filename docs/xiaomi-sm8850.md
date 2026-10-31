@@ -1,4 +1,6 @@
-# 小米 17 系列 / SM8850 — Android 16 / Linux 6.12.23
+# 小米 17 系列 / SM8850 — Android 16 / Linux 6.12.23（历史 OS3 资料）
+
+> **历史文档，不是当前 OS4 操作指南。** 本文记录 2026 年 9 月 OS3 / 6.12.23 / Gold / ACK-R51 的研究与测试，内部的“当前”“默认”、早期真机状态或旧命令可能已经过时。小米 17 Pro 已升级 HyperOS 4 / 6.12.69，实际操作应参考 [OS4 全链路审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)、[OTA 升级流程](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md) 和 [OS4 当前 LKG](xiaomi-17-pro-os4-full-parity-lkg.md)。旧 OS3/ACK-R51 的讨论不能作为 OS4 安全刷入依据。
 
 本文档记录本仓库针对小米 17 系列（Qualcomm SM8850）的专用内核构建方案、真机验证结果、源码基线、CI 校验、刷入范围以及上游同步与恢复机制。
 
