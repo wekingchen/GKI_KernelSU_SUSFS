@@ -240,7 +240,7 @@ def compare_rebuild(original, rebuild, manifest):
             "rebuild_device_tested": False}
 
 
-def promotion_record(source, rebuilt, current, promotion_run_id, note):
+def promotion_record(source, rebuilt, current, promotion_run_id, note, *, legacy_generation=3):
     required(re.fullmatch(r"[1-9][0-9]*", str(promotion_run_id)) is not None,
              "invalid promoting run ID")
     previous = current or None
@@ -252,7 +252,9 @@ def promotion_record(source, rebuilt, current, promotion_run_id, note):
                  "source run already promoted")
         gen = previous["generation"] + 1
     else:
-        gen = 4  # Existing R62 Gen 3 is maintained in its original immutable env.
+        required(isinstance(legacy_generation, int) and 3 <= legacy_generation <= 100000,
+                 "invalid existing R62 LKG generation")
+        gen = legacy_generation + 1  # Existing R62 can itself advance before the first OTA.
     note = re.sub(r"[^A-Za-z0-9_.:+-]", "_", note)[:160] or "user-confirmed-stable"
     return {
         "schema": 1, "status": "USER_PROMOTED_OTA_LKG",
@@ -299,6 +301,7 @@ def main():
     promote.add_argument("--source-dir", type=Path, required=True)
     promote.add_argument("--rebuild-report", type=Path, required=True)
     promote.add_argument("--current", type=Path, required=True)
+    promote.add_argument("--legacy-current", type=Path, required=True)
     promote.add_argument("--run-id", required=True)
     promote.add_argument("--head-sha", required=True)
     promote.add_argument("--promotion-run-id", required=True)
@@ -327,8 +330,13 @@ def main():
                  and rebuilt.get("rebuild_device_tested") is False,
                  "rebuild lacks strict reproducibility report")
         current = load(args.current) if args.current.exists() else None
+        legacy = env(args.legacy_current, strict=True)
+        required(re.fullmatch(r"[1-9][0-9]*", legacy.get("LKG_PROMOTION_GENERATION", "")) is not None,
+                 "missing trusted legacy LKG generation")
+        legacy_generation = int(legacy["LKG_PROMOTION_GENERATION"])
         result = promotion_record(source, rebuilt, current,
-                                  args.promotion_run_id, args.note)
+                                  args.promotion_run_id, args.note,
+                                  legacy_generation=legacy_generation)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
         print("OTA_LKG_GENERATION=" + str(result["generation"]))
