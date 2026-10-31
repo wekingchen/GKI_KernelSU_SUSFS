@@ -16,20 +16,6 @@
 
 </div>
 
-## 小米 17 Pro（pandora）/ HyperOS 4 专项说明
-
-本仓库保留上游 GKI 通用工作流和历史 OS3 资料；**小米 17 Pro 的 HyperOS 4 请优先按以下独立文档操作**，不要把上游通用下载链接或旧 OS3 的内核当作 OS4 可刷入版本：
-
-- [OS4 全功能与端到端流程审计（2026-11-01）](docs/xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md) — 哪些已真机验证、哪些仅 CI 通过，以及尚未贯通的环节
-- [升级 OTA 后采集 xm.zip、临时启动和提交基线验证](docs/xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)
-- [OTA 自动化与失败门禁](docs/xiaomi-17-pro-os4-ota-auto-baseline.md)
-- [Gen 3 当前稳定 LKG 与自定义功能编译](docs/xiaomi-17-pro-os4-full-parity-lkg.md)
-- [LKG 长期恢复与归档](docs/xiaomi-17-pro-os4-lkg-release-archive.md)
-
-OS4 目前已真机验证的稳定基线是 OS4.0.5.0.XBLCNXM / 6.12.69 / Gen 3。新 OTA 的纯 GKI 候选需用户临时启动并反馈一次，之后现有「小米17 Pro OS4 / 自定义内核」才能默认选择新开发基线；编译通过可同时产出待测 IMG 和标记 UNVERIFIED 的实验性 AnyKernel3。**编译通过不等于真机稳定，新 OTA 尚不支持通过旧 R62 晋升工作流直接升级 LKG。**
-
----
-
 ## 🚀 快速导航
 
 - 📖 [文档](https://github.com/zzh20188/GKI_KernelSU_SUSFS/wiki)
