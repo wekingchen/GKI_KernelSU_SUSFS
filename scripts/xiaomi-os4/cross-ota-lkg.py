@@ -52,7 +52,7 @@ def env(path):
         k, v = line.split("=", 1)
         required(re.fullmatch(r"[A-Z0-9_]+", k) is not None and k not in result,
                  "bad/duplicate env field: " + k)
-        required(re.fullmatch(r"[A-Za-z0-9_.-]*", v) is not None,
+        required(re.fullmatch(r"[A-Za-z0-9_./+-]*", v) is not None,
                  "unsafe env value " + k)
         result[k] = v
     return result
@@ -107,9 +107,31 @@ def identify(folder, run_id, source_sha):
         commit = pins.get("RESOLVED_" + c + "_COMMIT")
         required(isinstance(commit, str) and GIT.fullmatch(commit),
                  "unpinned upstream: " + c)
+    upstream_refs = {}
+    for c in COMPONENTS:
+        kind, ref = pins.get("RESOLVED_" + c + "_KIND"), pins.get("RESOLVED_" + c + "_REF")
+        required(kind in ("branch", "tag") and isinstance(ref, str)
+                 and re.fullmatch(r"[A-Za-z0-9._/+-]+", ref) is not None,
+                 "missing pinned upstream kind/ref: " + c)
+        upstream_refs[c] = {"kind": kind, "ref": ref}
     for c in ("BAKASU", "SUSFS", "NOMOUNT", "DROIDSPACES"):
         required(pins["RESOLVED_" + c + "_COMMIT"] == md.get(c + "_COMMIT"),
                  "upstream snapshot differs from actual build: " + c)
+    for c, prefix in (("BAKASU", "BAKASU"), ("SUSFS", "SUSFS"),
+                      ("NOMOUNT", "NOMOUNT"), ("DROIDSPACES", "DROIDSPACES"),
+                      ("NTSYNC", "NTSYNC"), ("BBG", "BBG"),
+                      ("REKERNEL", "REKERNEL")):
+        required(md.get(prefix + "_REF_KIND") == upstream_refs[c]["kind"] and
+                 md.get(prefix + "_REF") == upstream_refs[c]["ref"],
+                 "upstream source kind/ref differs from the built kernel: " + c)
+    for c in ("NTSYNC", "BBG", "REKERNEL"):
+        switch = {"NTSYNC": "USE_NTSYNC", "BBG": "USE_BBG",
+                  "REKERNEL": "USE_REKERNEL"}[c]
+        if md.get(switch) == "1":
+            actual = (md.get(c + "_COMMIT") or md.get("OS3_PARITY_" + c + "_COMMIT")
+                      or md.get("OS3_PARITY_" + c + "_PATCH_COMMIT"))
+            required(actual == pins["RESOLVED_" + c + "_COMMIT"],
+                     "enabled upstream commit differs from applied extras: " + c)
     required(md.get("ROOT_MODE") in ("bakasu-susfs", "bakasu", "none"),
              "unsupported root mode")
     for k in FLAGS[1:]:
@@ -160,6 +182,7 @@ def identify(folder, run_id, source_sha):
         "files": dict(sorted(hashes.items())),
         "selections": {k: md[k] for k in FLAGS},
         "upstream_commits": {k: pins["RESOLVED_" + k + "_COMMIT"] for k in COMPONENTS},
+        "upstream_refs": upstream_refs,
         "real_device_feature_test": "NOT_ATTESTED_AT_BUILD_TIME",
         "full_parity_lkg_promoted": False,
     }
@@ -184,7 +207,11 @@ def compare_rebuild(original, rebuild, manifest):
                 "ROOT_MODE", "SUSFS_EXTRA_FEATURES", "USE_NOMOUNT",
                 "DROIDSPACES_ENABLED", "USE_NTSYNC", "USE_BBG", "USE_REKERNEL",
                 "USE_NETWORKING", "USE_CVE", "BAKASU_COMMIT", "SUSFS_COMMIT",
-                "NOMOUNT_COMMIT", "DROIDSPACES_COMMIT"):
+                "NOMOUNT_COMMIT", "DROIDSPACES_COMMIT",
+                "BAKASU_REF_KIND", "BAKASU_REF", "SUSFS_REF_KIND", "SUSFS_REF",
+                "NOMOUNT_REF_KIND", "NOMOUNT_REF", "DROIDSPACES_REF_KIND",
+                "DROIDSPACES_REF", "NTSYNC_REF_KIND", "NTSYNC_REF",
+                "BBG_REF_KIND", "BBG_REF", "REKERNEL_REF_KIND", "REKERNEL_REF"):
         required(src.get(key) and src[key] == rebuilt.get(key), "rebuild drift: " + key)
     source_repro = env(original / "image-reproducibility.env")
     rebuilt_repro = env(rebuild / "image-reproducibility.env")
