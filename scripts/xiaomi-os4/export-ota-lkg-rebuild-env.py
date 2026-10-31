@@ -47,5 +47,21 @@ for key, dest in COMMIT_MAP.items():
     value = pins[key]
     assert re.fullmatch("[0-9a-f]{40}", value), key
     out.append(dest + "=" + value)
+REF_MAP = {
+    "BAKASU": ("OS4_BAKASU_REF_KIND", "OS4_BAKASU_REF"),
+    "SUSFS": ("OS4_SUSFS_REF_KIND", "OS4_SUSFS_BRANCH"),
+    "NOMOUNT": ("OS4_NOMOUNT_REF_KIND", "OS4_NOMOUNT_REF"),
+    "DROIDSPACES": ("OS4_DROIDSPACES_REF_KIND", "OS4_DROIDSPACES_REF"),
+    "NTSYNC": ("OS4_NTSYNC_REF_KIND", "OS4_NTSYNC_PATCH_REF"),
+    "BBG": ("OS4_BBG_REF_KIND", "OS4_BBG_REF"),
+    "REKERNEL": ("OS4_REKERNEL_REF_KIND", "OS4_REKERNEL_REF"),
+}
+refs = m["upstream_refs"]
+for key, (kind_key, ref_key) in REF_MAP.items():
+    k = refs[key]["kind"]
+    ref = refs[key]["ref"]
+    assert k in ("branch", "tag")
+    assert re.fullmatch(r"[A-Za-z0-9._/+-]+", ref)
+    out.extend((kind_key + "=" + k, ref_key + "=" + ref))
 a.output.write_text("\n".join(out) + "\n")
 print("PINNED_OTA_REBUILD_ENV=PASS")
