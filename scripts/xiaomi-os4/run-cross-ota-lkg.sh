@@ -132,7 +132,7 @@ Never install on another OTA. Keep your same-version known-good boot.
 EOF
 (cd "$OUT" && find . -maxdepth 1 -type f ! -name "SHA256SUMS-$TAG.txt" -printf '%f\0' \
  | LC_ALL=C sort -z | xargs -0 sha256sum > "SHA256SUMS-$TAG.txt")
-(cd "$OUT" && sha256sum -c "SHA256SUMS-$TAG.txt")
+python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$OUT" --tag "$TAG"
 cat > "$WORK/notes.md" <<EOF
 SOURCE_RUN_ID=$SOURCE_RUN_ID
 PROMOTION_RUN_ID=$GITHUB_RUN_ID
@@ -157,7 +157,7 @@ done
 mkdir -p "$WORK/check-release"
 gh release download "$TAG" --dir "$WORK/check-release"
 cmp -s "$OUT/SHA256SUMS-$TAG.txt" "$WORK/check-release/SHA256SUMS-$TAG.txt"
-(cd "$WORK/check-release" && sha256sum -c "SHA256SUMS-$TAG.txt")
+python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK/check-release" --tag "$TAG"
 # Keep the independently SHA-verified Release as a draft until the PR is
 # actually merged. A failed PR must never leave a public "stable" release.
 # If the final publish fails after merge, a separate verified repair step
