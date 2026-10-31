@@ -19,7 +19,6 @@ jobs:
   source-kind:
     name: "识别原晋升是否真的执行了 R62 分支"
     if: >-
-      needs.source-kind.outputs.legacy == 'true' &&
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
@@ -51,6 +50,7 @@ jobs:
     needs: source-kind
     name: "晋升成功后自动复现当前稳定 LKG"
     if: >-
+      needs.source-kind.outputs.legacy == 'true' &&
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
