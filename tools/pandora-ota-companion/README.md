@@ -1,6 +1,6 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.4.0-dev｜独立分支 `pandora-os4-ota-companion`｜不刷机、不自动晋升 LKG。
+> Android APK 0.6.0-dev｜独立分支 `pandora-os4-ota-companion`｜不刷机、不自动晋升 LKG。
 > 已通过 APK Debug 编译与 6 项模拟采集包格式测试；**未在真实 pandora 上验证 Root/上传**。
 
 ## 操作流程
@@ -11,6 +11,8 @@
 4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
 5. **只要 ZIP 打包完成，手机立即清理分区镜像、OEM TAR 等所有中间采集物和 staging 目录，只留下最终 ZIP。采集或压缩出错则同时删除残缺 ZIP 并尝试清理 staging；上次意外终止遗留的 staging 在下次采集时自动回收（保留 30 分钟宽限以避开正在执行的采集）。**
 6. 在有回执后，可人工确认并删除对应最终 ZIP；删除前会复验 SHA-256。多个历史 ZIP 可切换，上传失败永不自动删除。
+7. 上传并不等于接收成功：发送 `repository_dispatch` 后可在 APP 中查询后端接收结果；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。仅在接收已确认后开放最终 ZIP 手动清理。
+8. 通知请求失败可直接核对远端附件并重新发送，不重复上传整个 ZIP。
 
 上传阶段请保持 App 前台及网络稳定，目前**不支持断点续传**，也不提供后台 Foreground Service。单文件必须小于 2 GiB，实际 OTA 输入处理限额更严格（950 MiB）。
 
