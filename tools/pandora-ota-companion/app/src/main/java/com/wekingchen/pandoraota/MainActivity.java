@@ -7,6 +7,8 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.view.MotionEvent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,12 +25,15 @@ import java.util.concurrent.Executors;
 
 /** Single-screen, four-step OTA companion. No background transfer is claimed. */
 public final class MainActivity extends Activity {
-    private static final int BACKGROUND = Color.rgb(244, 247, 251);
-    private static final int INK = Color.rgb(29, 44, 62);
-    private static final int MUTED = Color.rgb(110, 123, 143);
-    private static final int TEAL = Color.rgb(25, 122, 118);
-    private static final int LIGHT_TEAL = Color.rgb(229, 245, 241);
-    private static final int FIELD = Color.rgb(245, 247, 250);
+    private static final int BACKGROUND = Color.rgb(247, 249, 248);
+    private static final int INK = Color.rgb(28, 46, 43);
+    private static final int MUTED = Color.rgb(111, 129, 123);
+    private static final int TEAL = Color.rgb(34, 107, 101);
+    private static final int LIGHT_TEAL = Color.rgb(231, 244, 240);
+    private static final int FIELD = Color.rgb(241, 245, 243);
+    private static final int BORDER = Color.rgb(226, 235, 231);
+    private static final int NOTICE = Color.rgb(237, 245, 242);
+    private static final int WARNING = Color.rgb(159, 85, 45);
     private static final int WHITE = Color.WHITE;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -39,7 +44,14 @@ public final class MainActivity extends Activity {
     private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton, checkIntakeButton;
     private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
     private TextView percent, receiptState, message, rootStatus;
-    private ProgressBar uploadBar;
+    private ProgressBar uploadBar, taskSpinner;
+    private ScrollView workScroll, recordsScroll, settingsScroll;
+    private LinearLayout archiveListing;
+    private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
+    private final LinearLayout[] navItems = new LinearLayout[3];
+    private final TextView[] navIcons = new TextView[3];
+    private final TextView[] navLabels = new TextView[3];
+    private int activeTab;
     private boolean busy;
 
     @Override
