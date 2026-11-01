@@ -173,12 +173,12 @@ public final class MainActivity extends Activity {
         heroCopy.addView(rootStatus, blockParams(dp(9)));
 
         ImageView deviceArt = new ImageView(this);
-        deviceArt.setImageResource(R.drawable.ic_device_pandora);
+        deviceArt.setImageResource(R.drawable.device_pandora_render);
         deviceArt.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        FrameLayout.LayoutParams deviceArtParams = new FrameLayout.LayoutParams(dp(118), dp(142));
+        FrameLayout.LayoutParams deviceArtParams = new FrameLayout.LayoutParams(dp(108), dp(154));
         deviceArtParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        deviceArtParams.topMargin = dp(18);
-        deviceArtParams.rightMargin = dp(5);
+        deviceArtParams.topMargin = dp(10);
+        deviceArtParams.rightMargin = dp(9);
         hero.addView(deviceArt, deviceArtParams);
 
         bootOption = new CheckBox(this);
@@ -1135,7 +1135,19 @@ public final class MainActivity extends Activity {
         archiveListing.removeAllViews();
         File[] archives = store.archives();
         if (archives.length == 0) {
-            archiveListing.addView(text("暂无本地 ZIP", 12, MUTED, false));
+            LinearLayout empty = new LinearLayout(this);
+            empty.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            empty.setPadding(dp(14), dp(14), dp(14), dp(14));
+            empty.setBackground(round(WHITE, dp(18)));
+            empty.setElevation(dp(1));
+            empty.addView(iconBox(R.drawable.ic_file_zip, dp(42), dp(13)));
+            LinearLayout emptyCopy = vertical();
+            LinearLayout.LayoutParams emptyCopyParams = new LinearLayout.LayoutParams(0, -2, 1);
+            emptyCopyParams.leftMargin = dp(12);
+            empty.addView(emptyCopy, emptyCopyParams);
+            emptyCopy.addView(text("尚无采集记录", 13, INK, true));
+            emptyCopy.addView(text("完成一次采集后会显示在这里", 11, MUTED, false), blockParams(dp(3)));
+            archiveListing.addView(empty);
             return;
         }
         for (int i = 0; i < Math.min(archives.length, 12); i++) {
