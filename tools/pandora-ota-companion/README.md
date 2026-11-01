@@ -59,3 +59,10 @@ gradle --no-daemon :app:assembleDebug
 - ⏳ 真机 Root 采集、手机网络上行、GitHub Draft 上传、固定 Release 安全切换、原 OTA GKI 候选联动：尚未有真实 OTA 实物验证。
 - ⏳ 签名稳定版需要仓库 Secrets；未配置时 CI 只能提供实验 Debug APK。
 - ⚠️ 任何从 Root 手机读出的 boot 都必须当作未验证活动快照，不能声称与 OTA 厂商原始镜像相同。
+
+## 真机 Root 联调诊断（0.6.1-dev）
+
+- 应用 02 区显示 `Build.DEVICE` 与 `Build.PRODUCT`，Root 检测按钮始终可用；**分区采集按钮依然严格要求 pandora**。
+- Root 命令 `su -c id` 最多等待 45 秒，成功、拒绝、超时均在检测按钮下面即时显示；不再只在页面底部输出结果。
+- `adb shell su -c id` 的授权主体是 ADB shell，**不等于**本应用被授予 Root；请在 ReSukiSU/BakaSU 的「超级用户」中独立核对 `com.wekingchen.pandoraota`。
+- 如果出现「等待 Root 授权超时」，先检查管理器对本应用的授权，不要删除数据重装，否则加密存储的 PAT 可能丢失。
