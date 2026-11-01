@@ -22,7 +22,7 @@
 
 本轮已补齐两项采集前身份可见性：工作台直接显示当前 HyperOS 完整 build；设置页「采集设置」直接显示当前活动 slot A/B。历史采集包也显示自身 build/slot，上传前必须与当前手机一致。
 
-本轮审计额外发现并修复了一个安全缺口：旧逻辑只要 `build != pinned` 就可能进入 `NEW_OTA_CANDIDATE`。现在客户端先阻止旧 build/旧 slot ZIP，服务端再拒绝比固定版本更旧或非向前的 HyperOS build；固件渠道后缀变化必须转人工审核。
+本轮审计额外发现并修复了一个安全缺口：旧逻辑只要 `build != pinned` 就可能进入 `NEW_OTA_CANDIDATE`。现在客户端先阻止旧 build/旧 slot ZIP；服务端先做静态 legacy 基线审计，再以 GitHub **当前固定 stock-input Release** 的实际 build 作为最终单调向前门禁。比当前固定输入更旧的历史 OTA、同版本不同规范化字节、或固件渠道变化都不能自动替换。
 
 仍待后续补强、但不阻断现有主链的能力：
 
@@ -52,7 +52,7 @@
 - APP 上传的 `pandora-ota-capture-v1` 包含活动 slot 的分区快照、`oem-modules.tar` 及身份清单。
 - `normalize_mobile_capture.py` 严格校验清单、slot、uname、目录、大小和内核模块数量，转换成当前 Windows `collect-pandora-stock-input.cmd` 的同款 **八文件 `*xm.zip`**，并加上 `boot_oem_original_verified=NO`、`init_boot_oem_original_verified=NO` 和 `init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE` 等明确来源标签；不会因内核版本标记匹配便认定镜像出厂原版。
 - `mobile-intake.sh` 仅接受对应 Draft Release 的特定 Asset ID、实际文件长度与 SHA-256 一致的输入；转换后还执行原 `inspect-ota-stock-input.py` 身份审计。旧固定 Release 不会因为无效上传被覆盖。
-- App 上传前会重新读取本地采集包 manifest，并强制其 OS build / 活动 slot 与当前手机一致；服务端进一步拒绝比当前固定版本更旧或非向前的 build，固件渠道发生变化则转人工审核，避免历史 ZIP 被误认为新 OTA。
+- App 上传前会重新读取本地采集包 manifest，并强制其 OS build / 活动 slot 与当前手机一致；服务端最终以 GitHub 当前固定 stock-input Release 内的 build 为版本基准，仅允许同渠道严格向前替换。静态 `pandora-os4-stock-input.env` 只承担最初 legacy OS4 基线身份，不再被误当成永久“当前版本”。
 - 验证通过的新 OTA 先上传到固定 Release 的非 `*xm.zip` 暂存名并从 GitHub 下载回检，再更名、替换旧单一 `xm.zip`，最后触发原 `xiaomi-sm8850-os4-ota-auto-candidate.yml`。
 - **`repository_dispatch` 从仓库默认分支执行。** 目前接收工作流及转换脚本已在默认 `dev` 上部署；真机采集包已成功触发并执行审计，但因同版本自定义 Boot 与固定基线不同而安全拒收。
 - 原 GKI/KMI/OEM ABI 门禁、临时 `fastboot boot` 真机确认、LKG 人工晋升不变。不直接产生可刷内核或跳过风控。

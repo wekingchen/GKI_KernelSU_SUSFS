@@ -68,12 +68,7 @@ python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
   --stock-config .github/config/pandora-os4-stock-input.env \
   --output "$DIR/stock-audit.json"
 STATE="$(jq -r .status "$DIR/stock-audit.json")"
-if [[ "$STATE" == "SAME_PINNED_BUILD" ]]; then
-  echo '当前固定输入已匹配，跳过重复 OTA 转换。' >> "$GITHUB_STEP_SUMMARY"
-  publish_receipt ALREADY_CURRENT
-  exit 0
-fi
-[[ "$STATE" == "NEW_OTA_CANDIDATE" ]] || {
+[[ "$STATE" == "SAME_PINNED_BUILD" || "$STATE" == "NEW_OTA_CANDIDATE" ]] || {
   echo "::error::OTA 来源身份审计阻断，固定输入完全不变"; exit 4;
 }
 
@@ -125,39 +120,31 @@ OLD_NAME="$(jq -r --argjson id "$OLD_ID" '.assets[] | select(.id == $id) | .name
 FIXED_ID="$(jq -r .id <<< "$FIXED")"
 gh release download "$FIXED_TAG" --repo "$R" --pattern "$OLD_NAME" --dir "$DIR/check"
 test -s "$DIR/check/$OLD_NAME"
-# Never silently replace the exact same OTA version with different bytes.
-# Existing legacy pinned ZIP lacks README, and is intentionally exempt.
+# The static config is only the original OS4 legacy baseline. The authoritative
+# monotonic version gate is the CURRENT fixed Release asset, so later OTAs can
+# never be rolled back by uploading an older historical capture.
+FALLBACK_BUILD="$(grep '^OS4_STOCK_INPUT_BUILD=' .github/config/pandora-os4-stock-input.env | cut -d= -f2-)"
+[[ "$FALLBACK_BUILD" =~ ^OS[0-9] ]] || { echo "::error::缺少静态 legacy build"; exit 8; }
 set +e
-python3 - "$DIR/check/$OLD_NAME" "$NEW" "$BUILD" <<'PY'
-import hashlib, sys, zipfile
-previous, incoming, build = sys.argv[1:]
-with zipfile.ZipFile(previous) as z:
-    matches = [x for x in z.namelist() if x.rsplit("/", 1)[-1] == "README.txt"]
-    old_build = ""
-    if len(matches) == 1:
-        for row in z.read(matches[0]).decode("utf-8", "replace").splitlines():
-            if row.startswith("build="):
-                old_build = row.split("=", 1)[1].strip()
-if old_build == build:
-    def digest(path):
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for block in iter(lambda: f.read(262144), b""):
-                h.update(block)
-        return h.hexdigest()
-    if digest(previous) != digest(incoming):
-        raise SystemExit("same OTA build, changed ZIP bytes: manual review required")
-    print("identical current OTA ZIP; no replacement necessary")
-    raise SystemExit(80)
-PY
+python3 scripts/xiaomi-os4/guard-current-stock-input.py \
+  --current-zip "$DIR/check/$OLD_NAME" \
+  --incoming-zip "$NEW" \
+  --incoming-build "$BUILD" \
+  --fallback-current-build "$FALLBACK_BUILD" \
+  --incoming-state "$STATE" \
+  > "$DIR/current-version-guard.env"
 rc=$?
 set -e
+cat "$DIR/current-version-guard.env" >> "$GITHUB_STEP_SUMMARY" || true
 if [[ "$rc" -eq 80 ]]; then
-  echo '与现有新 OTA 完全相同，禁止无意义替换资产 ID。' >> "$GITHUB_STEP_SUMMARY"
+  echo '与 GitHub 当前固定 OTA 输入一致，无须替换资产。' >> "$GITHUB_STEP_SUMMARY"
   publish_receipt ALREADY_CURRENT
   exit 0
 fi
-[[ "$rc" -eq 0 ]] || { echo "::error::同版本完整 ZIP 漂移或损坏"; exit 8; }
+[[ "$rc" -eq 0 ]] || {
+  echo "::error::当前固定 OTA 版本门禁拒绝替换；旧 stock-input 保持不变"
+  exit 8
+}
 
 # Stage first under a name that DOES NOT match the original *xm.zip filter.
 PENDING="pandora-mobile-pending-$GITHUB_RUN_ID.upload"
