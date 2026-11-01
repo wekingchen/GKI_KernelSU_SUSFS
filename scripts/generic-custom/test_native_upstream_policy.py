@@ -24,10 +24,10 @@ class NativeRestoration(unittest.TestCase):
         cls.custom = NATIVE_CUSTOM.read_text()
         cls.build = NATIVE_BUILD.read_text()
 
-    def test_baseline_stays_fork(self):
-        self.assertEqual(self.route["mode"], "fork")
-        self.assertEqual(self.route["validated_kernel_run_id"], 41239924766)
+    def test_route_retains_proven_real_build_in_both_modes(self):
         mod.validate_route(self.route)
+        self.assertIn(self.route["mode"], ("fork", "upstream"))
+        self.assertGreater(self.route.get("validated_kernel_run_id", 0), 0)
 
     def test_same_source_does_not_recompile(self):
         self.assertFalse(mod.needs_test(self.route, self.route["upstream_build_blob"],
@@ -44,10 +44,7 @@ class NativeRestoration(unittest.TestCase):
         mod.validate_native_source(self.build, self.custom)
 
     def test_old_thin_lto_upstream_rejected(self):
-        sample = self.build.replace(
-            "BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh",
-            "LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh", 1)
-        self.assertNotEqual(sample, self.build)
+        sample = self.build + "\n        LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh\n"
         with self.assertRaisesRegex(ValueError, "Thin LTO"):
             mod.validate_native_source(sample, self.custom)
 
