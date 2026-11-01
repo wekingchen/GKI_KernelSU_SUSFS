@@ -1,0 +1,65 @@
+name: "一次性 / OTA 手机上传负向安全演练（自动清理）"
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/pandora-mobile-ota-smoke-once.yml"
+permissions:
+  contents: write
+  actions: read
+jobs:
+  smoke:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: "创建不完整手机 ZIP → 发送 dispatch → 确认被拦截 → 删除临时 Release 和工作流"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          R="$GITHUB_REPOSITORY"
+          TAG="pandora-ota-capture-smoke-$GITHUB_RUN_ID"
+          SELF=".github/workflows/pandora-mobile-ota-smoke-once.yml"
+          SRC="$RUNNER_TEMP/pandora-os4-capture-20261101-034000-000.zip"
+          BEGIN="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BEFORE="$(gh api "repos/$R/releases/tags/pandora-os4-stock-input" | jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id')"
+          cleanup() {
+            gh release delete "$TAG" --repo "$R" --yes --cleanup-tag >/dev/null 2>&1 || true
+            SHA="$(gh api "repos/$R/contents/$SELF?ref=dev" --jq .sha 2>/dev/null || true)"
+            if [[ "$SHA" =~ ^[a-f0-9]{40}$ ]]; then
+              gh api -X DELETE "repos/$R/contents/$SELF" -f message="chore: self-prune completed OTA mobile intake smoke" -f sha="$SHA" -f branch=dev >/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          python3 - "$SRC" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1], "w") as z:
+              z.writestr("manifest.txt", "schema=INTENTIONALLY_INVALID\ndevice=pandora\n")
+          PY
+          gh release create "$TAG" --repo "$R" --target dev --draft --title "TEMP: mobile OTA smoke (invalid input)" --notes "One-off synthetic invalid input. Automatically deleted."
+          gh release upload "$TAG" "$SRC" --repo "$R"
+          RELEASE="$(gh api "repos/$R/releases/tags/$TAG")"
+          AID="$(jq -r .assets[0].id <<< "$RELEASE")"
+          RID="$(jq -r .id <<< "$RELEASE")"
+          SHA256="$(sha256sum "$SRC" | cut -d" " -f1)"
+          BYTES="$(stat -c %s "$SRC")"
+          python3 - "$RUNNER_TEMP/mobile-dispatch.json" "$RID" "$AID" "$SHA256" "$BYTES" <<'PY'
+          import json,sys
+          f,release_id,asset_id,sha,bytes_=sys.argv[1:]
+          data={"event_type":"pandora_ota_upload_v1","client_payload":{
+              "schema":"pandora-ota-capture-v1",
+              "release_id":int(release_id),"asset_id":int(asset_id),
+              "sha256":sha,"bytes":int(bytes_)}}
+          with open(f,"w") as o: json.dump(data,o)
+          PY
+          gh api -X POST "repos/$R/dispatches" --input "$RUNNER_TEMP/mobile-dispatch.json"
+          echo "合成异常输入已提交 repository_dispatch；预期手机接收工作流失败并拦截。" >> "$GITHUB_STEP_SUMMARY"
+          sleep 40
+          AFTER="$(gh api "repos/$R/releases/tags/pandora-os4-stock-input" | jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id')"
+          [[ "$BEFORE" == "$AFTER" ]] || { echo "::error::固定 OTA 输入在负向测试中变化"; exit 3; }
+          COUNT="$(gh api "repos/$R/actions/runs?event=repository_dispatch&per_page=20" | jq -r --arg since "$BEGIN" '[.workflow_runs[] | select(.name == "小米17 Pro OS4 / 手机 OTA 安全接收入库" and .created_at >= $since)] | length')"
+          [[ "$COUNT" -ge 1 ]] || { echo "::error::未看到手机接收工作流被 dispatch 触发"; exit 4; }
+          echo "PASS：事件已到达接收工作流，固定 xm.zip Asset ID 保持 $AFTER 不变" >> "$GITHUB_STEP_SUMMARY"
