@@ -844,15 +844,26 @@ public final class MainActivity extends Activity {
 
     private void confirmDelete() {
         File file = selectedFile();
+        String intake = store.intakeState();
+        boolean intakeTerminal = "ACCEPTED".equals(intake)
+                || "ALREADY_CURRENT".equals(intake) || "REJECTED".equals(intake);
         if (file == null || !store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
                 || !store.hasToken() || store.lastAssetId() <= 0) {
             notifyMessage("未取得 GitHub 附件上传回执，请先确认上传成功");
             return;
         }
+        if (!store.dispatched()) {
+            notifyMessage("工作流通知尚未成功发送，请先重新通知 GitHub");
+            return;
+        }
+        if (!intakeTerminal) {
+            notifyMessage("后端接收结果尚未完成，请先查询到 ACCEPTED / ALREADY_CURRENT / REJECTED");
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("确认删除本地文件？")
-                .setMessage(file.getName() + "\n\n即使 OTA 审计拒收，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
+                .setMessage(file.getName() + "\n\n后端接收已得到终态；即使 OTA 审计为 REJECTED，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
                         + "本地删除后无法在应用内恢复。")
                 .setNegativeButton("保留文件", null)
                 .setPositiveButton("删除本地 ZIP", (dialog, which) ->
@@ -971,7 +982,10 @@ public final class MainActivity extends Activity {
         uploadSpeed.setVisibility(busy ? View.VISIBLE : View.GONE);
         intakeSummary.setVisibility(uploaded ? View.VISIBLE : View.GONE);
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
-        deleteButton.setEnabled(!busy && uploaded && store.hasToken() && store.lastAssetId() > 0);
+        boolean intakeTerminal = "ACCEPTED".equals(state)
+                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state);
+        deleteButton.setEnabled(!busy && uploaded && store.hasToken()
+                && store.lastAssetId() > 0 && store.dispatched() && intakeTerminal);
         checkIntakeButton.setVisibility(uploaded && store.dispatched()
                 ? View.VISIBLE : View.GONE);
         checkIntakeButton.setEnabled(!busy && credentials);
