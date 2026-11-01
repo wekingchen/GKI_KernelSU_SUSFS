@@ -559,6 +559,11 @@ public final class MainActivity extends Activity {
                                 !expectedSha.equalsIgnoreCase(GitHubUploader.sha256(target))) {
                             throw new SecurityException("本地文件 SHA-256 与上传回执不符，拒绝删除");
                         }
+                        GitHubUploader.verifyRemoteArchive(store.repo(), store.loadToken(),
+                                store.lastReleaseId(), store.lastAssetId(), target, expectedSha);
+                        if (!expectedSha.equalsIgnoreCase(GitHubUploader.sha256(target))) {
+                            throw new SecurityException("核验期间本地文件发生变化，禁止删除");
+                        }
                         if (!target.delete()) throw new IllegalStateException("无法删除文件");
                         store.forgetArchive();
                         return "已手动删除本地 ZIP；GitHub 附件已保留";
