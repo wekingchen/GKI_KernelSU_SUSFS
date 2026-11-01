@@ -85,3 +85,11 @@ gradle --no-daemon :app:assembleDebug
 - 「记录」页只有存在 GitHub 上传回执且有已保存 PAT 时开放清理。先明确提示删除本地副本无法恢复；后台再次读取对应 Draft Release 并核验附件 ID、名称、字节大小、上传状态、SHA-256，再次核验本地文件 SHA-256 后才执行删除。
 - 远端不存在、被修改、网络错误或 SHA 不符时，**禁止删除**；不会删除远端 Draft Release，也不会修改原有 OTA 固定输入或 LKG。
 - 校验采用独立 HTTP GET，不会改变已验证的采集/上传/后端门禁。
+
+## GitHub Actions 直接下载 APK（无需解压 ZIP）
+
+- 正式签名版本在 `OTA 采集助手 APK` 工作流的 **Artifacts** 中以 `pandora-ota-companion-STABLE-SIGNED.apk` 单文件原样发布，手机上点击该项即可下载 APK；采用 `actions/upload-artifact@v7` 与 `archive: false`。
+- 仅在 **Release APK 编译成功、固定 SHA-256 签名指纹及 APK v2 签名验证通过** 后上传。没有配置四项长期签名 Secrets 时不产生正式签名 APK。
+- `UNVERIFIED` Debug 仍为传统 ZIP，仅用于开发验证，不建议真机长期安装。
+- 旧的 GitHub Actions 历史 Artifacts 仍然是 ZIP；请使用更新工作流后的新一次运行。
+- 下载的正式 APK 仍是既有包名与长期签名，可以直接覆盖安装，保留已加密 PAT 与历史采集回执。Artifacts 按工作流保留策略自动过期，若需要永久分发应再单独设计 Release 渠道。

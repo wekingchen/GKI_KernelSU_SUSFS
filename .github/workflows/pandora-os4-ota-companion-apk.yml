@@ -104,11 +104,37 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/pandora-ota-stable.p12"
-      - name: 上传可长期覆盖升级的稳定签名 APK
+      - name: 准备手机可直接下载的正式签名 APK
         if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'
-        uses: actions/upload-artifact@v4
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=tools/pandora-ota-companion/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          mkdir -p "$RUNNER_TEMP/pandora-direct-apk"
+          cp "$APK" "$RUNNER_TEMP/pandora-direct-apk/pandora-ota-companion-STABLE-SIGNED.apk"
+          sha256sum "$RUNNER_TEMP/pandora-direct-apk/pandora-ota-companion-STABLE-SIGNED.apk"
+      - name: 发布可直接下载的 APK（无需解压 ZIP）
+        if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'
+        id: direct_apk
+        uses: actions/upload-artifact@v7
         with:
-          name: pandora-os4-ota-companion-STABLE-SIGNED
-          path: tools/pandora-ota-companion/app/build/outputs/apk/release/*.apk
+          path: ${{ runner.temp }}/pandora-direct-apk/pandora-ota-companion-STABLE-SIGNED.apk
+          archive: false
           if-no-files-found: error
           retention-days: 30
+      - name: 输出手机直接下载安装链接
+        if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'
+        env:
+          APK_ARTIFACT_URL: ${{ steps.direct_apk.outputs.artifact-url }}
+        shell: bash
+        run: |
+          {
+            echo "### OTA 采集助手 · 直接下载 APK"
+            echo ""
+            echo "✅ 已通过固定证书 SHA-256 和 APK v2 签名校验。"
+            echo ""
+            echo "[点击直接下载 pandora-ota-companion-STABLE-SIGNED.apk]($APK_ARTIFACT_URL)"
+            echo ""
+            echo "无需解压 ZIP；覆盖安装即可保留已有加密 PAT。"
+          } >> "$GITHUB_STEP_SUMMARY"
