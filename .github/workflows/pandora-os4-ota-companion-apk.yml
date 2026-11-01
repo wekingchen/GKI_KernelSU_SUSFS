@@ -91,6 +91,7 @@ jobs:
           test -s "$APK"
           "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/pandora-apk-signature.txt"
           grep -Fq "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/pandora-apk-signature.txt"
+          grep -i "Signer #1 certificate SHA-256 digest:" "$RUNNER_TEMP/pandora-apk-signature.txt"
           ACTUAL="$(sed -nE 's/^[[:space:]]*Signer #1 certificate SHA-256 digest:[[:space:]]*//p' "$RUNNER_TEMP/pandora-apk-signature.txt" | tr "A-F" "a-f")"
           EXPECTED="6a465b38eaadaca90f9186634f416a16c03eeff6056813e5ae906c0aecab732f"
           if [[ "$ACTUAL" != "$EXPECTED" ]]; then
