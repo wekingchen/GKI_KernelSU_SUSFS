@@ -1,0 +1,48 @@
+name: "一次性维护 / 全库清理最终收尾审计"
+on:
+  push:
+    paths:
+      - ".github/workflows/one-time-post-hygiene-finalize-20261101.yml"
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+jobs:
+  finalize:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: "严格核验并清理开发分支和上次清理任务自身的 5 条临时日志"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/46" --jq .merged)" == true ]] || exit 1
+          BRANCH="xiaomi-os4-k50pro-repo-log-hygiene-20261101"
+          EXPECTED_SHA="b17fd91f02e70b8f64ece6a81a45fb45f57e9a96"
+          CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)"
+          [[ "$CURRENT" == "$EXPECTED_SHA" ]] || {
+            echo "::error::开发分支内容已变化，不清理"; exit 1;
+          }
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq "[.[]|select(.head.ref==\"$BRANCH\")]|length")" == 0 ]] || exit 1
+          if gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/one-time-hygiene-action-runs-20261101.yml" >/dev/null 2>&1; then
+            echo "::error::上轮清理工作流尚未删除"; exit 1;
+          fi
+          # All five are log-only guard/housekeeping records. Refuse deletion
+          # if any still has nonexpired artifacts.
+          for id in 41264527607 41264633734 41264700565 41264527669 41264633796; do
+            INFO="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
+            [[ "$(jq -r .status <<< "$INFO")" == completed ]] || exit 1
+            [[ "$(jq -r .head_branch <<< "$INFO")" == "$BRANCH" ||
+               "$(jq -r .head_branch <<< "$INFO")" == dev ]] || exit 1
+            NUMBER="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?per_page=100" --jq '[.artifacts[]|select(.expired==false)]|length')"
+            [[ "$NUMBER" == 0 ]] || { echo "::error::Run $id 仍有有效产物"; exit 1; }
+          done
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null
+          for id in 41264527607 41264633734 41264700565 41264527669 41264633796; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id" >/dev/null
+          done
+          echo "前轮删除 120 条，本轮再删除 5 条临时日志；实验分支已清理。" >> "$GITHUB_STEP_SUMMARY"
