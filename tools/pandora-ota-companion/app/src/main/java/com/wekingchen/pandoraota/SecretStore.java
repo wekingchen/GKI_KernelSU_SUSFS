@@ -94,6 +94,7 @@ final class SecretStore {
         JSONObject all = receipts();
         JSONObject info = new JSONObject();
         info.put("bytes", bytes);
+        info.put("repo", repo());
         info.put("sha256", result.sha256);
         info.put("release", result.releaseUrl);
         info.put("release_id", result.releaseId);
@@ -107,6 +108,7 @@ final class SecretStore {
         if (file == null) return false;
         JSONObject entry = receipts().optJSONObject(file.path);
         return entry != null && file.size > 0
+                && repo().equals(entry.optString("repo", ""))
                 && entry.optLong("bytes", -1) == file.size
                 && !entry.optString("sha256", "").isEmpty();
     }
