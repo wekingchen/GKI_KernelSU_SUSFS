@@ -46,8 +46,9 @@ def validate_native_source(build: str, custom: str) -> None:
         ("droidspaces", "droidspaces"),
         ("cve_2026_43499_patch", "cve_2026_43499_patch"),
     ):
-        definition = rf"(?m)^      {option}:\\s*$"
-        mapping = rf"(?m)^      {forwarded}:\\s*\\$\\{{\\{{\\s*inputs\\.{option}\\b"
+        definition = r"(?m)^      " + re.escape(option) + r":\s*$"
+        mapping = (r"(?m)^      " + re.escape(forwarded) +
+                   r":\s*\$\{\{\s*inputs\." + re.escape(option) + r"\b")
         if not re.search(definition, custom) or not re.search(mapping, custom):
             raise ValueError("upstream native menu removed or stopped forwarding K50 Pro option: " + option)
     for expected in ("nick-fields/retry", "enable_susfs", "BBG", "AnyKernel3"):
