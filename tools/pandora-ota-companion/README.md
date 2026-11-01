@@ -1,6 +1,6 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.7.1-dev（原生 UI 2.0）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.7.2-dev（原生 UI 2.0）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
 
 ## 操作流程
@@ -52,7 +52,7 @@ gradle --no-daemon :app:assembleDebug
 
 设置后分支工作流自动额外输出 `pandora-os4-ota-companion-STABLE-SIGNED` 的正式签名 Release APK。**私钥/密码不要上传仓库、日志、Release、Artifact。** 预先保管签名私钥和密码的离线备份；签名不同的 Debug APK 不能直接覆盖稳定版。
 
-## 界面 UI 2.0（0.7.1-dev）
+## 界面 UI 2.0（0.7.2-dev）
 
 - 原生 Android Activity 顶部信息区、固定状态条与底部三目的地导航：**工作台 / 记录 / 设置**。不采用 WebView 或 HTML。
 - 工作台只保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
@@ -79,7 +79,7 @@ gradle --no-daemon :app:assembleDebug
 - `adb shell su -c id` 的授权主体是 ADB shell，**不等于**本应用被授予 Root；请在 ReSukiSU/BakaSU 的「超级用户」中独立核对 `com.wekingchen.pandoraota`。
 - 如果出现「等待 Root 授权超时」，先检查管理器对本应用的授权，不要删除数据重装，否则加密存储的 PAT 可能丢失。
 
-## 0.7.1-dev 本地空间清理安全修复
+## 0.7.2-dev 本地空间清理安全修复
 
 - OTA 安全拒收（如同版本自定义 Boot 漂移）**不等于 GitHub 上传失败**，也不应阻止用户手动清理自己的本地 ZIP。
 - 「记录」页只有存在 GitHub 上传回执且有已保存 PAT 时开放清理。先明确提示删除本地副本无法恢复；后台再次读取对应 Draft Release 并核验附件 ID、名称、字节大小、上传状态、SHA-256，再次核验本地文件 SHA-256 后才执行删除。
@@ -93,3 +93,10 @@ gradle --no-daemon :app:assembleDebug
 - `UNVERIFIED` Debug 仍为传统 ZIP，仅用于开发验证，不建议真机长期安装。
 - 旧的 GitHub Actions 历史 Artifacts 仍然是 ZIP；请使用更新工作流后的新一次运行。
 - 下载的正式 APK 仍是既有包名与长期签名，可以直接覆盖安装，保留已加密 PAT 与历史采集回执。Artifacts 按工作流保留策略自动过期，若需要永久分发应再单独设计 Release 渠道。
+
+## v0.7.2-dev：GitHub 草稿采集附件 404 修复
+
+- 对于安全原因始终不公开发布的手机采集 Draft Release，GitHub API 返回的 `html_url` 形如 `/releases/tag/untagged-*`，直接打开会 404；它**不表示附件已丢失**。
+- 记录页「在 GitHub 查看草稿附件」点击时用本机保存的加密 PAT 向 GitHub **只读 GET** 最新 Release，核验 Release ID、草稿状态、专用名称、附件 ID、文件名、大小和 SHA-256，然后将其 GitHub 草稿 URL 转为 `/releases/edit/<draft-tag>` 打开。旧上传回执可直接使用，无需重新上传。
+- 浏览器需登录具有目标仓库写权限的 GitHub 账号。草稿只能查看和管理，**严禁直接 Publish release**，否则可能公开未经验证的 Boot 和 OEM 文件。
+- 不使用 PAT 作为浏览器 URL 参数、不更改 OTA 接收协议、LKG、ZIP、Root 权限和任何 GitHub Release 数据。错误或远端已删除时不打开伪造/失效页面。
