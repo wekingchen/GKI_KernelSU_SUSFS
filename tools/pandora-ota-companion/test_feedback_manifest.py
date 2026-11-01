@@ -32,3 +32,15 @@ class FeedbackManifest(unittest.TestCase):
     def test_invalid_run_head_or_repository_fails(self):
         for run,head,repo in [('0','b'*40,'wekingchen/GKI_KernelSU_SUSFS'),('123','bad','wekingchen/GKI_KernelSU_SUSFS'),('123','b'*40,'other/repo')]:
             with self.assertRaises(ValueError):create(self.stock,self.abi,self.boot,run,head,repo)
+
+
+class FeedbackRequestDeduplication(unittest.TestCase):
+    def test_same_request_only_earliest_run_can_mutate(self):
+        from check_feedback_request import previous_run, WORKFLOW
+        run=dict(id=101, head_branch='dev', event='workflow_dispatch', path=WORKFLOW,
+                 display_title='Pandora OTA feedback / '+'a'*32)
+        self.assertEqual(previous_run([dict(workflow_runs=[run])], 'a'*32, 102),101)
+        self.assertIsNone(previous_run([dict(workflow_runs=[run])], 'a'*32, 101))
+        self.assertIsNone(previous_run([dict(workflow_runs=[run])], 'b'*32, 102))
+        run['head_branch']='other'
+        self.assertIsNone(previous_run([dict(workflow_runs=[run])], 'a'*32, 102))

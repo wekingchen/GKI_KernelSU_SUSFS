@@ -95,16 +95,19 @@ final class FeedbackClient {
     }
     JSONObject findRun(String requestId) throws Exception {
         if(!requestId.matches("[a-f0-9]{32}")) throw new IllegalArgumentException("反馈编号无效");
+        JSONObject earliest=null;
         for(int page=1;page<=3;page++) {
             JSONArray runs=json("GET",api+"/actions/workflows/"+WORKFLOW+"/runs?event=workflow_dispatch&per_page=100&page="+page,null,200).getJSONArray("workflow_runs");
             for(int i=0;i<runs.length();i++) {
                 JSONObject run=runs.getJSONObject(i);
                 if((TITLE+requestId).equals(run.optString("display_title"))&&"dev".equals(run.optString("head_branch"))
-                        &&"workflow_dispatch".equals(run.optString("event"))&&(".github/workflows/"+WORKFLOW).equals(run.optString("path"))) return run;
+                        &&"workflow_dispatch".equals(run.optString("event"))&&(".github/workflows/"+WORKFLOW).equals(run.optString("path"))) {
+                    if(earliest==null||run.getLong("id")<earliest.getLong("id"))earliest=run;
+                }
             }
             if(runs.length()<100) break;
         }
-        return null;
+        return earliest;
     }
     JSONObject readRun(long runId,String requestId) throws Exception {
         JSONObject run=json("GET",api+"/actions/runs/"+runId,null,200);

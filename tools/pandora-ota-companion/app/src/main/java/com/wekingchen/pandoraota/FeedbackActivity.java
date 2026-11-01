@@ -23,7 +23,7 @@ public final class FeedbackActivity extends Activity {
     private SecretStore secrets; private FeedbackStore store;
     private EditText runField,shaField,noteField;
     private TextView sourceInfo,evidenceInfo,statusInfo;
-    private Button chooseButton,loadButton,readButton,submitButton,refreshButton,newButton,modulesButton;
+    private Button chooseButton,loadButton,readButton,submitButton,refreshButton,newButton,modulesButton,retryButton;
     private RadioButton passRadio,failRadio;
     private CheckBox recovered,imageConfirm,desktopConfirm,modulesConfirm;
     private FeedbackClient.Candidate candidate;
@@ -83,6 +83,12 @@ public final class FeedbackActivity extends Activity {
         LinearLayout receipt=card(body,"提交状态","这里直接跟踪原工作流，无需打开网页填表");
         statusInfo=text("尚未提交",12,MUTED,false);statusInfo.setTextIsSelectable(true);receipt.addView(statusInfo,space(12));
         refreshButton=button("刷新提交状态",false);receipt.addView(refreshButton,space(10));refreshButton.setOnClickListener(v->pollSubmission(true));
+        retryButton=button("重新发送同一反馈",false);receipt.addView(retryButton,space(8));
+        retryButton.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("重新发送同一反馈？")
+                .setMessage("仅在长时间未建立运行记录时使用。保持原反馈编号和全部内容，服务端会阻止重复处理。")
+                .setNegativeButton("继续等待",null).setPositiveButton("重新发送",(d,w)->{
+                    try{dispatch(submission.getJSONObject("inputs"),submission.getString("request_id"),true);}catch(Exception e){statusInfo.setText(message(e));}
+                }).show());
         newButton=button("填写下一次反馈",false);receipt.addView(newButton,space(8));newButton.setOnClickListener(v->{
             if(pending())return;submission=new JSONObject();store.submission(null);imageConfirm.setChecked(false);desktopConfirm.setChecked(false);modulesConfirm.setChecked(false);choices.clearCheck();renderControls();statusInfo.setText("尚未提交");
         });
@@ -153,12 +159,14 @@ public final class FeedbackActivity extends Activity {
                     .setNegativeButton("返回修改",null).setPositiveButton("确认提交",(d,w)->dispatch(inputs,id)).show();
         }catch(Exception e){statusInfo.setText(message(e));}
     }
-    private void dispatch(JSONObject inputs,String id){
-        if(busy||pending())return;
+    private void dispatch(JSONObject inputs,String id){dispatch(inputs,id,false);}
+    private void dispatch(JSONObject inputs,String id,boolean retry){
+        if(busy||(pending()&&!retry))return;
+        if(retry&&(!id.equals(submission.optString("request_id"))||submission.optLong("run_id")>0))return;
         try{
             saveDraft();
             submission=new JSONObject().put("request_id",id).put("repo",secrets.repo()).put("result",inputs.getString("result"))
-                    .put("source_run_id",candidate.run).put("created_at",System.currentTimeMillis()).put("state","正在提交")
+                    .put("source_run_id",inputs.getLong("source_run_id")).put("created_at",System.currentTimeMillis()).put("state","正在提交")
                     .put("terminal",false).put("run_id",0).put("inputs",inputs);
             store.submission(submission); // persist BEFORE network; an uncertain response never causes an automatic re-dispatch
             busy=true;renderControls();statusInfo.setText("正在向原工作流提交…");
@@ -226,6 +234,8 @@ public final class FeedbackActivity extends Activity {
         passRadio.setEnabled(editable&&!recovered.isChecked());
         desktopConfirm.setEnabled(editable&&!recovered.isChecked()&&evidence!=null&&evidence.bootReady());
         modulesConfirm.setEnabled(editable&&!recovered.isChecked());
+        retryButton.setVisibility(pending()&&submission.optLong("run_id")==0&&System.currentTimeMillis()-submission.optLong("created_at")>=120000?View.VISIBLE:View.GONE);
+        retryButton.setEnabled(!busy&&!polling);
         refreshButton.setEnabled(!busy&&pending()&&!polling);newButton.setVisibility(submission!=null&&!submission.optString("request_id").isEmpty()&&!pending()?View.VISIBLE:View.GONE);
         submitButton.setText(pending()?"已提交 · 正在跟踪结果":"核对并提交测试结果");
     }

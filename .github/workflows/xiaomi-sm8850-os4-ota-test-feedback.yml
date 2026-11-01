@@ -135,6 +135,14 @@ jobs:
           echo "test=$TEST" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
 
+      - name: "手机反馈编号去重：禁止网络重试重复建 Issue 或固化基线"
+        if: inputs.client_request_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml/runs?event=workflow_dispatch&per_page=100" \
+            | python3 tools/pandora-ota-companion/check_feedback_request.py
+
       - name: "测试失败：保存 GitHub Issue，禁止任何基线晋级"
         if: inputs.result == 'fail'
         shell: bash
