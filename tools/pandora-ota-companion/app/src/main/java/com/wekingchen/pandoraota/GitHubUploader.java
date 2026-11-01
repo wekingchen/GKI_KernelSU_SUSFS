@@ -11,6 +11,9 @@ import java.util.Locale;
 final class GitHubUploader {
     static final long MAX_ASSET = 950L * 1024L * 1024L; // same limit as server OTA stock input
     private GitHubUploader() {}
+    /** Injectable only for offline Android integration tests; production always validates GitHub HTTPS hosts. */
+    interface ConnectionFactory { HttpURLConnection open(URL url) throws Exception; }
+    private static final ConnectionFactory PRODUCTION = url -> (HttpURLConnection) url.openConnection();
 
     interface Listener {
         void onStage(String stage);
@@ -34,6 +37,11 @@ final class GitHubUploader {
     }
 
     static Result upload(String repo, String token, File file, Listener listener) throws Exception {
+        return uploadWithTransport(repo, token, file, listener, PRODUCTION);
+    }
+
+    static Result uploadWithTransport(String repo, String token, File file,
+                                     Listener listener, ConnectionFactory transport) throws Exception {
         if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
             throw new IllegalArgumentException("仓库格式必须为 owner/repo");
         }
@@ -53,7 +61,7 @@ final class GitHubUploader {
         request.put("draft", true);
         request.put("prerelease", true);
         request.put("body", "Unverified read-only mobile snapshot. Do not publish or flash.");
-        JSONObject release = postJson(api + "/releases", token, request, 201);
+        JSONObject release = postJson(api + "/releases", token, request, 201, transport);
         String template = release.getString("upload_url");
         String uploadBase = template.split("\\{", 2)[0];
         if (!uploadBase.startsWith("https://uploads.github.com/")) {
@@ -63,7 +71,7 @@ final class GitHubUploader {
                 URLEncoder.encode(file.getName(), StandardCharsets.UTF_8.name());
         listener.onStage("正在发送采集包");
         listener.onProgress(0, file.length());
-        JSONObject asset = postBinary(uploadUrl, token, file, listener);
+        JSONObject asset = postBinary(uploadUrl, token, file, listener, transport);
         long acceptedSize = asset.optLong("size", -1);
         if (acceptedSize != file.length()) {
             throw new IOException("GitHub 接收文件大小不匹配；本地包已保留，请核查 Release");
@@ -81,7 +89,7 @@ final class GitHubUploader {
         event.put("client_payload", payload);
         boolean dispatched;
         try {
-            postJson(api + "/dispatches", token, event, 204);
+            postJson(api + "/dispatches", token, event, 204, transport);
             dispatched = true;
         } catch (Exception ignored) {
             // Sending an event is separate from the already-confirmed upload.
@@ -146,8 +154,8 @@ final class GitHubUploader {
     }
 
     private static JSONObject postBinary(String url, String token, File file,
-                                         Listener listener) throws Exception {
-        HttpURLConnection conn = connect(url, token);
+                                         Listener listener, ConnectionFactory transport) throws Exception {
+        HttpURLConnection conn = connect(url, token, transport);
         try {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/zip");
@@ -178,7 +186,12 @@ final class GitHubUploader {
 
     private static JSONObject postJson(String url, String token, JSONObject request,
                                        int expectedStatus) throws Exception {
-        HttpURLConnection conn = connect(url, token);
+        return postJson(url, token, request, expectedStatus, PRODUCTION);
+    }
+
+    private static JSONObject postJson(String url, String token, JSONObject request,
+                                       int expectedStatus, ConnectionFactory transport) throws Exception {
+        HttpURLConnection conn = connect(url, token, transport);
         try {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -200,13 +213,18 @@ final class GitHubUploader {
     }
 
     private static HttpURLConnection connect(String url, String token) throws Exception {
+        return connect(url, token, PRODUCTION);
+    }
+
+    private static HttpURLConnection connect(String url, String token,
+                                             ConnectionFactory transport) throws Exception {
         URL target = new URL(url);
         String host = target.getHost().toLowerCase(Locale.ROOT);
         if (!"https".equals(target.getProtocol())
                 || (!"api.github.com".equals(host) && !"uploads.github.com".equals(host))) {
             throw new SecurityException("仅允许 GitHub HTTPS API 上传");
         }
-        HttpURLConnection conn = (HttpURLConnection) target.openConnection();
+        HttpURLConnection conn = transport.open(target);
         conn.setInstanceFollowRedirects(false);
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(120000);
