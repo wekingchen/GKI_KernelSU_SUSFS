@@ -24,12 +24,17 @@ BASE = (
 def create_capture(path, manifest=BASE, include_dtbo=True, tar_kind="normal"):
     nested = io.BytesIO()
     with tarfile.open(fileobj=nested, mode="w") as stream:
-        if tar_kind == "symlink":
-            member = tarfile.TarInfo("vendor_dlkm/lib/modules/x.ko")
-            member.type = tarfile.SYMTYPE
-            member.linkname = "another.ko"
+        # Simulate real OEM trees with module aliases, not extracted links.
+        if tar_kind in ("symlink", "mixed_symlink", "unsafe_symlink", "mixed_hardlink"):
+            member = tarfile.TarInfo(
+                "/outside/lib/modules/escape.ko" if tar_kind == "unsafe_symlink"
+                else "vendor_dlkm/lib/modules/alias.ko"
+            )
+            member.type = (tarfile.LNKTYPE if tar_kind == "mixed_hardlink"
+                           else tarfile.SYMTYPE)
+            member.linkname = "../../another.ko"
             stream.addfile(member)
-        else:
+        if tar_kind != "symlink" and tar_kind != "unsafe_symlink":
             mod = b"\x7fELF" + b"A" * 512
             member = tarfile.TarInfo("vendor_dlkm/lib/modules/x.ko")
             member.size = len(mod)
@@ -88,9 +93,29 @@ class MobileNormalizerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "slot mismatch"):
             normalize(self.capture, self.output)
 
-    def test_module_symlinks_fail_closed(self):
+    def test_link_only_cannot_masquerade_as_kernel_modules(self):
         create_capture(self.capture, tar_kind="symlink")
-        with self.assertRaisesRegex(ValueError, "symlink"):
+        with self.assertRaisesRegex(ValueError, "no real OEM kernel modules"):
+            normalize(self.capture, self.output)
+
+    def test_real_modules_with_symlink_aliases_ignore_links(self):
+        create_capture(self.capture, tar_kind="mixed_symlink")
+        result = normalize(self.capture, self.output)
+        self.assertEqual(result["modules"], 1)
+        self.assertEqual(result["ignored_module_links"], 1)
+        with zipfile.ZipFile(self.output) as final:
+            with zipfile.ZipFile(io.BytesIO(final.read("oem-modules.zip"))) as modules:
+                self.assertEqual(modules.namelist(), ["vendor_dlkm/lib/modules/x.ko"])
+
+    def test_real_modules_with_hardlink_aliases_ignore_links(self):
+        create_capture(self.capture, tar_kind="mixed_hardlink")
+        result = normalize(self.capture, self.output)
+        self.assertEqual(result["modules"], 1)
+        self.assertEqual(result["ignored_module_links"], 1)
+
+    def test_outside_root_symlink_path_is_rejected_even_if_not_extracted(self):
+        create_capture(self.capture, tar_kind="unsafe_symlink")
+        with self.assertRaisesRegex(ValueError, "unsafe module TAR member path"):
             normalize(self.capture, self.output)
 
     def test_existing_archive_never_overwritten(self):
