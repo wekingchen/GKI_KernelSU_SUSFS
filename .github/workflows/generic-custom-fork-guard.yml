@@ -12,6 +12,7 @@ on:
       - ".github/workflows/generic-custom-fork-guard.yml"
       - ".github/workflows/generic-custom-auto-sync.yml"
       - ".github/config/generic-custom-upstream-sync.json"
+      - ".github/config/generic-custom-route.json"
       - "scripts/generic-custom/**"
       - "docs/generic-custom-build-fork.md"
 permissions:
@@ -40,4 +41,6 @@ jobs:
             .github/workflows/generic-custom-auto-sync.yml
           bash -n scripts/generic-custom/prepare-host-linker.sh
           bash -n scripts/generic-custom/run_auto_sync.sh
+          bash -n scripts/generic-custom/try_native_upstream.sh
+          python3 -m py_compile scripts/generic-custom/native_upstream_policy.py
           python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
