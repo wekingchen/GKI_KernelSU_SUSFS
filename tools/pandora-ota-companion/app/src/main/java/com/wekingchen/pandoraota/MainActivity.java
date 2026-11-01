@@ -36,7 +36,7 @@ public final class MainActivity extends Activity {
     private EditText repoField, tokenField;
     private CheckBox bootOption;
     private Button saveButton, clearButton, rootButton, collectButton, uploadButton;
-    private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton;
+    private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton, checkIntakeButton;
     private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
     private TextView percent, receiptState, message;
     private ProgressBar uploadBar;
@@ -183,9 +183,12 @@ public final class MainActivity extends Activity {
         retryNoticeButton = button("重新发送 GitHub 工作流通知（不重复上传）", false);
         transfer.addView(retryNoticeButton, blockParams(dp(10)));
         retryNoticeButton.setOnClickListener(v -> retryDispatch());
+        checkIntakeButton = button("查询 GitHub 接收工作流结果", false);
+        transfer.addView(checkIntakeButton, blockParams(dp(9)));
+        checkIntakeButton.setOnClickListener(v -> checkBackendIntake());
 
         LinearLayout cleanup = card(content, "04", "本地文件管理", "文件不会自动删除；仅在确认上传成功后可清理");
-        cleanup.addView(text("删除只影响本机 ZIP，不会删除 GitHub 上的附件。",
+        cleanup.addView(text("只有 GitHub 接收工作流确认后才开放删除，远端附件不受影响。",
                 12, MUTED, false), blockParams(dp(12)));
         deleteButton = button("删除本地已上传的采集包", false);
         cleanup.addView(deleteButton, blockParams(dp(12)));
@@ -315,6 +318,35 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private String intakeLabel(String state) {
+        switch (state) {
+            case "ACCEPTED": return "新输入已接收（不是 ABI/KMI 或真机验证通过）";
+            case "ALREADY_CURRENT": return "与固定输入一致，无须重复分析";
+            case "REJECTED": return "后端拒收，请保留本地 ZIP 查看 Actions 报告";
+            default: return "尚无处理结果，可稍后点查询";
+        }
+    }
+
+    private void checkBackendIntake() {
+        File file = selectedFile();
+        if (file == null || !store.dispatched() || store.lastAssetId() <= 0) {
+            notifyMessage("需先完成上传并发送工作流通知");
+            return;
+        }
+        final String repo = store.repo();
+        final long releaseId = store.lastReleaseId();
+        final long assetId = store.lastAssetId();
+        final String sha = store.uploadedSha256(
+                new SecretStore.FileInfo(file.getAbsolutePath(), file.length()));
+        runTask("正在查询 GitHub 的后端接收结果…", () -> {
+            String token = store.loadToken();
+            String outcome = GitHubUploader.checkIntake(repo, token, releaseId, assetId, sha);
+            store.recordIntake(outcome);
+            return "GitHub 接收状态：" + intakeLabel(outcome)
+                    + "\n注意：接收成功不代表纯 GKI、ABI 或启动测试通过。";
+        });
+    }
+
     private void renderProgress(long sent, long total, double bytesPerSecond, long elapsed) {
         int value = total <= 0 ? 0 : (int) (sent * 100 / total);
         uploadBar.setProgress(value);
@@ -353,8 +385,9 @@ public final class MainActivity extends Activity {
     private void confirmDelete() {
         File file = selectedFile();
         if (file == null || !store.isUploaded(
-                new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))) {
-            notifyMessage("尚未确认上传成功，禁止删除本地采集包");
+                new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
+                || !store.intakeAccepted()) {
+            notifyMessage("必须先取得 GitHub 后端接收成功的回执，才能删除本地采集包");
             return;
         }
         new AlertDialog.Builder(this)
@@ -372,7 +405,7 @@ public final class MainActivity extends Activity {
                                 "pandora-os4-capture-\\d{8}-\\d{6}(?:-\\d{3})?\\.zip")) {
                             throw new SecurityException("路径不在应用的 OTA 采集目录内");
                         }
-                        if (!store.isUploaded(new SecretStore.FileInfo(
+                        if (!store.intakeAccepted() || !store.isUploaded(new SecretStore.FileInfo(
                                 target.getAbsolutePath(), target.length()))) {
                             throw new SecurityException("无 GitHub 成功上传回执");
                         }
@@ -418,7 +451,9 @@ public final class MainActivity extends Activity {
         collectButton.setEnabled(!busy && RootCollector.isPandora());
         uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
-        deleteButton.setEnabled(!busy && uploaded);
+        deleteButton.setEnabled(!busy && uploaded && store.intakeAccepted());
+        checkIntakeButton.setVisibility(uploaded && store.dispatched() ? View.VISIBLE : View.GONE);
+        checkIntakeButton.setEnabled(!busy && store.hasToken());
         retryNoticeButton.setVisibility(uploaded && !store.dispatched() && store.lastAssetId() > 0
                 ? View.VISIBLE : View.GONE);
         retryNoticeButton.setEnabled(!busy && store.hasToken());
@@ -426,13 +461,14 @@ public final class MainActivity extends Activity {
                 && store.lastReleaseUrl().startsWith("https://github.com/")
                 ? View.VISIBLE : View.GONE);
         if (!busy && uploaded) {
-            uploadStage.setText("GitHub 已确认上传");
+            uploadStage.setText(store.intakeAccepted() ? "GitHub 接收已确认" : "GitHub 附件已上传");
             uploadBar.setProgress(100);
             percent.setText("100%");
             uploadNumbers.setText(size(file.length()) + " / " + size(file.length()));
             uploadSpeed.setText("历史上传完成记录");
-            receiptState.setText("GitHub 已确认 · Release #" + store.lastReleaseId()
-                    + "\n工作流通知：" + (store.dispatched() ? "已发送请求" : "未成功"));
+            receiptState.setText("GitHub 附件已确认 · Release #" + store.lastReleaseId()
+                    + "\n工作流通知：" + (store.dispatched() ? "已发送请求" : "未成功")
+                    + "\n接收结果：" + intakeLabel(store.intakeState()));
         }
         if (!busy && !uploaded) {
             uploadStage.setText("等待上传");
