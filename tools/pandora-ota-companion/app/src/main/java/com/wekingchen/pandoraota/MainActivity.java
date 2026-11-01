@@ -36,7 +36,7 @@ public final class MainActivity extends Activity {
     private EditText repoField, tokenField;
     private CheckBox bootOption;
     private Button saveButton, clearButton, rootButton, collectButton, uploadButton;
-    private Button deleteButton, openReleaseButton;
+    private Button deleteButton, openReleaseButton, chooseArchiveButton;
     private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
     private TextView percent, receiptState, message;
     private ProgressBar uploadBar;
@@ -148,6 +148,9 @@ public final class MainActivity extends Activity {
         fileState = text("", 13, INK, false);
         fileState.setTextIsSelectable(true);
         transfer.addView(fileState, blockParams(dp(13)));
+        chooseArchiveButton = button("切换本地采集包", false);
+        transfer.addView(chooseArchiveButton, blockParams(dp(9)));
+        chooseArchiveButton.setOnClickListener(v -> chooseArchive());
         uploadButton = button("上传采集包", true);
         transfer.addView(uploadButton, blockParams(dp(14)));
         uploadButton.setOnClickListener(v -> startUpload());
@@ -261,7 +264,6 @@ public final class MainActivity extends Activity {
                             + "\n工作流通知：" + (result.dispatched
                             ? "请求已发送（不代表工作流已执行）" : "发送失败，需另行处理"));
                     notifyMessage("上传成功，文件仍保存在手机中。可选择手动删除。");
-                    refresh();
                 });
             } catch (Exception e) {
                 String error = safeMessage(e);
@@ -270,7 +272,6 @@ public final class MainActivity extends Activity {
                     uploadStage.setText("上传未确认成功");
                     receiptState.setText("未取得有效服务器回执；请保留本地文件并检查 GitHub 草稿");
                     notifyMessage("上传失败：" + error);
-                    refresh();
                 });
             } finally {
                 runOnUiThread(() -> getWindow().clearFlags(
@@ -286,6 +287,32 @@ public final class MainActivity extends Activity {
         uploadNumbers.setText(size(sent) + " / " + size(total));
         uploadSpeed.setText("速率 " + size((long) bytesPerSecond) + "/s"
                 + "   ·   耗时 " + (elapsed / 1000) + " 秒");
+    }
+
+    private void chooseArchive() {
+        File[] archives = store.archives();
+        if (archives.length == 0) {
+            notifyMessage("本机没有可选的采集包");
+            return;
+        }
+        String[] names = new String[archives.length];
+        for (int i = 0; i < archives.length; i++) {
+            File f = archives[i];
+            boolean uploaded = store.isUploaded(
+                    new SecretStore.FileInfo(f.getAbsolutePath(), f.length()));
+            names[i] = f.getName() + "\n" + size(f.length()) + " · "
+                    + (uploaded ? "已上传" : "待上传");
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择本地采集包")
+                .setSingleChoiceItems(names, -1, (dialog, which) -> {
+                    store.saveArchive(archives[which].getAbsolutePath());
+                    dialog.dismiss();
+                    refresh();
+                    notifyMessage("已切换：" + archives[which].getName());
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void confirmDelete() {
@@ -349,23 +376,38 @@ public final class MainActivity extends Activity {
         rootButton.setEnabled(!busy && RootCollector.isPandora());
         collectButton.setEnabled(!busy && RootCollector.isPandora());
         uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
+        chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
         deleteButton.setEnabled(!busy && uploaded);
         openReleaseButton.setVisibility(uploaded
                 && store.lastReleaseUrl().startsWith("https://github.com/")
                 ? View.VISIBLE : View.GONE);
         if (!busy && uploaded) {
+            uploadStage.setText("GitHub 已确认上传");
+            uploadBar.setProgress(100);
+            percent.setText("100%");
+            uploadNumbers.setText(size(file.length()) + " / " + size(file.length()));
+            uploadSpeed.setText("历史上传完成记录");
             receiptState.setText("GitHub 已确认 · Release #" + store.lastReleaseId()
                     + "\n工作流通知：" + (store.dispatched() ? "已发送请求" : "未成功"));
         }
-        if (!busy && !exists) {
+        if (!busy && !uploaded) {
             uploadStage.setText("等待上传");
+            uploadBar.setProgress(0);
+            percent.setText("0%");
+            uploadNumbers.setText(exists ? "0 B / " + size(file.length()) : "0 B / 0 B");
+            uploadSpeed.setText("速率 --   ·   耗时 --");
             receiptState.setText("尚未获得 GitHub 上传确认");
         }
     }
 
     private File selectedFile() {
         String path = store.lastArchive();
-        if (path.isEmpty()) return null;
+        if (path.isEmpty() || !new File(path).isFile()) {
+            File[] files = store.archives();
+            if (files.length == 0) return null;
+            store.saveArchive(files[0].getAbsolutePath());
+            path = files[0].getAbsolutePath();
+        }
         File file = new File(path);
         return file.isFile() && file.length() > 0 ? file : null;
     }
