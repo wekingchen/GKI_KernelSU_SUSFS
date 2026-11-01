@@ -14,6 +14,11 @@ CANDIDATE_SHA=""
 FINISHED=false
 
 cleanup_native_candidate() {
+  # A rejected original candidate must restore the checked-out dev before
+  # the existing private fallback sync may run in this SAME job.
+  if [[ -n "$BRANCH" && "$(git branch --show-current)" == "$BRANCH" ]]; then
+    git switch -f dev >/dev/null || true
+  fi
   if [[ -n "$BRANCH" && -n "$CANDIDATE_SHA" ]]; then
     CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" \
       --jq .object.sha 2>/dev/null || true)"
