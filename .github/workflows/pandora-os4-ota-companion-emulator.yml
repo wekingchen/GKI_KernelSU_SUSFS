@@ -59,6 +59,22 @@ jobs:
             sleep 4
             adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/workbench.png
+
+            SIZE="$(adb shell wm size | sed -nE 's/.* ([0-9]+)x([0-9]+).*/\1 \2/p' | tail -n1)"
+            read -r WIDTH HEIGHT <<< "$SIZE"
+            test -n "$WIDTH" && test -n "$HEIGHT"
+            NAV_Y=$((HEIGHT - 150))
+
+            # Bottom navigation thirds: Records, then Settings.
+            adb shell input tap $((WIDTH / 2)) "$NAV_Y"
+            sleep 2
+            adb exec-out screencap -p > app/build/reports/androidTests/preview/records.png
+            test -s app/build/reports/androidTests/preview/records.png
+
+            adb shell input tap $((WIDTH * 5 / 6)) "$NAV_Y"
+            sleep 2
+            adb exec-out screencap -p > app/build/reports/androidTests/preview/settings.png
+            test -s app/build/reports/androidTests/preview/settings.png
       - name: 保存模拟器测试报告（失败也收集）
         if: always()
         uses: actions/upload-artifact@v4
