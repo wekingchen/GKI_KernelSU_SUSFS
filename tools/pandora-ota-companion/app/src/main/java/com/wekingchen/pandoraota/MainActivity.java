@@ -937,10 +937,10 @@ public final class MainActivity extends Activity {
         }
         if (workUploadedMetric != null) workUploadedMetric.setText(String.valueOf(uploadedCount));
         if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
-        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已配置" : "未配置");
         if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
         if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
-        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已配置" : "未配置");
         if (localCount != null) localCount.setText(allArchives.length == 0
                 ? "0 条" : "最近 " + Math.min(allArchives.length, 12) + " 条");
         String captureIdentity = exists ? captureIdentityLabel(file) : "";
