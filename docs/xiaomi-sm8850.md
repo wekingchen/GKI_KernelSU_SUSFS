@@ -6,17 +6,20 @@
 
 该构建路径与仓库原有通用 GKI 工作流相互隔离。小米相关实现已经完整合入默认分支 `dev`，但尽量限制在本仓库独有的 Xiaomi 文件和目录中，从而在继续同步上游 `zzh20188/GKI_KernelSU_SUSFS:dev` 时降低冲突概率。
 
-## 当前仓库结构
+## 2026 年 9 月的历史仓库结构（以下工作流均已退役）
+
+> 下面列出的入口和内部构建链是当时的历史记录，不能在当前仓库中运行。现行 OS4 请使用 `.github/workflows/xiaomi-sm8850-os4-custom.yml`；LKG 晋升使用 `.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml`。不要根据历史文档恢复已删除的旧工作流。
+
 
 小米 17 系列构建目前采用“一个人工入口 + 一个内部构建工作流”的结构：
 
-- `.github/workflows/xiaomi-sm8850-dispatch.yml`：唯一人工编译入口，名称为 **Xiaomi 17 系列 - 自定义内核**。负责接收图形界面中的设备、Root、SUSFS、DroidSpaces、NTSync、ZRAM、BBG、Re-Kernel、NoMount、网络增强、CVE 修复等选项，并同时调用内核构建和 BakaSU Manager 获取流程。
-- `.github/workflows/kernel-xiaomi-sm8850.yml`：内部实际构建工作流。负责源码准备、功能集成、缓存、编译、校验、AnyKernel3 打包以及 PR 回归测试；不再提供独立的 `workflow_dispatch` 人工入口，只通过 `workflow_call` 或 PR 事件运行。
+- `历史已删除的 xiaomi-sm8850-dispatch.yml`：唯一人工编译入口，名称为 **Xiaomi 17 系列 - 自定义内核**。负责接收图形界面中的设备、Root、SUSFS、DroidSpaces、NTSync、ZRAM、BBG、Re-Kernel、NoMount、网络增强、CVE 修复等选项，并同时调用内核构建和 BakaSU Manager 获取流程。
+- `历史已删除的 kernel-xiaomi-sm8850.yml`：内部实际构建工作流。负责源码准备、功能集成、缓存、编译、校验、AnyKernel3 打包以及 PR 回归测试；不再提供独立的 `workflow_dispatch` 人工入口，只通过 `workflow_call` 或 PR 事件运行。
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`：小米 SM8850 固定源码、工具链和关键版本配置。
 - `scripts/xiaomi-sm8850/`：小米专用源码准备、功能集成、构建、校验和打包脚本。
 - `docs/xiaomi-sm8850.md`：本文档。
 
-日常人工编译只需要运行 **Xiaomi 17 系列 - 自定义内核**。
+上述入口仅用于描述 OS3 历史状态；当前 OS4 不再使用该工作流，请按文首 OS4 指引操作。
 
 ## 已支持设备范围
 
@@ -398,9 +401,9 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 为了降低 fork 与上游同步时的冲突概率，小米定制尽量只放在本仓库独有的文件和目录中：
 
-- `.github/workflows/xiaomi-sm8850-dispatch.yml`
-- `.github/workflows/kernel-xiaomi-sm8850.yml`
-- `.github/workflows/xiaomi-sm8850-watchdog.yml`
+- `历史已删除的 xiaomi-sm8850-dispatch.yml`
+- `历史已删除的 kernel-xiaomi-sm8850.yml`
+- `历史已删除的 xiaomi-sm8850-watchdog.yml`
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`
 - `scripts/xiaomi-sm8850/`
 - `docs/xiaomi-sm8850.md`
@@ -415,7 +418,7 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 正常 merge 同步只会合并上游发生变化的内容，本仓库独有的小米文件会继续保留。只有当上游未来新增同名文件或修改同一路径时，才需要人工处理真实冲突。
 
-同步完成后可以运行一次 **Xiaomi 17 系列 - 自定义内核**，确认 dispatcher 仍能正常调用本地 `kernel-xiaomi-sm8850.yml`。
+这段属于旧 OS3 维护制度。当前请使用 OS4 的上游隔离门禁，并由 OS4 专用工作流执行验证，不要重新创建旧 dispatcher。
 
 ## 误点 Discard commits 的恢复
 
@@ -425,9 +428,9 @@ ACK-R51 当前**故意不启用跨 GitHub Runner 的持久编译缓存**，正�
 
 需要恢复的 Xiaomi-owned 路径为：
 
-- `.github/workflows/xiaomi-sm8850-dispatch.yml`
-- `.github/workflows/kernel-xiaomi-sm8850.yml`
-- `.github/workflows/xiaomi-sm8850-watchdog.yml`
+- `历史已删除的 xiaomi-sm8850-dispatch.yml`
+- `历史已删除的 kernel-xiaomi-sm8850.yml`
+- `历史已删除的 xiaomi-sm8850-watchdog.yml`
 - `.github/config/xiaomi-sm8850-android16-6.12.23.env`
 - `scripts/xiaomi-sm8850/`
 - `docs/xiaomi-sm8850.md`
@@ -456,7 +459,7 @@ LKG 不随 `dev` 或 stable 更新。如果 stable 本身出现疑问，再使�
 
 ## 自动看门狗
 
-`.github/workflows/xiaomi-sm8850-watchdog.yml` 每天运行，并在 Xiaomi-owned 文件变化时立即检查：
+`历史已删除的 xiaomi-sm8850-watchdog.yml` 每天运行，并在 Xiaomi-owned 文件变化时立即检查：
 
 - dev 上所有关键 workflow、配置、脚本和文档是否存在；
 - 所有 Xiaomi shell 脚本是否通过 `bash -n`；
