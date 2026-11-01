@@ -14,7 +14,8 @@ echo '本工作流不会刷机、更新 LKG 或跳过原 OEM ABI/KMI 门禁。' 
 
 RELEASE="$(gh api "repos/$R/releases/$STAGED_RELEASE_ID")"
 jq -e --argjson id "$STAGED_RELEASE_ID" \
-  '.id == $id and .draft == true and (.tag_name | startswith("pandora-ota-capture-"))' \
+  --argjson asset "$STAGED_ASSET_ID" --arg sha "$CLIENT_SHA" \
+  -f tools/pandora-ota-companion/mobile-release-gate.jq \
   <<< "$RELEASE" >/dev/null
 TAG="$(jq -r .tag_name <<< "$RELEASE")"
 ASSET="$(jq -e --argjson id "$STAGED_ASSET_ID" \
@@ -31,7 +32,10 @@ publish_receipt() {
   local body
   printf -v body 'MOBILE_OTA_INTAKE=%s\nMOBILE_ASSET_ID=%s\nMOBILE_SOURCE_SHA256=%s\nMOBILE_BUILD=%s\nMOBILE_INTAKE_RUN=%s\nSOURCE_PROVENANCE=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK\n' \
     "$state" "$STAGED_ASSET_ID" "$CLIENT_SHA" "${BUILD:-UNKNOWN}" "$GITHUB_RUN_ID"
-  gh api -X PATCH "repos/$R/releases/$STAGED_RELEASE_ID" -f body="$body" >/dev/null
+  # GitHub may replace draft tag_name with untagged-* when updating its body.
+  # Restore a stable app-owned tag so existing APK receipt queries still work.
+  gh api -X PATCH "repos/$R/releases/$STAGED_RELEASE_ID" \
+    -f tag_name="pandora-ota-capture-$STAGED_RELEASE_ID" -f body="$body" >/dev/null
 }
 on_intake_exit() {
   local code=$?
