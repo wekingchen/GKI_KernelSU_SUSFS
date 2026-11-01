@@ -7,7 +7,6 @@ on:
       - "os4-*"
       - "xiaomi-*"
       - "pandora-*"
-      - "dev-ota-*"
       - "audit/os4-*"
   pull_request:
     branches:
@@ -44,6 +43,10 @@ jobs:
       - name: "确认 Xiaomi 改动不覆盖上游共用文件"
         shell: bash
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
+
+      - name: "全库通用自定义构建策略回归"
+        shell: bash
+        run: python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
 
       - name: "OTA 真机反馈与 fixture 字节级复现单测"
         if: hashFiles('scripts/xiaomi-os4/test_ota_baseline_feedback.py') != ''
