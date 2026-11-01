@@ -167,8 +167,16 @@ final class GitHubUploader {
         }
         JSONObject release = getJson("https://api.github.com/repos/" + repo
                 + "/releases/" + releaseId, token);
-        verifyRemoteArchiveMetadata(release, releaseId, assetId,
+        return verifiedDraftEditorUrlFromMetadata(repo, release, releaseId, assetId,
                 file.getName(), file.length(), sha);
+    }
+
+    /** Offline-testable, fail-closed translation for a verified Draft Release. */
+    static String verifiedDraftEditorUrlFromMetadata(String repo, JSONObject release,
+                                                      long releaseId, long assetId,
+                                                      String filename, long bytes, String sha)
+            throws Exception {
+        verifyRemoteArchiveMetadata(release, releaseId, assetId, filename, bytes, sha);
         return draftEditorUrl(repo, release.optString("html_url"));
     }
 
