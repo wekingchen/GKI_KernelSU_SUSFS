@@ -48,6 +48,8 @@ public final class MainActivity extends Activity {
     private ScrollView workScroll, recordsScroll, settingsScroll;
     private LinearLayout archiveListing, statusBanner;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
+    private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
+    private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
     private final LinearLayout[] navItems = new LinearLayout[3];
     private final ImageView[] navIcons = new ImageView[3];
     private final TextView[] navLabels = new TextView[3];
@@ -281,8 +283,44 @@ public final class MainActivity extends Activity {
         recentCard.addView(checkIntakeButton, blockParams(dp(9)));
         checkIntakeButton.setOnClickListener(v -> checkBackendIntake());
 
+        LinearLayout workMetrics = new LinearLayout(this);
+        workMetrics.setOrientation(LinearLayout.HORIZONTAL);
+        work.addView(workMetrics, blockParams(dp(18)));
+        LinearLayout uploadedMetric = metricTile("已上传", R.drawable.ic_external_simple);
+        LinearLayout repoMetric = metricTile("仓库", R.drawable.ic_repo);
+        LinearLayout githubMetric = metricTile("GitHub", R.drawable.ic_key_simple);
+        workUploadedMetric = metricValue(uploadedMetric);
+        workRepoMetric = metricValue(repoMetric);
+        workGitHubMetric = metricValue(githubMetric);
+        LinearLayout.LayoutParams metricLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        LinearLayout.LayoutParams metricMidLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        metricMidLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams metricLastLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        metricLastLp.leftMargin = dp(8);
+        workMetrics.addView(uploadedMetric, metricLp);
+        workMetrics.addView(repoMetric, metricMidLp);
+        workMetrics.addView(githubMetric, metricLastLp);
+
         // Records — status-led, concise and action-oriented.
         records.addView(pageHeading("记录", "采集文件与 GitHub 记录"));
+
+        LinearLayout recordOverview = new LinearLayout(this);
+        recordOverview.setOrientation(LinearLayout.HORIZONTAL);
+        records.addView(recordOverview, blockParams(dp(18)));
+        LinearLayout collectedTile = metricTile("采集文件", R.drawable.ic_file_zip);
+        LinearLayout uploadedTile = metricTile("已上传", R.drawable.ic_external_simple);
+        LinearLayout githubTile = metricTile("GitHub", R.drawable.ic_repo);
+        recordCountMetric = metricValue(collectedTile);
+        recordUploadedMetric = metricValue(uploadedTile);
+        recordGitHubMetric = metricValue(githubTile);
+        LinearLayout.LayoutParams overviewLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        LinearLayout.LayoutParams overviewMidLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        overviewMidLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams overviewLastLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        overviewLastLp.leftMargin = dp(8);
+        recordOverview.addView(collectedTile, overviewLp);
+        recordOverview.addView(uploadedTile, overviewMidLp);
+        recordOverview.addView(githubTile, overviewLastLp);
 
         LinearLayout recordCard = vertical();
         recordCard.setBackground(round(WHITE, dp(28)));
@@ -737,6 +775,19 @@ public final class MainActivity extends Activity {
         boolean uploaded = exists && store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()));
         String state = uploaded ? store.intakeState() : "PENDING";
+        File[] allArchives = store.archives();
+        int uploadedCount = 0;
+        for (File archive : allArchives) {
+            if (store.isUploaded(new SecretStore.FileInfo(
+                    archive.getAbsolutePath(), archive.length()))) uploadedCount++;
+        }
+        if (workUploadedMetric != null) workUploadedMetric.setText(uploadedCount > 0
+                ? String.valueOf(uploadedCount) : "—");
+        if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
+        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
+        if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
+        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
         fileState.setText(exists
                 ? file.getName() + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
@@ -1000,6 +1051,36 @@ public final class MainActivity extends Activity {
         icon.setBackground(round(LIGHT_TEAL, dp(17)));
         icon.setLayoutParams(new LinearLayout.LayoutParams(size, size));
         return icon;
+    }
+
+    private LinearLayout metricTile(String label, int drawable) {
+        LinearLayout tile = vertical();
+        tile.setGravity(android.view.Gravity.CENTER);
+        tile.setBackground(round(WHITE, dp(20)));
+        tile.setElevation(dp(1));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawable);
+        icon.setImageTintList(ColorStateList.valueOf(TEAL));
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        tile.addView(icon, new LinearLayout.LayoutParams(dp(25), dp(25)));
+        TextView caption = text(label, 11, MUTED, false);
+        caption.setGravity(android.view.Gravity.CENTER);
+        tile.addView(caption, blockParams(dp(5)));
+        TextView value = text("—", 13, INK, true);
+        value.setGravity(android.view.Gravity.CENTER);
+        value.setTag("metric-value");
+        tile.addView(value, blockParams(dp(3)));
+        return tile;
+    }
+
+    private TextView metricValue(LinearLayout tile) {
+        for (int i = 0; i < tile.getChildCount(); i++) {
+            View child = tile.getChildAt(i);
+            if (child instanceof TextView && "metric-value".equals(child.getTag())) {
+                return (TextView) child;
+            }
+        }
+        throw new IllegalStateException("metric value missing");
     }
 
     private Button actionTile(String caption, int drawable) {
