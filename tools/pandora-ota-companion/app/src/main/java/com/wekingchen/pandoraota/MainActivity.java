@@ -466,7 +466,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("知道了", null)
                 .show());
 
-        TextView aboutTitle = text("关于", 18, INK, true);
+        TextView aboutTitle = text("帮助与关于", 18, INK, true);
         settings.addView(aboutTitle, blockParams(dp(28)));
 
         LinearLayout aboutCard = vertical();
