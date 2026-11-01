@@ -37,6 +37,53 @@ public class RemoteCleanupEmulatorTest {
         GitHubUploader.verifyRemoteArchiveMetadata(source, 430401431L, 697520792L,
             "pandora-os4-capture-20261101-060850-483.zip", 89576844L, SHA);
     }
+    @Test public void draft404TagPageIsReplacedWithAuthenticatedEditorPage()
+            throws Exception {
+        JSONObject source = remote("sha256:" + SHA, 89576844L);
+        source.put("tag_name", "pandora-ota-capture-430434563");
+        source.put("html_url",
+            "https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/untagged-de02f5f17b8fcf0fafb5");
+        String target = GitHubUploader.verifiedDraftEditorUrlFromMetadata(
+            "wekingchen/GKI_KernelSU_SUSFS", source,
+            430401431L, 697520792L, "pandora-os4-capture-20261101-060850-483.zip",
+            89576844L, SHA);
+        assertEquals(
+            "https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/edit/untagged-de02f5f17b8fcf0fafb5",
+            target);
+    }
+
+    @Test public void draftEditorRejectsUntrustedUrlsAndMetadata() throws Exception {
+        JSONObject source = remote("sha256:" + SHA, 89576844L);
+        source.put("html_url",
+            "https://evil.example.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/untagged-xyz");
+        try {
+            GitHubUploader.verifiedDraftEditorUrlFromMetadata(
+                "wekingchen/GKI_KernelSU_SUSFS", source,
+                430401431L, 697520792L,
+                "pandora-os4-capture-20261101-060850-483.zip", 89576844L, SHA);
+            fail("external draft link must never open");
+        } catch (SecurityException expected) { }
+        source.put("html_url",
+            "https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/untagged-xyz");
+        source.put("draft", false);
+        try {
+            GitHubUploader.verifiedDraftEditorUrlFromMetadata(
+                "wekingchen/GKI_KernelSU_SUSFS", source,
+                430401431L, 697520792L,
+                "pandora-os4-capture-20261101-060850-483.zip", 89576844L, SHA);
+            fail("published release must not be trusted as private capture draft");
+        } catch (SecurityException expected) { }
+        source.put("draft", true);
+        source.getJSONArray("assets").getJSONObject(0).put("digest", "sha256:" + "0".repeat(64));
+        try {
+            GitHubUploader.verifiedDraftEditorUrlFromMetadata(
+                "wekingchen/GKI_KernelSU_SUSFS", source,
+                430401431L, 697520792L,
+                "pandora-os4-capture-20261101-060850-483.zip", 89576844L, SHA);
+            fail("mismatching asset SHA must not navigate");
+        } catch (SecurityException expected) { }
+    }
+
     @Test public void rejectedIntakeStillAllowsAuthenticatedGitHubAsset() throws Exception {
         JSONObject value = remote("sha256:" + SHA, 89576844L);
         value.put("body", "MOBILE_OTA_INTAKE=REJECTED");
