@@ -99,7 +99,7 @@ final class RootCollector {
     }
 
     private static String timestamp() {
-        SimpleDateFormat fmt = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US);
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US);
         fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
         return fmt.format(new Date());
     }
