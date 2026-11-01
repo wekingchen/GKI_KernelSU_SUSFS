@@ -422,7 +422,7 @@ final class GitHubUploader {
         conn.setRequestProperty("Authorization", "Bearer " + token);
         conn.setRequestProperty("Accept", "application/vnd.github+json");
         conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-        conn.setRequestProperty("User-Agent", "pandora-ota-companion/0.11.0");
+        conn.setRequestProperty("User-Agent", "pandora-ota-companion/0.12.2");
         return conn;
     }
 
