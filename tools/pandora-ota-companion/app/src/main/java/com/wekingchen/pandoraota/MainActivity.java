@@ -47,7 +47,7 @@ public final class MainActivity extends Activity {
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
     private LinearLayout archiveListing, statusBanner, appBar, recordCard, recordActionRow;
-    private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount;
+    private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount, capturePolicySub;
     private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
     private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
     private final LinearLayout[] navItems = new LinearLayout[3];
@@ -146,7 +146,7 @@ public final class MainActivity extends Activity {
 
         heroCopy.addView(text("Xiaomi 17 Pro", 24, INK, true));
         deviceStatus = text(RootCollector.isPandora()
-                        ? "pandora · OS4 · Android 16"
+                        ? "正在读取系统版本…"
                         : "pandora · 当前设备不受支持",
                 11, RootCollector.isPandora() ? MUTED : WARNING, false);
         deviceStatus.setSingleLine(true);
@@ -438,8 +438,8 @@ public final class MainActivity extends Activity {
         settings.addView(strategyCard, blockParams(dp(9)));
 
         LinearLayout capturePolicyRow = settingRow(R.drawable.ic_file_zip, "采集设置");
-        TextView capturePolicySub = (TextView) capturePolicyRow.getChildAt(1);
-        renderSettingRow(capturePolicySub, "采集设置", "活动 slot · 只读完整采集");
+        capturePolicySub = (TextView) capturePolicyRow.getChildAt(1);
+        renderSettingRow(capturePolicySub, "采集设置", "活动 slot … · 只读完整采集");
         strategyCard.addView(capturePolicyRow);
         capturePolicyRow.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("采集设置")
@@ -554,6 +554,17 @@ public final class MainActivity extends Activity {
         selectTab(0);
         refresh();
         worker.execute(() -> {
+            final String osVersion = RootCollector.currentOsVersion();
+            final String slotLabel = RootCollector.currentSlotLabel();
+            runOnUiThread(() -> {
+                if (deviceStatus != null && RootCollector.isPandora()) {
+                    deviceStatus.setText(osVersion + " · pandora");
+                }
+                if (capturePolicySub != null) {
+                    renderSettingRow(capturePolicySub, "采集设置",
+                            "活动 slot " + slotLabel + " · 只读完整采集");
+                }
+            });
             try {
                 RootCollector.purgeStaleStaging(getApplicationContext());
             } catch (Exception e) {
