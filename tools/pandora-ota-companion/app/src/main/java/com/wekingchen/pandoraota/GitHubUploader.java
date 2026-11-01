@@ -140,6 +140,42 @@ final class GitHubUploader {
         postJson("https://api.github.com/repos/" + repo + "/dispatches", token, event, 204);
     }
 
+    /** Server-side ingestion result, not GKI boot/ABI verification. */
+    static String checkIntake(String repo, String token,
+                              long releaseId, long assetId, String sha) throws Exception {
+        if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || releaseId <= 0 || assetId <= 0 || !sha.matches("[0-9a-f]{64}")
+                || token == null || token.isEmpty()) {
+            throw new SecurityException("GitHub 接收状态查询缺少合法的回执");
+        }
+        JSONObject source = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        return parseIntakeReceipt(source, assetId, sha);
+    }
+
+    static String parseIntakeReceipt(JSONObject source, long assetId, String sha) throws Exception {
+        if (!source.optBoolean("draft") || !source.optString("tag_name")
+                .startsWith("pandora-ota-capture-")) {
+            throw new SecurityException("接收状态来源不是采集应用的 Draft Release");
+        }
+        String body = source.optString("body", "");
+        if (!body.contains("MOBILE_OTA_INTAKE=")) return "PENDING";
+        String id = "";
+        String digest = "";
+        String state = "";
+        for (String line : body.split("\\r?\\n")) {
+            if (line.startsWith("MOBILE_ASSET_ID=")) id = line.substring(16).trim();
+            if (line.startsWith("MOBILE_SOURCE_SHA256=")) digest = line.substring(21).trim();
+            if (line.startsWith("MOBILE_OTA_INTAKE=")) state = line.substring(18).trim();
+        }
+        if (!Long.toString(assetId).equals(id) || !sha.equals(digest)) {
+            throw new SecurityException("服务器状态对应不同附件，不能视为本次接收结果");
+        }
+        if ("ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state)
+                || "REJECTED".equals(state)) return state;
+        return "PENDING";
+    }
+
     private static JSONObject getJson(String target, String token) throws Exception {
         HttpURLConnection connection = connect(target, token);
         try {
