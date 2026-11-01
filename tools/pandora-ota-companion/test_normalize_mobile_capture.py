@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic, no-device contract tests. Not a replacement for real pandora OTA validation."""
 import io
+import os
 import tempfile
 import tarfile
 import unittest
@@ -40,7 +41,7 @@ def create_capture(path, manifest=BASE, include_dtbo=True, tar_kind="normal"):
         for part in ("boot", "init_boot", "vendor_boot", "dtbo"):
             if part == "dtbo" and not include_dtbo:
                 continue
-            outer.writestr(part + "_a.img", b"ANDROID!" + b"\x00" * 8192)
+            outer.writestr(part + "_a.img", b"ANDROID!" + os.urandom(8192))
 
 
 class MobileNormalizerTest(unittest.TestCase):
