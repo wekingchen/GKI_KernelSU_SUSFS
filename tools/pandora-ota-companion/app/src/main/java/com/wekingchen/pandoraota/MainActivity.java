@@ -170,8 +170,10 @@ public final class MainActivity extends Activity {
         bootOption.setChecked(true);
         bootOption.setEnabled(false);
         bootOption.setVisibility(View.GONE);
-        capture.addView(text("采集内容  ·  Boot / Init Boot / Vendor Boot / DTBO / OEM 模块",
+        capture.addView(text("采集内容  ·  Boot / Init Boot（Root 后快照） / Vendor Boot / DTBO / OEM 模块",
                 12, MUTED, false), blockParams(dp(21)));
+        capture.addView(text("原始 init_boot.img 请按新 OTA 流程离线保存；应用不会把当前活动 init_boot 认定为原厂镜像。",
+                11, MUTED, false), blockParams(dp(7)));
         collectButton = button("采集并生成 ZIP", true);
         capture.addView(collectButton, blockParams(dp(10)));
         capture.addView(text("采集期间请保持应用处于前台；完成后仅保留最终 ZIP。",
