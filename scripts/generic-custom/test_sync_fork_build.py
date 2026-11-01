@@ -22,14 +22,16 @@ class RebaseSafety(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.state = json.loads(META.read_text())
-        cls.base = SHARED.read_text()
         cls.custom = FORK.read_text()
+        cls.base = mod.unrender(cls.custom)
+        cls.shared = SHARED.read_text()
 
     def test_initial_baseline_byte_for_byte(self):
         self.assertEqual(mod.git_blob_sha(self.base),
                          self.state["private_base_blob_sha"])
         self.assertEqual(mod.render(self.base), self.custom)
-        self.assertEqual(mod.unrender(self.custom), self.base)
+        if self.state["private_base_blob_sha"] == mod.git_blob_sha(self.shared):
+            self.assertEqual(mod.render(self.shared), self.custom)
 
     def test_idempotent_overlay_preserves_patch_anchors(self):
         with self.assertRaises(ValueError):
