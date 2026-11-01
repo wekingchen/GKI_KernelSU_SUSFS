@@ -109,12 +109,15 @@ def normalize(source: Path, output: Path) -> dict:
             if member not in by_name or by_name[member].file_size < 4096:
                 fail("missing or too-small device partition: " + member)
 
-        # Root tar -chf follows OEM links. Inspect only regular .ko entries;
-        # a symlink surviving the capture is rejected rather than guessed.
+        # Android OEM module trees may contain symlink/hardlink aliases even when
+        # tar was invoked with -h. Links are metadata ONLY: never follow,
+        # extract or copy them into the canonical OEM ZIP. Real regular .ko
+        # members are still required, and every member name is confined.
         with tempfile.TemporaryDirectory(prefix="pandora-mobile-") as td:
             nested = Path(td, "oem-modules.zip")
             seen: set[str] = set()
             count = 0
+            links_skipped = 0
             bytes_total = 0
             with capture.open("oem-modules.tar") as tar_input:
                 with tarfile.open(fileobj=tar_input, mode="r|*") as archive:
@@ -126,15 +129,27 @@ def normalize(source: Path, output: Path) -> dict:
                             visited += 1
                             if visited > 15000:
                                 fail("too many TAR entries")
-                            name = member.name.removeprefix("./").lstrip("/")
-                            if not name or member.isdir():
+                            name = member.name.removeprefix("./")
+                            pieces = name.rstrip("/").split("/")
+                            if (not name or name.startswith("/") or "\\\\" in name
+                                    or any(p in ("", ".", "..") for p in pieces)):
+                                fail("unsafe module TAR member path")
+                            name = name.rstrip("/")
+                            if member.isdir():
                                 continue
+                            # Directory alias entries may be ancestors of known roots.
+                            # Never resolve their targets or trust their content.
+                            in_root = any(name.startswith(prefix) for prefix in ROOTS)
+                            ancestor = any(root.rstrip("/").startswith(name + "/")
+                                           for root in ROOTS)
                             if member.issym() or member.islnk():
-                                fail("module capture contains unexpected symlink")
+                                if not (in_root or ancestor):
+                                    fail("module link path outside allowed OEM roots")
+                                links_skipped += 1
+                                continue
                             if not member.isfile():
                                 fail("unexpected special file in module TAR")
-                            if ".." in name.split("/") or not any(
-                                    name.startswith(prefix) for prefix in ROOTS):
+                            if not in_root:
                                 fail("module path outside allowed OEM roots")
                             if not KO_PATTERN.search(name):
                                 continue
@@ -154,7 +169,7 @@ def normalize(source: Path, output: Path) -> dict:
                             if copied != member.size:
                                 fail("truncated OEM module")
             if count == 0:
-                fail("no OEM kernel modules found")
+                fail("no real OEM kernel modules found (links alone are not modules)")
             if nested.stat().st_size > 600 * 1024 * 1024:
                 fail("OEM modules ZIP too large")
             readme = (
@@ -190,6 +205,7 @@ def normalize(source: Path, output: Path) -> dict:
         fail("normalized xm.zip size out of bounds")
     digest = hashlib.file_digest(output.open("rb"), "sha256").hexdigest()
     return dict(build=build, slot=slot, uname=uname, modules=count,
+                ignored_module_links=links_skipped,
                 sha256=digest, bytes=output.stat().st_size, filename=output.name,
                 provenance="ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK")
 
