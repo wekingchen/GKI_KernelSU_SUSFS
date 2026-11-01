@@ -1,43 +1,56 @@
-# 小米 17 Pro OS4 OTA 采集助手（Android）
+# 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-状态：独立开发分支中的 **实验性 APK（0.2.0-dev）**，尚未通过真实设备/上传链路验证。不能取代现有 LKG 或 OTA 安全门禁。
+> Android APK 0.3.0-dev｜独立分支 `pandora-os4-ota-companion`｜不刷机、不自动晋升 LKG。
+> 已通过 APK Debug 编译与 6 项模拟采集包格式测试；**未在真实 pandora 上验证 Root/上传**。
 
-## 首版范围
+## 操作流程
 
-- 在 pandora 手机上申请 KernelSU/Root，**只读**采集系统版本、内核、OEM 模块及可选的当前 boot 分区。
-- 打包本地 ZIP，计算 SHA-256，不自动删除本地备份。
-- 在应用内配置接收仓库与 GitHub fine-grained PAT（支持按 GitHub 允许的有效期长期使用）；使用 Android Keystore AES-GCM 保存，不写入 APK、Git 历史或日志。
-- 上传为 **Draft Release** 附件，再发送 repository_dispatch: pandora_ota_upload_v1。服务器收到事件 **不等于已完成自动适配**，须由默认分支中的已审核工作流接入。
-- 本地包每个必须严格小于 GitHub Release 的 2 GiB 单文件限制；完整系统 OTA ZIP 的分片上传/断点续传属于后续开发。
+1. 安装由 Actions 构建的 APK，Root 管理器首次授予本应用 Root。
+2. GitHub 设置填入 `wekingchen/GKI_KernelSU_SUSFS` 与 fine-grained PAT（**仅该仓库**、Contents: Read and write），可按 GitHub 提供的期限长期有效；AES-GCM/Android Keystore 加密存储，可主动清除。
+3. 点击“检查 Root”，随后“一键采集”：强制读取设备代码、OS build、uname、活动 slot、OEM 内核模块以及 `boot/init_boot/vendor_boot/dtbo`，所有读取均只读。**当前分区不等于可信厂商原版**，Root/LKM/自定义内核也可能改变内容。
+4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
+5. 在有回执后，可人工确认并删除对应本地 ZIP；删除前会复验 SHA-256。多个历史 ZIP 可切换，上传失败永不自动删除。
 
-## 安全约束
+上传阶段请保持 App 前台及网络稳定，目前**不支持断点续传**，也不提供后台 Foreground Service。单文件必须小于 2 GiB，实际 OTA 输入处理限额更严格（950 MiB）。
 
-1. 仅支持设备代号 pandora；遇到不匹配设备拒绝采集。
-2. 仅对分区做只读 dd、对目录做 tar；永不写 boot、调用 fastboot 或替换内核。
-3. **当前 boot 不等于原厂 boot**。采集文件必须标明 ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK；OEM ABI/KMI 比对、GKI 临时包与 LKG 晋升继续由服务端安全门禁决定。
-4. 不采集 IMEI、序列号、账户、照片、应用数据、整个 getprop 或完整 kallsyms 地址。
-5. 建议专用的**私有接收仓库**或保持 Release 为 Draft；勿将模块与分区镜像发布为公开附件。
-6. 仅给**单一接收仓库**开 Contents: Read and write 的 fine-grained PAT；用户可选择 GitHub 允许的长期有效期，APK 本身不设置到期时间。有效期仍受 GitHub 策略、撤销和访问权限变化约束。令牌使用 Android Keystore AES-GCM 加密，Root 设备不保证绝对防提取。
-7. GitHub 上传失败后保留本地 ZIP；当前版本是整文件重试，不宣称支持断点续传。
-8. 此项目所有文件放在独立目录，除独立 APK 构建工作流外不修改上游共享配置。
+## 服务端与现有 OTA 流程的兼容性
 
-## 开发构建
+- APP 上传的 `pandora-ota-capture-v1` 包含活动 slot 的分区快照、`oem-modules.tar` 及身份清单。
+- `normalize_mobile_capture.py` 严格校验清单、slot、uname、目录、大小和内核模块数量，转换成当前 Windows `collect-pandora-stock-input.cmd` 的同款 **八文件 `*xm.zip`**。
+- `mobile-intake.sh` 仅接受对应 Draft Release 的特定 Asset ID、实际文件长度与 SHA-256 一致的输入；转换后还执行原 `inspect-ota-stock-input.py` 身份审计。旧固定 Release 不会因为无效上传被覆盖。
+- 验证通过的新 OTA 先上传到固定 Release 的非 `*xm.zip` 暂存名并从 GitHub 下载回检，再更名、替换旧单一 `xm.zip`，最后触发原 `xiaomi-sm8850-os4-ota-auto-candidate.yml`。
+- **重要：`repository_dispatch` 仅从仓库默认分支执行。** 只有当 `.github/workflows/pandora-os4-ota-mobile-intake.yml` 与配套脚本合入默认 `dev` 后才真正自动接收。仅在实验分支构建 APK 不构成端到端部署。
+- 原 GKI/KMI/OEM ABI 门禁、临时 `fastboot boot` 真机确认、LKG 人工晋升不变。不直接产生可刷内核或跳过风控。
 
-使用 JDK 17 + Gradle 8.11.1 + Android SDK 35，在该目录运行：
+## 编译、测试与签名
 
-    gradle :app:assembleDebug
+APK 自用工程目录：`tools/pandora-ota-companion/`，JDK 17 / Android SDK 35 / Gradle 8.11.1。
 
-独立 Action：.github/workflows/pandora-os4-ota-companion-apk.yml
+```bash
+python3 -m unittest -v test_normalize_mobile_capture.py
+bash -n mobile-intake.sh
+gradle --no-daemon :app:assembleDebug
+```
 
-## UI 操作顺序
+独立 Action：`.github/workflows/pandora-os4-ota-companion-apk.yml`。
 
-1. 在 01 设置接收仓库与长期有效 PAT（到期日期由 GitHub 创建页面决定），应用保存加密令牌。
-2. 在 02 检查 Root，选择是否额外备份当前启动分区，一键采集为本地 ZIP。
-3. 在 03 选择已有采集包并上传，观察实时字节进度/速率估算；只有 GitHub 服务端确认后才显示已完成。
-4. 在 04 可保留本地 ZIP，或在确认成功后手动删除。上传异常不会自动删除。
+实验 APK：`pandora-os4-ota-companion-UNVERIFIED` Artifact。GitHub Runner 的 Debug 签名不能保证每轮相同，**不保证直接覆盖安装并保留旧数据**。
 
-**注意：** 当前上传的 `pandora-ota-capture-v1` 是设备活动状态快照，不是原厂完整 OTA `xm.zip`。服务端衔接和 OEM 来源鉴别未通过前，不可将其直接认定为官方 OTA 基线。
+长期稳定升级必须配置 4 个 GitHub Actions Repository secrets：
 
-## 后续集成
+| Secret 名称 | 值 |
+| --- | --- |
+| `PANDORA_OTA_SIGNING_KEYSTORE_B64` | 私密 `p12` 签名密钥文件的 Base64 文本 |
+| `PANDORA_OTA_STORE_PASSWORD` | 签名密钥库密码 |
+| `PANDORA_OTA_KEY_ALIAS` | 密钥别名 |
+| `PANDORA_OTA_KEY_PASSWORD` | 密钥密码 |
 
-需要将 pandora_ota_upload_v1 与原有 OTA 工件读取入口衔接，并按现有 xm.zip 契约转换/校验。这一步尚未完成，暂不宣称上传后会自动构建候选 GKI。完整 OTA ZIP 分片协议必须先确认已有入口的消费规则，不能直接猜测格式。
+设置后分支工作流自动额外输出 `pandora-os4-ota-companion-STABLE-SIGNED` 的正式签名 Release APK。**私钥/密码不要上传仓库、日志、Release、Artifact。** 预先保管签名私钥和密码的离线备份；签名不同的 Debug APK 不能直接覆盖稳定版。
+
+## 已验证 / 未验证
+
+- ✅ Action Runner 固定 Ubuntu 24.04；SDK 初始化和 Debug APK 首轮编译成功（Run 41269296891）。
+- ✅ 合成手机包转换：正常 / 缺分区 / 错设备 / 错 slot / tar 链接 / 禁止覆盖 6 项测试通过（Run 41269661858）。
+- ⏳ 真机 Root 采集、手机网络上行、GitHub Draft 上传、固定 Release 安全切换、原 OTA GKI 候选联动：尚未有真实 OTA 实物验证。
+- ⏳ 签名稳定版需要仓库 Secrets；未配置时 CI 只能提供实验 Debug APK。
+- ⚠️ 任何从 Root 手机读出的 boot 都必须当作未验证活动快照，不能声称与 OTA 厂商原始镜像相同。
