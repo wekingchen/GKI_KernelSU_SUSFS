@@ -341,6 +341,12 @@ public final class MainActivity extends Activity {
                                 target.getAbsolutePath(), target.length()))) {
                             throw new SecurityException("无 GitHub 成功上传回执");
                         }
+                        String expectedSha = store.uploadedSha256(
+                                new SecretStore.FileInfo(target.getAbsolutePath(), target.length()));
+                        if (expectedSha.isEmpty() ||
+                                !expectedSha.equalsIgnoreCase(GitHubUploader.sha256(target))) {
+                            throw new SecurityException("本地文件 SHA-256 与上传回执不符，拒绝删除");
+                        }
                         if (!target.delete()) throw new IllegalStateException("无法删除文件");
                         store.forgetArchive();
                         return "已手动删除本地 ZIP；GitHub 附件已保留";
