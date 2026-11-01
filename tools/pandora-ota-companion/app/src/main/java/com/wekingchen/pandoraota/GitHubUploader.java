@@ -9,7 +9,7 @@ import java.util.Locale;
 
 /** Read-only capture delivery. A transport progress event is NOT server confirmation. */
 final class GitHubUploader {
-    static final long MAX_ASSET = 2L * 1024L * 1024L * 1024L;
+    static final long MAX_ASSET = 950L * 1024L * 1024L; // same limit as server OTA stock input
     private GitHubUploader() {}
 
     interface Listener {
@@ -41,7 +41,7 @@ final class GitHubUploader {
             throw new IllegalArgumentException("请先配置 GitHub fine-grained PAT");
         }
         if (!file.isFile() || file.length() <= 0 || file.length() >= MAX_ASSET) {
-            throw new IllegalArgumentException("采集包不存在、为空或达到单附件 2 GiB 限制");
+            throw new IllegalArgumentException("采集包不存在、为空或达到 OTA 950 MiB 上限；请勿上传不受支持的大包");
         }
         listener.onStage("校验文件 SHA-256");
         String sha256 = sha256(file);
@@ -90,6 +90,59 @@ final class GitHubUploader {
         String releaseUrl = release.optString("html_url", "");
         return new Result(release.getLong("id"), asset.getLong("id"), sha256,
                 releaseUrl, dispatched);
+    }
+
+    /** Retry notification for an already-uploaded GitHub attachment, without uploading again. */
+    static void retryDispatch(String repo, String token, File file,
+                              long releaseId, long assetId, String expectedSha) throws Exception {
+        if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || token == null || token.isEmpty() || releaseId <= 0 || assetId <= 0
+                || !expectedSha.matches("[0-9a-f]{64}") || !file.isFile()
+                || file.length() <= 0 || file.length() >= MAX_ASSET) {
+            throw new SecurityException("通知重试所需上传回执或本地 ZIP 不合法");
+        }
+        if (!sha256(file).equals(expectedSha)) {
+            throw new SecurityException("ZIP SHA-256 与历史上传回执不一致，禁止重新通知");
+        }
+        JSONObject release = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        if (!release.optBoolean("draft") || !release.optString("tag_name")
+                .startsWith("pandora-ota-capture-")) {
+            throw new SecurityException("远端 Draft Release 来源不匹配");
+        }
+        boolean found = false;
+        org.json.JSONArray assets = release.optJSONArray("assets");
+        if (assets != null) for (int i = 0; i < assets.length(); i++) {
+            JSONObject asset = assets.optJSONObject(i);
+            if (asset != null && asset.optLong("id") == assetId
+                    && asset.optLong("size") == file.length()
+                    && file.getName().equals(asset.optString("name"))) found = true;
+        }
+        if (!found) throw new SecurityException("远端附件已变化，拒绝通知重试");
+        JSONObject payload = new JSONObject();
+        payload.put("schema", "pandora-ota-capture-v1");
+        payload.put("release_id", releaseId);
+        payload.put("asset_id", assetId);
+        payload.put("filename", file.getName());
+        payload.put("sha256", expectedSha);
+        payload.put("bytes", file.length());
+        JSONObject event = new JSONObject();
+        event.put("event_type", "pandora_ota_upload_v1");
+        event.put("client_payload", payload);
+        postJson("https://api.github.com/repos/" + repo + "/dispatches", token, event, 204);
+    }
+
+    private static JSONObject getJson(String target, String token) throws Exception {
+        HttpURLConnection connection = connect(target, token);
+        try {
+            connection.setRequestMethod("GET");
+            int status = connection.getResponseCode();
+            String body = readResponse(connection, status);
+            if (status != 200) throw new IOException("读取 GitHub Release HTTP " + status);
+            return new JSONObject(body);
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private static JSONObject postBinary(String url, String token, File file,
