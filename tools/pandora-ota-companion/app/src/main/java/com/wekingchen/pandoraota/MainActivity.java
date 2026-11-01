@@ -36,7 +36,7 @@ public final class MainActivity extends Activity {
     private EditText repoField, tokenField;
     private CheckBox bootOption;
     private Button saveButton, clearButton, rootButton, collectButton, uploadButton;
-    private Button deleteButton, openReleaseButton, chooseArchiveButton;
+    private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton;
     private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
     private TextView percent, receiptState, message;
     private ProgressBar uploadBar;
@@ -180,6 +180,9 @@ public final class MainActivity extends Activity {
         openReleaseButton = button("查看 GitHub 草稿 Release", false);
         transfer.addView(openReleaseButton, blockParams(dp(10)));
         openReleaseButton.setOnClickListener(v -> openRelease());
+        retryNoticeButton = button("重新发送 GitHub 工作流通知（不重复上传）", false);
+        transfer.addView(retryNoticeButton, blockParams(dp(10)));
+        retryNoticeButton.setOnClickListener(v -> retryDispatch());
 
         LinearLayout cleanup = card(content, "04", "本地文件管理", "文件不会自动删除；仅在确认上传成功后可清理");
         cleanup.addView(text("删除只影响本机 ZIP，不会删除 GitHub 上的附件。",
@@ -195,6 +198,15 @@ public final class MainActivity extends Activity {
                 + "上传后仍需现有 OTA 工作流完成检查。完整 OTA 大包分片暂未接入。",
                 11, MUTED, false), blockParams(dp(8)));
         refresh();
+        // Cleanup of an interrupted capture is not dependent on user pressing capture again.
+        worker.execute(() -> {
+            try {
+                RootCollector.purgeStaleStaging(getApplicationContext());
+            } catch (Exception e) {
+                final String detail = safeMessage(e);
+                runOnUiThread(() -> notifyMessage("检测到未能自动清理的历史采集物：" + detail));
+            }
+        });
     }
 
     private void saveConnection() {
@@ -279,6 +291,27 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> getWindow().clearFlags(
                         WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
             }
+        });
+    }
+
+    private void retryDispatch() {
+        File file = selectedFile();
+        if (file == null || store.dispatched() || store.lastAssetId() <= 0
+                || !store.isUploaded(new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))) {
+            notifyMessage("没有可以安全重新发送的工作流通知");
+            return;
+        }
+        final File selected = file;
+        final String repo = store.repo();
+        final long releaseId = store.lastReleaseId();
+        final long assetId = store.lastAssetId();
+        final String sha = store.uploadedSha256(
+                new SecretStore.FileInfo(selected.getAbsolutePath(), selected.length()));
+        runTask("正在核对远端附件并重新发送工作流通知…", () -> {
+            String token = store.loadToken();
+            GitHubUploader.retryDispatch(repo, token, selected, releaseId, assetId, sha);
+            store.markDispatchSucceeded();
+            return "工作流通知已再次发送；仍需等待 GitHub 接收工作流执行完成。";
         });
     }
 
@@ -386,6 +419,9 @@ public final class MainActivity extends Activity {
         uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
         deleteButton.setEnabled(!busy && uploaded);
+        retryNoticeButton.setVisibility(uploaded && !store.dispatched() && store.lastAssetId() > 0
+                ? View.VISIBLE : View.GONE);
+        retryNoticeButton.setEnabled(!busy && store.hasToken());
         openReleaseButton.setVisibility(uploaded
                 && store.lastReleaseUrl().startsWith("https://github.com/")
                 ? View.VISIBLE : View.GONE);
