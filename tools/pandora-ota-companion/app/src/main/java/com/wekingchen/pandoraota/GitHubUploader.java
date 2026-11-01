@@ -178,7 +178,7 @@ final class GitHubUploader {
         }
     }
 
-    private static String sha256(File file) throws Exception {
+    static String sha256(File file) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
             byte[] data = new byte[256 * 1024];
