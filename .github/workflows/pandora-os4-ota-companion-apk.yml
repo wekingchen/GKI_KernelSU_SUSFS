@@ -41,6 +41,9 @@ jobs:
             "$SDK/cmdline-tools/16.0/bin/sdkmanager" --install "platforms;android-35" "build-tools;35.0.0"
           test -d "$SDK/platforms/android-35"
           test -d "$SDK/build-tools/35.0.0"
+      - name: OTA 采集包格式与失败关闭测试
+        working-directory: tools/pandora-ota-companion
+        run: python3 -m unittest -v test_normalize_mobile_capture.py
       - name: 编译 Debug APK
         working-directory: tools/pandora-ota-companion
         run: gradle --no-daemon :app:assembleDebug
