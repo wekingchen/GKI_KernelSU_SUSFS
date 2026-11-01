@@ -59,7 +59,62 @@ final class SecretStore {
     }
 
     void saveArchive(String path) {
-        prefs.edit().putString("last_archive", path).apply();
+        // A new capture invalidates the previous upload receipt.
+        prefs.edit().putString("last_archive", path)
+                .remove("uploaded_path").remove("uploaded_sha256")
+                .remove("uploaded_size").remove("uploaded_release")
+                .remove("uploaded_release_id").remove("uploaded_dispatch")
+                .apply();
+    }
+
+    void confirmedUpload(String path, long bytes, GitHubUploader.Result result) {
+        prefs.edit()
+                .putString("uploaded_path", path)
+                .putString("uploaded_sha256", result.sha256)
+                .putLong("uploaded_size", bytes)
+                .putString("uploaded_release", result.releaseUrl)
+                .putLong("uploaded_release_id", result.releaseId)
+                .putBoolean("uploaded_dispatch", result.dispatched)
+                .apply();
+    }
+
+    boolean isUploaded(FileInfo file) {
+        return file != null && file.path.equals(prefs.getString("uploaded_path", ""))
+                && file.size > 0 && file.size == prefs.getLong("uploaded_size", -1)
+                && !prefs.getString("uploaded_sha256", "").isEmpty();
+    }
+
+    static final class FileInfo {
+        final String path;
+        final long size;
+        FileInfo(String path, long size) {
+            this.path = path;
+            this.size = size;
+        }
+    }
+
+    String lastReleaseUrl() {
+        return prefs.getString("uploaded_release", "");
+    }
+
+    long lastReleaseId() {
+        return prefs.getLong("uploaded_release_id", 0);
+    }
+
+    boolean dispatched() {
+        return prefs.getBoolean("uploaded_dispatch", false);
+    }
+
+    boolean hasToken() {
+        return prefs.contains("token_ciphertext") && prefs.contains("token_iv");
+    }
+
+    void forgetArchive() {
+        prefs.edit().remove("last_archive")
+                .remove("uploaded_path").remove("uploaded_sha256")
+                .remove("uploaded_size").remove("uploaded_release")
+                .remove("uploaded_release_id").remove("uploaded_dispatch")
+                .apply();
     }
 
     private static SecretKey key() throws Exception {
