@@ -84,6 +84,38 @@ OLD_NAME="$(jq -r --argjson id "$OLD_ID" '.assets[] | select(.id == $id) | .name
 FIXED_ID="$(jq -r .id <<< "$FIXED")"
 gh release download "$FIXED_TAG" --repo "$R" --pattern "$OLD_NAME" --dir "$DIR/check"
 test -s "$DIR/check/$OLD_NAME"
+# Never silently replace the exact same OTA version with different bytes.
+# Existing legacy pinned ZIP lacks README, and is intentionally exempt.
+set +e
+python3 - "$DIR/check/$OLD_NAME" "$NEW" "$BUILD" <<'PY'
+import hashlib, sys, zipfile
+previous, incoming, build = sys.argv[1:]
+with zipfile.ZipFile(previous) as z:
+    matches = [x for x in z.namelist() if x.rsplit("/", 1)[-1] == "README.txt"]
+    old_build = ""
+    if len(matches) == 1:
+        for row in z.read(matches[0]).decode("utf-8", "replace").splitlines():
+            if row.startswith("build="):
+                old_build = row.split("=", 1)[1].strip()
+if old_build == build:
+    def digest(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(262144), b""):
+                h.update(block)
+        return h.hexdigest()
+    if digest(previous) != digest(incoming):
+        raise SystemExit("same OTA build, changed ZIP bytes: manual review required")
+    print("identical current OTA ZIP; no replacement necessary")
+    raise SystemExit(80)
+PY
+rc=$?
+set -e
+if [[ "$rc" -eq 80 ]]; then
+  echo '与现有新 OTA 完全相同，禁止无意义替换资产 ID。' >> "$GITHUB_STEP_SUMMARY"
+  exit 0
+fi
+[[ "$rc" -eq 0 ]] || { echo "::error::同版本完整 ZIP 漂移或损坏"; exit 8; }
 
 # Stage first under a name that DOES NOT match the original *xm.zip filter.
 PENDING="pandora-mobile-pending-$GITHUB_RUN_ID.upload"
