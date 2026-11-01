@@ -5,6 +5,7 @@ on:
     branches:
       - pandora-os4-ota-companion
       - dev
+      - pandora-ota-native-ui-v2
     paths:
       - "tools/pandora-ota-companion/**"
       - ".github/workflows/pandora-os4-ota-companion-apk.yml"
