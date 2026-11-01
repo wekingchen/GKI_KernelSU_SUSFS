@@ -82,12 +82,15 @@ public final class MainActivity extends Activity {
         rootButton = button("1. 检查 Root 授权", root);
         rootButton.setOnClickListener(v -> runTask(() -> "Root 正常：" + RootCollector.checkRoot()));
         collectButton = button("2. 一键采集并打包 ZIP", root);
-        collectButton.setOnClickListener(v -> runTask(() -> {
-            File zip = RootCollector.capture(getApplicationContext(), bootOption.isChecked());
+        collectButton.setOnClickListener(v -> {
+            final boolean includeBoot = bootOption.isChecked();
+            runTask(() -> {
+            File zip = RootCollector.capture(getApplicationContext(), includeBoot);
             store.saveArchive(zip.getAbsolutePath());
             return "采集完成：" + zip.getAbsolutePath()
                     + "\n大小：" + (zip.length() / 1024 / 1024) + " MiB（本地文件已保留）";
-        }));
+            });
+        });
         uploadButton = button("3. 上传 Draft Release 并发送触发事件", root);
         uploadButton.setOnClickListener(v -> runTask(() -> {
             File file = new File(store.lastArchive());
