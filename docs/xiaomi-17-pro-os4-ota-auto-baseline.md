@@ -1,88 +1,64 @@
-# 小米 17 Pro OS4 / 新 OTA 自动基线、实机反馈与自定义内核接力
+# 小米 17 Pro OS4：OTA 自动化、手机反馈与开发基线
 
-> 本页以实际 `dev` 工作流为准（核对日期：2026-11-01）。历史 R62/Gen 3 不会因上传新固件自动被覆盖。完整审计、功能列表和未完成事项见 [OS4 端到端审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)。
+核对日期：2026-11-02。当前入口见 [功能与文档索引](pandora-os4-guide.md)，实际操作见 [OTA 指南](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)。
 
-## 1. 入口与触发
+## 手机接收与候选构建是两条接力
 
-- 固定 OTA 输入：Release tag `pandora-os4-stock-input`，只保留当前固件一个 `*xm.zip`。
-- 自动入口：[`xiaomi-sm8850-os4-ota-auto-candidate.yml`](../.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml)；GitHub Release published/edited、每日补查（北京时间约 04:41）或人工 Run workflow。**只更换 Release 附件不保证实时触发**，每日补查/手动运行用于补救。
-- 基线真机结果入口：[`xiaomi-sm8850-os4-ota-test-feedback.yml`](../.github/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml)。
-- 日常功能编译入口：[`xiaomi-sm8850-os4-custom.yml`](../.github/workflows/xiaomi-sm8850-os4-custom.yml)。没有第二个专门的“新 OTA 自定义构建”入口。
+| 阶段 | 工作流 | 触发与结果 |
+| --- | --- | --- |
+| 手机上传接收 | [手机安全接收入库](../.github/workflows/pandora-os4-ota-mobile-intake.yml) | App 把活动快照上传到专用 Draft，发送 `pandora_ota_upload_v1`；服务器绑定附件 ID、大小和 SHA-256 审计 |
+| GKI / OEM ABI 候选 | [OTA 自动候选](../.github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml) | 接收器更新固定输入后通知；也响应指定 Release published/edited、北京时间 04:41 每日补查及手动运行 |
+| 真机测试反馈 | [原真机反馈与固化工作流](../.github/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml) | 首选在 App 填表，执行该 workflow 的 `workflow_dispatch`，固定 `ref=dev`；网页入口兼容保留 |
+| 功能版构建 | [OS4 自定义内核](../.github/workflows/xiaomi-sm8850-os4-custom.yml) | 读取已验证开发基线，按用户菜单和当次上游快照构建 |
 
-## 2. 只读采集与来源核验
+仅替换 Release 附件不保证立即发出 edited 事件，定时补查/手动入口用于补救。正常手机流程不需要用户自己删除固定 Release 的旧输入。
 
-新 OTA 升级并恢复 Root 后，在 Windows 10/11 下载**仓库最新** `scripts/xiaomi-os4/collect-pandora-stock-input.cmd`：
+## 输入与安全替换
 
-1. 检查设备 `pandora`、真实系统版本、当前 slot、uname 和 Root。
-2. 只读采集当前 slot 的 `boot/init_boot/vendor_boot/dtbo`。
-3. 利用手机 Root 的 tar 流，在 Windows 保存已挂载的 vendor_dlkm/vendor/odm_dlkm/system_dlkm 模块；打成 `oem-modules.zip` 并生成 `oem-modules-count.txt`。
-4. 生成 README、SHA256 清单与唯一 `*-xm.zip`。任何模块、分区、归档缺失立即停止；不修改手机分区。
+手机先保留同版本原始 `init_boot.img`，修补 Root 后再只读采集四个活动启动分区及 OEM 模块。手机 ZIP 由 `normalize_mobile_capture.py` 转为包含 README、SHA256SUMS、四张镜像、OEM ZIP 和模块数量清单的八文件 `xm.zip`。
 
-上传新 ZIP 前删除旧 ZIP，保持固定 Release 内仅一个。旧 OS4.0.5.0 的历史两镜像 ZIP 仅用于验证原已固定的 boot SHA，**不能当作新 OTA OEM ABI 输入**。Windows 脚本本次修正了原有 PowerShell 截断/重复打包问题，但仍需在下一次真实升级时进行 Windows/Android 端到端复查。
+这些是活动快照；Root 后 init_boot 明确为诊断材料，不能冒充 OEM 原版。boot 与 OEM .ko 是内核/ABI 主输入，但仅修补 init_boot 并不能自动证明 boot 未被换过。
 
-## 3. GitHub 不需要人工介入的 OTA 阶段
+接收器先校验来源、附件和归档结构，再与当前固定输入实际 build、渠道、boot 身份比较；旧 OTA、同版本 boot 漂移等应拒收。新输入先暂存、从 GitHub 下载回检后才替换固定唯一 `*xm.zip`；不采用“先删旧文件再验证新文件”的顺序。
 
-1. `inspect`：检查 ZIP、README、boot v4 header、kernel marker、build/slot。与旧固定输入一致时跳过；同 build 但 boot SHA 改变直接停止。
-2. `baseline`：新版本在 `6.12.x / android16-6` 且官方源码、Clang `r536225` 等门禁允许时，选择 Android 官方 GKI tag/commit，编译纯 GKI `Image/Module.symvers/final.config`。若只有相同补丁版本，候选不自动等于小米真实构建源码。
-3. `archive`：归档 `pandora-os4-ota-candidate-<build>` prerelease，包括 GKI commit、来源 SHA、构建元信息与 `RELEASE-SHA256SUMS.txt`；发布前从 Release 下载回检。其名称不表示可刷。
-4. `oem-abi-and-testboot`：对从同 ZIP 采集的 OEM .ko 做 vermagic / vmlinux 符号 CRC 检查。只有 `eligible_for_fastboot_boot=true` 时才生成该 OTA 专属 `UNVERIFIED-FASTBOOT-BOOT-ONLY.img` 和哈希清单；失败只保留报告。
+App 接收状态绑定 Asset ID 与源 SHA：
 
-此阶段禁止自动刷机、跨 OTA 使用旧 fixture、生成所谓已稳定功能内核或晋升 LKG。厂商模块静态检查不覆盖所有外部依赖、驱动运行时/设备树/early-boot 行为。
+| 状态 | 含义及下一步 |
+| --- | --- |
+| PENDING | 尚无最终回执，保留本地 ZIP，前台继续查询 |
+| ACCEPTED | 新输入已接收，候选阶段仍需继续执行；不是 ABI 或真机通过 |
+| ALREADY_CURRENT | 与固定输入一致，不必重复分析 |
+| REJECTED | 身份或内容门禁未通过；远端原始附件仍保留，查看原因 |
 
-## 4. 只需一次纯 GKI 真机确认与 GitHub 回报
+## 候选构建与可测试条件
 
-在 PC 下载同一源 Run 的待测 IMG，使用 `fastboot boot <IMG>` **临时启动**，检查：
+1. `inspect` 核对设备、build、slot、boot v4、kernel marker 与 KMI。
+2. `baseline` 在现有支持范围 `6.12.x / android16-6`、Clang r536225 内解析官方 GKI tag/commit，生成 Image、Module.symvers、final.config 和来源记录。它是适配候选，不宣称找到了 Xiaomi 全部私有源码。
+3. `archive` 对候选 prerelease 资产独立下载、校验来源与 SHA 后发布；候选公开不等于允许刷写。
+4. OEM ABI 阶段逐项检查同 OTA 模块 vermagic 和导入 `vmlinux` 符号 CRC；只有 `eligible_for_fastboot_boot=true` 才生成 `UNVERIFIED-FASTBOOT-BOOT-ONLY.img`。
+5. 同时上传独立小型 `pandora-OTA-MOBILE-FEEDBACK-<build>-<run>` Artifact，保存 Run、commit、build、预期 uname、IMG SHA 和文件名；App 不必下载整个 boot 才能预填表单。没有该文件的旧候选仍需手填实际 IMG SHA。
 
-~~~cmd
-adb shell getprop ro.product.device
-adb shell getprop ro.mi.os.version.incremental
-adb shell getprop sys.boot_completed
-adb shell uname -r
-adb shell cat /proc/modules
-~~~
+静态检查不覆盖全部驱动运行时。没有待测 IMG 的报告不能当作可启动包。App 尚不提供候选构建、ABI 和所有后续任务的统一实时进度面板。
 
-在 Windows 用 `certutil -hashfile 你的文件.img SHA256` 获取连续的小写 64 位哈希。注意是**待测 IMG 的 SHA**，不是 ZIP 或 Artifact 的 SHA。
+## 电脑临时启动，手机提交原表单
 
-GitHub 表单填写：
-- `source_run_id`：原 OTA workflow Run URL 最后一段的数字；
-- `result`：pass 或 fail；
-- `tested_boot_sha256`：实际 `fastboot boot` 的 IMG 哈希；
-- `observed_build` 和 `observed_uname`：**只有 pass 必须填写**真实读取结果；机器卡开机无法获取时，fail 可留空；
-- pass 必须勾选 Android 已完整启动、关键模块和基础功能正常；fail 可附问题说明。
+电脑校验实际 IMG 的 SHA-256 并执行 `fastboot boot`。手机测试 Wi-Fi、移动数据、通话、蓝牙、相机及关键模块后，打开工作台「真机测试反馈」：
 
-**pass 的校验与写入**：
+- 选择候选或输入来源 Run ID；新元数据核对来源后预填校验值，用户仍须确认电脑实际用了这张镜像。
+- 自动读取 `ro.product.device`、`ro.mi.os.version.incremental`、`sys.boot_completed`、`uname -r` 和 `/proc/modules`；模块读取受限时做只读 Root 回退，失败明确显示未取得。
+- build/uname 预填，用户手动选择 pass/fail、确认桌面及模块/功能并补充备注；自动采证不代替人工确认。
+- 无法进入待测系统、恢复后再填表时，选恢复后失败模式；待测 build/uname 留空，确认项为 false，恢复环境不算待测成功。
+- 本地先保存唯一反馈编号，原工作流通过 `client_request_id` / 运行标题关联；响应未知先查原运行，两分钟仍未建立可手动重发同一请求。服务器在任何 Issue 或基线变更前阻止重复编号。
+- 前台自动跟踪等待、运行、成功/失败；后台暂停查询，重新打开继续；历史最多 20 条。模块全文保留在本地草稿，不宣称原工作流接收了完整模块附件。
 
-- 只接受已完成且成功的同一 OTA 主工作流 Run，以及两个匹配版本的未过期 Artifact；
-- 校验固定 Release 中同一 ZIP asset ID、完整 ZIP SHA、GKI commit、Image/Module.symvers 哈希、OEM ABI 报告、被测 boot SHA；
-- 用原 stock boot + 对应 Image 独立重打包，要求和被测 IMG **字节完全一致**；再生成 **schema 2 fixture** 并立即从该 fixture 重建相同 boot；
-- 创建只包含 **三份**版本记录的 PR：`.github/config/ota-verified/<build>/fixture.json`、`verification.json` 和 `.github/config/ota-development-current.json`；核对 PR diff、目标分支、并发源 SHA 后按仓库保护规则尝试自动合并。
+反馈功能需要目标仓库 Contents 读写与 Actions 读写；原手机采集只需 Contents 读写。
 
-此验证状态为 `HUMAN_ATTESTED_BASELINE_BOOTED`，仍属于纯 GKI 人工启动结果；失败时创建 GitHub Issue，不创建 fixture/开发指针、不改 LKG。源 Actions Artifact 仅在保留期内可取，过期须重建可信来源，不能手工伪造记录。
+## 服务端仍然独立核验
 
-## 5. 开发指针如何影响以后的自定义编译
+通过只接受 dev 上已成功的正式 OTA 来源及唯一、未过期且版本匹配的候选附件；再次核对固定 stock-input 的 asset ID / SHA、GKI 来源、配置、Image/symvers、ABI 与实际测试 IMG SHA。用同 OTA stock boot + 对应 Image 重新打包，必须字节一致，再从 schema 2 fixture 复现。
 
-`ota-development-current.json` 是**当前开发基线指针**，不是稳定 LKG：
+通过时 PR 仅固化以下三份记录： `.github/config/ota-verified/<build>/fixture.json`、`verification.json` 和 `.github/config/ota-development-current.json`。这叫 `HUMAN_ATTESTED_BASELINE_BOOTED`，是用户报告加 CI 来源核验，不是远程硬件证明。失败只保存故障 Issue，不创建已验证开发指针。
 
-| 真实输入状态 | 原「自定义内核」的自动选择 |
-|---|---|
-| 固定 Release 仍为历史 OS4.0.5.0，且没有新 OTA 指针 | 原 R62 已验证基线与其自定义流程 |
-| 已上传新 OTA 但真机验证尚未完成 | **拒绝执行旧 R62 构建** |
-| 新 OTA 的验证记录、fixture、当前 ZIP 和 asset ID 全部匹配 | 在新版本官方 GKI commit 上尝试按勾选项构建 |
-| 新 OTA 已验证但某项补丁、编译器、ABI/KMI 失败 | 保留失败日志，不输出伪装为新版本的旧包 |
+后续仍从同一自定义入口拿到同次 Image 的待测 IMG 与 `OTA_CUSTOM_UNVERIFIED` AnyKernel3，不需要再回报一次测试结果才能取得 ZIP。真正稳定使用后，另由用户在[唯一 LKG 晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)确认；App 的测试通过不会自动晋升 LKG。
 
-新路径仍解析本次 BakaSU main、SUSFS 分支以及各组件最新非 prerelease Release / 分支提交的锁定快照；会检查应用补丁、Kconfig、内核 release、`Module.symvers` 核心符号 CRC。**自动跟进上游不等于自动保证未来源码布局兼容**。
-
-**成功编译一次，提供两个产物**（同一个 `pandora-OTA-CUSTOM-<build>-run-<id>` Artifact）：
-
-- `*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img`，供优先 `fastboot boot` 临时测试；
-- `*-UNVERIFIED-AnyKernel3.zip`，已标记 `OTA_CUSTOM_UNVERIFIED`，可以直接下载但会**持久更改 boot**；需清楚可能出现不能启动及恢复风险。
-
-两者共享同一份编译 `Image`，还附有 ABI 报告、SHA256 清单与版本元信息。**不需要再回报一次真机结果才能获得 AnyKernel3。** 功能版编译成功不等于运行时通过；用户是否持久安装自行决定，并应备份同 OTA 可启动分区。
-
-## 6. 稳定 LKG 与尚未贯通的关键后续
-
-当前经过真实验证的 LKG 为 OS4.0.5.0 / 6.12.69 / Gen 3，仍单独复现和归档。新 OTA 的开发基线移动不会改动它。
-
-**当前晋升工作流仍固定 R62 Artifact 格式与 ABI 锁，只允许原 R62 自定义构建晋升。** 新 OTA 的 `pandora-OTA-CUSTOM-...` 产物尚不能通过该流程晋升 Gen 4；新 OTA 专属的 LKG 晋升/严格复现/长期归档仍待版本化实现与端到端测试。不要仅凭“新 OTA 自定义编译成功”擅自把其称作新 LKG。
-
-另见 [全部 OS4 功能与流程审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md) 和 [Windows OTA 操作步骤](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)。
+当前真实稳定基线为 R62 Gen 4；真正不同 OTA 的采集→候选→真机→功能版→LKG 全链路仍待实际固件验证。

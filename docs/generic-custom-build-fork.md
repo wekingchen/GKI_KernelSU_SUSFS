@@ -4,7 +4,7 @@
 
 ## 失败记录和判断
 
-- 最近失败：[`kernel-custom.yml` Run #40112987860](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40112987860)，2026-10-25 北京时间，Android 12 / 5.10.209 / 2024-05 / BakaSU。宿主 Runner 在 LTO `vmlinux.o` 链接期间收到 shutdown signal，**没有编译器给出的致命链接错误可以直接归因**；这可能是 Runner 中断、资源压力或其它宿主事件，无法凭日志确认 OOM。
+- 最初排查的失败（历史）：[`kernel-custom.yml` Run #40112987860](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/40112987860)，2026-10-25 北京时间，Android 12 / 5.10.209 / 2024-05 / BakaSU。宿主 Runner 在 LTO `vmlinux.o` 链接期间收到 shutdown signal，**没有编译器给出的致命链接错误可以直接归因**；这可能是 Runner 中断、资源压力或其它宿主事件，无法凭日志确认 OOM。
 - 另一个已知问题：BBG `genheaders` 在 Android `build/build.sh` 提前收缩的 `PATH` 中用 clang-12 编译 host 工具时报 `Executable "ld" doesn't exist`，其后生成 `flask.h` 失败。
 - 更早的 [Run #38128504763](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/38128504763) 是 BakaSU 与 SUSFS 的独立兼容性门禁拒绝：`susfs_compat.mk: Please wait susfs update`。最新 Run 已跨过该阻断点。**绝对不应删除兼容门禁或伪造 SUSFS 能力来换取“成功”。**
 
@@ -15,7 +15,7 @@
 本修复新增两条**本仓自有、非上游同名路径**的独立工作流：
 
 - [`kernel-custom-fork.yml`](../.github/workflows/kernel-custom-fork.yml)：**Android 内核构建-自定义（本仓隔离修复版）**。原来的构建选项、自动版本解析、Manager 构建入口都保留，但调用本仓自己的 `build-fork-custom.yml`。
-- [`build-fork-custom.yml`](../.github/workflows/build-fork-custom.yml)：由同一时间的原 `build.yml` 快照复制，只追加有限资源与 BBG host 工具修补。未来上游大改时要逐项比较后重新同步，不应把这个隔离副本误当成能实时自动同步上游的文件。
+- [`build-fork-custom.yml`](../.github/workflows/build-fork-custom.yml)：由同一时间的原 `build.yml` 快照复制，只追加有限资源与 BBG host 工具修补。该副本由下文的每日自动同步与真实构建门禁维护；上游未更新时不重复编译，冲突时保留已验证版本。
 
 ## 改动及安全范围
 
@@ -28,11 +28,11 @@
 
 ## 操作和验证
 
-进入 [**Android 内核构建-自定义（本仓隔离修复版）**](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/kernel-custom-fork.yml)，在 `dev` 上使用与原失败 Run 相同的选项（5.10 / 2024-05 / BakaSU），对比能否完成 `LTO vmlinux.o`、产物打包和上传。
+进入 [**Android 内核构建-自定义（本仓隔离修复版）**](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/kernel-custom-fork.yml)，在 `dev` 上按设备需要选择功能。历史验证组合为 5.10 / 2024-05 / BakaSU，Run 41239924766 已完成编译和产物上传，用户已确认红米 K50 Pro 刷入成功，无需重复最初失败排查。
 
 `generic-custom-fork-guard.yml` 会持续检查 YAML、Shell、host linker 的缺失/坏链接/可执行权限，以及新旧 workflow 选择项一致性，并拒绝改动上游共用路径。它**不是真实完整内核编译**。
 
-**关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。在这之前，状态只能标为「已打补丁、尚未实编验证」。
+**关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。隔离版后续已由 Run 41239924766 完成真实编译，用户已确认红米 K50 Pro 真机刷入成功；该结果不能推及所有其它设备。
 
 ## 自动跟进上游，不需要手工同步
 
@@ -65,4 +65,4 @@
 
 路由检测、真实构建调度和 SHA 门禁在 `scripts/generic-custom/try_native_upstream.sh`；配置安全策略在 `scripts/generic-custom/native_upstream_policy.py`；回归用例在 `scripts/generic-custom/test_native_upstream_policy.py`。
 
-**当前状态**：现有原版仍有强制 Thin LTO 的历史设置，且尚未出现新的可确认修复，因此保持 `fork`（红米 K50 Pro 已成功真机刷入的稳定隔离版），绝不提前退役。
+**当前状态（2026-11-02 核对仓库配置）**：`generic-custom-route.json` 记录 mode=fork、validated_kernel_run_id=41239924766，因此仍使用用户已真机确认的隔离版。是否恢复上游由自动检查及真实编译决定，不根据文档猜测最新上游状态，也不要求用户再次确认刷机才自动停用隔离版。
