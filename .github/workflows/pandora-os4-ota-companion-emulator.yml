@@ -60,20 +60,14 @@ jobs:
             adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/workbench.png
 
-            SIZE_LINE="$(adb shell wm size | tr -d '\r' | tail -n1)"
-            DIMENSIONS="$(printf '%s' "$SIZE_LINE" | cut -d: -f2 | tr -d ' ')"
-            WIDTH="$(printf '%s' "$DIMENSIONS" | cut -dx -f1)"
-            HEIGHT="$(printf '%s' "$DIMENSIONS" | cut -dx -f2)"
-            test -n "$WIDTH" && test -n "$HEIGHT"
-            NAV_Y=$((HEIGHT - 150))
-
-            # Bottom navigation thirds: Records, then Settings.
-            adb shell input tap $((WIDTH / 2)) "$NAV_Y"
+            # pixel_7_pro / API 35 profile is fixed at 1440x3120 in this workflow.
+            # Use stable navigation coordinates instead of parsing wm size across shells.
+            adb shell input tap 720 2960
             sleep 2
             adb exec-out screencap -p > app/build/reports/androidTests/preview/records.png
             test -s app/build/reports/androidTests/preview/records.png
 
-            adb shell input tap $((WIDTH * 5 / 6)) "$NAV_Y"
+            adb shell input tap 1200 2960
             sleep 2
             adb exec-out screencap -p > app/build/reports/androidTests/preview/settings.png
             test -s app/build/reports/androidTests/preview/settings.png
