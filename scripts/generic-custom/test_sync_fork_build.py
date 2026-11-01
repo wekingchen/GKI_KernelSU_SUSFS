@@ -98,6 +98,23 @@ class RebaseSafety(unittest.TestCase):
         with self.assertRaises(ValueError):
             mod.sync(state, self.base, self.base, self.custom)
 
+    def test_unattended_scheduler_always_requires_real_successful_build(self):
+        schedule = (ROOT / ".github/workflows/generic-custom-auto-sync.yml").read_text()
+        pipeline = (ROOT / "scripts/generic-custom/run_auto_sync.sh").read_text()
+        self.assertIn('cron: "17 3 * * *"', schedule)
+        self.assertIn('timeout-minutes: 350', schedule)
+        self.assertIn("run_auto_sync.sh", schedule)
+        self.assertIn('workflow run kernel-custom-fork.yml', pipeline)
+        self.assertIn('build-fork-custom.yml', pipeline)
+        self.assertIn('41239924766', pipeline)
+        self.assertIn('select(.conclusion=="success")', pipeline)
+        self.assertIn('BakaSU_kernel-android12-5.10-209-AnyKernel3', pipeline)
+        self.assertIn('CURRENT_UPSTREAM=', pipeline)
+        self.assertIn('CURRENT_DEV=', pipeline)
+        self.assertIn('git push origin HEAD:dev', pipeline)
+        self.assertIn('git push origin "$BRANCH"', pipeline)
+        self.assertIn('trap cleanup EXIT', pipeline)
+
     def test_yaml_parser_can_parse_fork_snapshot(self):
         result = subprocess.run(["ruby", "-ryaml", "-e",
                                  "YAML.parse_file(ARGV[0])", str(FORK)],
