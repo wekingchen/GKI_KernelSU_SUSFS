@@ -164,6 +164,14 @@ python3 scripts/generic-custom/native_upstream_policy.py \
   --commit "$UPSTREAM_COMMIT" --run-id "$RUN" \
   --output "$WORK/validated-route.json"
 cp "$WORK/validated-route.json" "$ROUTE"
+# The production branch must remain green *after* switching mode. Verify
+# recovery tests (which must handle either route) before writing dev.
+ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }' \
+  .github/workflows/build.yml .github/workflows/kernel-custom.yml \
+  .github/workflows/build-fork-custom.yml .github/workflows/kernel-custom-fork.yml
+python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
+[[ "$(git hash-object .github/workflows/build.yml)" == "$UPSTREAM_BUILD_SHA" ]] || exit 1
+[[ "$(git hash-object .github/workflows/kernel-custom.yml)" == "$UPSTREAM_CUSTOM_SHA" ]] || exit 1
 git add "$ROUTE"
 git commit -m "chore(K50Pro): retire private autosync after exact native upstream CI success"
 CANDIDATE_SHA="$(git rev-parse HEAD)"
