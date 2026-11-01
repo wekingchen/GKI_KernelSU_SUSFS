@@ -91,7 +91,7 @@ final class RootCollector {
             verifyRequiredStaging(dir);
             int zipped = 0;
             try (ZipOutputStream out = new ZipOutputStream(
-                    new BufferedOutputStream(new FileOutputStream(zip)), 256 * 1024)) {
+                    new BufferedOutputStream(new FileOutputStream(zip), 256 * 1024))) {
                 byte[] buffer = new byte[256 * 1024];
                 for (File f : produced) {
                     if (!f.isFile() || !f.getName().matches("[A-Za-z0-9._-]+"))
