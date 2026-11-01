@@ -149,6 +149,46 @@ final class GitHubUploader {
         if (found != 1) throw new SecurityException("远端附件不存在或重复，禁止删除");
     }
 
+    /**
+     * GitHub Draft Releases have a private editor URL, not a published /tag/
+     * page. A /releases/tag/untagged-* link returned in html_url may show 404
+     * even though the authenticated REST API reports the draft and ZIP intact.
+     *
+     * Fetch the CURRENT release at click time: stored URLs are not durable
+     * because GitHub may retag drafts while the intake writes its receipt.
+     */
+    static String verifiedDraftEditorUrl(String repo, String token, long releaseId,
+                                         long assetId, File file, String sha) throws Exception {
+        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || token == null || token.isEmpty()
+                || releaseId <= 0 || assetId <= 0 || sha == null
+                || !sha.matches("[0-9a-f]{64}") || file == null || !file.isFile()) {
+            throw new SecurityException("无法确认该采集包的 GitHub 草稿身份");
+        }
+        JSONObject release = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        verifyRemoteArchiveMetadata(release, releaseId, assetId,
+                file.getName(), file.length(), sha);
+        return draftEditorUrl(repo, release.optString("html_url"));
+    }
+
+    /** Validate and convert only the canonical GitHub release tag URL. */
+    static String draftEditorUrl(String repo, String htmlUrl) {
+        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || htmlUrl == null) {
+            throw new SecurityException("无效的 GitHub 草稿地址");
+        }
+        String prefix = "https://github.com/" + repo + "/releases/tag/";
+        if (!htmlUrl.startsWith(prefix)) {
+            throw new SecurityException("GitHub 返回了非预期的 Release 地址");
+        }
+        String tag = htmlUrl.substring(prefix.length());
+        if (!tag.matches("(untagged-[A-Za-z0-9-]+|pandora-ota-capture-[A-Za-z0-9-]+)")) {
+            throw new SecurityException("GitHub Draft Release 标识无效");
+        }
+        return "https://github.com/" + repo + "/releases/edit/" + tag;
+    }
+
     /** Retry notification for an already-uploaded GitHub attachment, without uploading again. */
     static void retryDispatch(String repo, String token, File file,
                               long releaseId, long assetId, String expectedSha) throws Exception {
