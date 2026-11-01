@@ -323,6 +323,12 @@ public final class MainActivity extends Activity {
         workMetrics.addView(repoMetric, metricMidLp);
         workMetrics.addView(githubMetric, metricLastLp);
 
+        LinearLayout feedbackCard = surfaceCard(work, dp(18), dp(18));
+        feedbackCard.addView(sectionHeading("", "真机测试反馈", "电脑临时启动后，在手机完成检查与提交"));
+        Button feedbackButton = button("填写测试结果   →", false);
+        feedbackCard.addView(feedbackButton, blockParams(dp(14)));
+        feedbackButton.setOnClickListener(v -> startActivity(new Intent(this, FeedbackActivity.class)));
+
         // Records — status-led, concise and action-oriented.
         records.addView(pageHeading("记录", "采集文件与 GitHub 记录"));
 

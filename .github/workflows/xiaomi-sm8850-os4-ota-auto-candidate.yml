@@ -375,6 +375,32 @@ jobs:
           EOF
           echo "OTA_FASTBOOT_BOOT_READY=UNVERIFIED_ONLY"
 
+      - name: "生成手机表单所需的小型候选元数据"
+        if: steps.abi.outputs.eligible == 'true'
+        env:
+          SOURCE_RUN: ${{ github.run_id }}
+          SOURCE_HEAD: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          BUILD="$(jq -r .build "$DIR/stock-report.json")"
+          python3 tools/pandora-ota-companion/create_test_feedback_manifest.py \
+            --stock-report "$DIR/stock-report.json" --abi-report "$DIR/ota-abi-report.json" \
+            --boot "$DIR/pandora-$BUILD-UNVERIFIED-FASTBOOT-BOOT-ONLY.img" \
+            --run "$SOURCE_RUN" --head "$SOURCE_HEAD" --repository "$SOURCE_REPOSITORY" \
+            --output "$DIR/mobile-test-feedback.json"
+
+      - name: "单独上传手机候选元数据（无需手机下载整个 boot）"
+        if: steps.abi.outputs.eligible == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-MOBILE-FEEDBACK-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/ota-abi/mobile-test-feedback.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: "独立保存兼容性证据 / 仅在全绿时附加待测 boot"
         if: always()
         uses: actions/upload-artifact@v6

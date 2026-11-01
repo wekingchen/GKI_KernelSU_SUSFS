@@ -8,6 +8,7 @@
         android:icon="@mipmap/ic_pandora_ota"
         android:roundIcon="@mipmap/ic_pandora_ota"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".FeedbackActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden|uiMode" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
