@@ -5,6 +5,7 @@ on:
     branches:
       - pandora-os4-ota-companion
       - dev
+      - pandora-os4-rooted-initboot-provenance
     paths:
       - "tools/pandora-ota-companion/**"
       - ".github/workflows/pandora-os4-ota-companion-apk.yml"
