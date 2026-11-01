@@ -9,6 +9,10 @@ on:
       - ".github/workflows/pandora-os4-ota-companion-apk.yml"
   workflow_dispatch:
 
+concurrency:
+  group: pandora-ota-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
