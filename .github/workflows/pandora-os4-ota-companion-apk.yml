@@ -82,6 +82,26 @@ jobs:
           PANDORA_OTA_KEY_PASSWORD: ${{ secrets.PANDORA_OTA_KEY_PASSWORD }}
         working-directory: tools/pandora-ota-companion
         run: gradle --no-daemon :app:assembleRelease
+      - name: 核对稳定 APK 签名证书指纹与 v2/v3 签名
+        if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=tools/pandora-ota-companion/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/pandora-apk-signature.txt"
+          grep -Fq "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/pandora-apk-signature.txt"
+          ACTUAL="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/pandora-apk-signature.txt" | tr "A-F" "a-f")"
+          EXPECTED="6a465b38eaadaca90f9186634f416a16c03eeff6056813e5ae906c0aecab732f"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::APK 签名指纹与已备份的长期密钥不符，禁止发布"
+            exit 1
+          fi
+          echo "::notice::稳定签名已验证，证书 SHA-256: $ACTUAL"
+      - name: 删除 Runner 上的临时签名密钥
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/pandora-ota-stable.p12"
       - name: 上传可长期覆盖升级的稳定签名 APK
         if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'
         uses: actions/upload-artifact@v4
