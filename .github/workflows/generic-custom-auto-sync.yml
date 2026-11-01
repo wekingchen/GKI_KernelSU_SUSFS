@@ -1,0 +1,37 @@
+name: "红米 K50 Pro / 上游 build.yml 无人值守同步"
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/generic-custom-auto-sync.yml"
+      - "scripts/generic-custom/run_auto_sync.sh"
+      - "scripts/generic-custom/sync_fork_build.py"
+      - ".github/config/generic-custom-upstream-sync.json"
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: k50pro-private-build-upstream-auto-sync
+  cancel-in-progress: false
+jobs:
+  check-rebase-and-build:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - name: "检出当前稳定 dev"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: true
+      - name: "检查上游 -> 三方合并 -> 补丁重放 -> 全功能实际构建 -> 安全更新"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/generic-custom/run_auto_sync.sh
