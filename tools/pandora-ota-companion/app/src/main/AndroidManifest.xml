@@ -4,7 +4,9 @@
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
-        android:label="小米 OS4 OTA 采集助手"
+        android:label="Pandora OTA"
+        android:icon="@drawable/ic_pandora_ota"
+        android:roundIcon="@drawable/ic_pandora_ota"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
