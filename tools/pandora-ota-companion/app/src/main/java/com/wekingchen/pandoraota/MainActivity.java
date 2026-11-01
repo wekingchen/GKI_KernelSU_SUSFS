@@ -47,7 +47,7 @@ public final class MainActivity extends Activity {
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
     private LinearLayout archiveListing, statusBanner, appBar, recordCard, recordActionRow;
-    private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
+    private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount;
     private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
     private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
     private final LinearLayout[] navItems = new LinearLayout[3];
@@ -146,10 +146,11 @@ public final class MainActivity extends Activity {
 
         heroCopy.addView(text("Xiaomi 17 Pro", 24, INK, true));
         deviceStatus = text(RootCollector.isPandora()
-                        ? "pandora · Android 16 · HyperOS 4"
+                        ? "pandora · OS4 · Android 16"
                         : "pandora · 当前设备不受支持",
-                12, RootCollector.isPandora() ? MUTED : WARNING, false);
-        heroCopy.addView(deviceStatus, blockParams(dp(8)));
+                11, RootCollector.isPandora() ? MUTED : WARNING, false);
+        deviceStatus.setSingleLine(true);
+        heroCopy.addView(deviceStatus, blockParams(dp(7)));
 
         LinearLayout rootRow = new LinearLayout(this);
         rootRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -175,10 +176,10 @@ public final class MainActivity extends Activity {
         ImageView deviceArt = new ImageView(this);
         deviceArt.setImageResource(R.drawable.device_pandora_render);
         deviceArt.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        FrameLayout.LayoutParams deviceArtParams = new FrameLayout.LayoutParams(dp(108), dp(154));
+        FrameLayout.LayoutParams deviceArtParams = new FrameLayout.LayoutParams(dp(114), dp(160));
         deviceArtParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
-        deviceArtParams.topMargin = dp(10);
-        deviceArtParams.rightMargin = dp(9);
+        deviceArtParams.topMargin = dp(4);
+        deviceArtParams.rightMargin = dp(7);
         hero.addView(deviceArt, deviceArtParams);
 
         bootOption = new CheckBox(this);
@@ -301,9 +302,9 @@ public final class MainActivity extends Activity {
         workRepoMetric = metricValue(repoMetric);
         workGitHubMetric = metricValue(githubMetric);
         LinearLayout.LayoutParams metricLp = new LinearLayout.LayoutParams(0, dp(82), 1);
-        LinearLayout.LayoutParams metricMidLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        LinearLayout.LayoutParams metricMidLp = new LinearLayout.LayoutParams(0, dp(82), 1);
         metricMidLp.leftMargin = dp(8);
-        LinearLayout.LayoutParams metricLastLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        LinearLayout.LayoutParams metricLastLp = new LinearLayout.LayoutParams(0, dp(82), 1);
         metricLastLp.leftMargin = dp(8);
         workMetrics.addView(uploadedMetric, metricLp);
         workMetrics.addView(repoMetric, metricMidLp);
@@ -321,10 +322,10 @@ public final class MainActivity extends Activity {
         recordCountMetric = metricValue(collectedTile);
         recordUploadedMetric = metricValue(uploadedTile);
         recordGitHubMetric = metricValue(githubTile);
-        LinearLayout.LayoutParams overviewLp = new LinearLayout.LayoutParams(0, dp(88), 1);
-        LinearLayout.LayoutParams overviewMidLp = new LinearLayout.LayoutParams(0, dp(88), 1);
+        LinearLayout.LayoutParams overviewLp = new LinearLayout.LayoutParams(0, dp(84), 1);
+        LinearLayout.LayoutParams overviewMidLp = new LinearLayout.LayoutParams(0, dp(84), 1);
         overviewMidLp.leftMargin = dp(8);
-        LinearLayout.LayoutParams overviewLastLp = new LinearLayout.LayoutParams(0, dp(88), 1);
+        LinearLayout.LayoutParams overviewLastLp = new LinearLayout.LayoutParams(0, dp(84), 1);
         overviewLastLp.leftMargin = dp(8);
         recordOverview.addView(collectedTile, overviewLp);
         recordOverview.addView(uploadedTile, overviewMidLp);
@@ -396,13 +397,13 @@ public final class MainActivity extends Activity {
         records.addView(localHeader, blockParams(dp(28)));
         localHeader.addView(text("本地记录", 22, INK, true),
                 new LinearLayout.LayoutParams(0, -2, 1));
-        TextView localCount = text("最近 12 条", 11, MUTED, false);
+        localCount = text("0 条", 11, MUTED, false);
         localHeader.addView(localCount);
         archiveListing = vertical();
         records.addView(archiveListing, blockParams(dp(7)));
 
         // Settings — list-style, matching the selected commercial concept.
-        settings.addView(pageHeading("设置", "关键配置简洁直观"));
+        settings.addView(pageHeading("设置", "连接、采集与安全"));
 
         LinearLayout connectionCard = vertical();
         connectionCard.setBackground(round(WHITE, dp(24)));
@@ -585,11 +586,20 @@ public final class MainActivity extends Activity {
     }
 
     private void renderSettingRow(TextView view, String title, String subtitle) {
-        view.setText(title + "\n" + subtitle);
+        String content = title + "\n" + subtitle;
+        android.text.SpannableString styled = new android.text.SpannableString(content);
+        int split = title.length() + 1;
+        styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD),
+                0, title.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        styled.setSpan(new android.text.style.ForegroundColorSpan(MUTED),
+                split, content.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        styled.setSpan(new android.text.style.RelativeSizeSpan(0.84f),
+                split, content.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        view.setText(styled);
         view.setTextColor(INK);
         view.setTextSize(14);
         view.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
-        view.setLineSpacing(0, 1.08f);
+        view.setLineSpacing(dp(1), 1.06f);
     }
 
     private void showRepoEditor() {
@@ -920,6 +930,8 @@ public final class MainActivity extends Activity {
         if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
         if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
         if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (localCount != null) localCount.setText(allArchives.length == 0
+                ? "0 条" : "最近 " + Math.min(allArchives.length, 12) + " 条");
         fileState.setText(exists
                 ? file.getName() + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
