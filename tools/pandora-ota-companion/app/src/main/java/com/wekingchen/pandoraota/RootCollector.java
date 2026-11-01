@@ -6,6 +6,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.*;
 
 /**
@@ -23,13 +24,28 @@ final class RootCollector {
     }
 
     static String checkRoot() throws Exception {
+        // Root Manager might show an interactive prompt or reject this app's UID.
+        // Always bound the wait: a hung su must not lock the UI worker indefinitely.
         Process p = new ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start();
-        String output = readLimited(p.getInputStream(), 4096);
-        int rc = p.waitFor();
-        if (rc != 0 || !output.contains("uid=0")) {
-            throw new IllegalStateException("Root 未授权或 su 命令不可用");
+        try {
+            if (!p.waitFor(45, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                p.waitFor();
+                throw new IllegalStateException(
+                        "等待 Root 授权超过 45 秒。请在 Root 管理器中检查本应用的超级用户授权");
+            }
+            String output = readLimited(p.getInputStream(), 4096);
+            int rc = p.exitValue();
+            if (rc != 0 || !output.contains("uid=0")) {
+                String reason = output.trim();
+                if (reason.length() > 180) reason = reason.substring(0, 180);
+                throw new IllegalStateException("当前应用未获得 Root（退出码 " + rc + "）"
+                        + (reason.isEmpty() ? "；请查看 Root 管理器的应用授权" : "：" + reason));
+            }
+            return output.trim();
+        } finally {
+            p.destroy();
         }
-        return output.trim();
     }
 
     static File capture(Context ctx, boolean includeBoot) throws Exception {
