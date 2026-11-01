@@ -35,6 +35,7 @@ public final class FeedbackActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);secrets=new SecretStore(this);store=new FeedbackStore(this);submission=store.submission();
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         LinearLayout shell=column();shell.setBackgroundColor(BG);setContentView(shell);
@@ -172,7 +173,7 @@ public final class FeedbackActivity extends Activity {
             busy=true;renderControls();statusInfo.setText("正在向原工作流提交…");
             worker.execute(()->{
                 String error="";boolean rejected=false;
-                try{client().submit(inputs);}catch(Exception e){error=message(e);rejected=e instanceof FeedbackClient.ApiException&&((FeedbackClient.ApiException)e).status>=400&&((FeedbackClient.ApiException)e).status<500;}
+                try{client().submit(inputs);}catch(Exception e){error=message(e);rejected=!retry&&e instanceof FeedbackClient.ApiException&&((FeedbackClient.ApiException)e).status>=400&&((FeedbackClient.ApiException)e).status<500;}
                 final String detail=error;final boolean refused=rejected;
                 runOnUiThread(()->{
                     busy=false;
