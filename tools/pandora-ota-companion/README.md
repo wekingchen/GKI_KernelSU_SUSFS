@@ -1,6 +1,6 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.10.3-dev（真机视觉微调 + Root 后镜像来源标注）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.10.4-dev（系统身份展示 + 全链功能审计）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
 
 ## 操作流程
@@ -67,9 +67,9 @@ gradle --no-daemon :app:assembleDebug
 ## 界面 UI 2.0（0.7.3-dev）
 
 - 原生 Android Activity 顶部信息区、固定状态条与底部三目的地导航：**工作台 / 记录 / 设置**。不采用 WebView 或 HTML。
-- 工作台只保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
+- 工作台显示当前 HyperOS 完整版本号，并保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
 - 记录页集中管理本地 ZIP 列表、历史回执、接收状态查询、通知重试和安全删除。
-- 设置页保管 GitHub 仓库与加密 PAT；升级保持相同包名与固定签名，不清除应用数据。
+- 设置页保管 GitHub 仓库与加密 PAT；「采集设置」直接显示当前活动 slot A/B；升级保持相同包名与固定签名，不清除应用数据。
 - 触控按钮具有 Android Ripple、短缩放与触控震动；长操作在顶部显示即时任务状态，上传使用实际字节进度，不伪造采集百分比。
 - UI 重构不改动 RootCollector、GitHubUploader 接收协议、ZIP 内容、SHA-256、原厂 Boot 比对或 LKG 门禁。
 
