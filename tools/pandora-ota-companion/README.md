@@ -16,6 +16,25 @@
 
 上传阶段请保持 App 前台及网络稳定，目前**不支持断点续传**，也不提供后台 Foreground Service。单个采集文件须小于 950 MiB。
 
+## 全链功能审计结论（0.10.4-dev）
+
+当前主链已经闭环到：**新 OTA → 同版本 init_boot 获取 Root → App 只读采集 → 本地 ZIP → GitHub Draft → 手机接收入库 → 固定 stock-input → GKI 候选 → OEM ABI/KMI → 条件生成 fastboot boot → 人工真机验证 → verified fixture → 自定义功能适配 → 人工晋升 LKG → 长期归档**。
+
+本轮已补齐两项采集前身份可见性：工作台直接显示当前 HyperOS 完整 build；设置页「采集设置」直接显示当前活动 slot A/B。历史采集包也显示自身 build/slot，上传前必须与当前手机一致。
+
+本轮审计额外发现并修复了一个安全缺口：旧逻辑只要 `build != pinned` 就可能进入 `NEW_OTA_CANDIDATE`。现在客户端先阻止旧 build/旧 slot ZIP，服务端再拒绝比固定版本更旧或非向前的 HyperOS build；固件渠道后缀变化必须转人工审核。
+
+仍待后续补强、但不阻断现有主链的能力：
+
+- **后端进度可见性**：App 当前只显示手机 intake 的 PENDING / ACCEPTED / ALREADY_CURRENT / REJECTED，还不能继续显示 GKI 候选构建、ABI/KMI、待测 fastboot boot、真机验证状态。
+- **GitHub 实时连接预检**：目前只能确认 PAT 已配置，不能在采集前证明当前网络、仓库访问与写权限都正常；因此 UI 只显示「已配置」，不虚称「已连接」。
+- **采集空间预检**：当前空间不足会失败关闭并清理 staging/残缺 ZIP，但尚未在开始读取大分区前给出剩余空间预警。
+- **前台自动查询 intake**：当前后端结果由用户点击查询；可在保持前台、不增加后台常驻服务的前提下加入短时自动轮询。
+- **待测 boot 真机反馈辅助**：fastboot boot 仍必须由电脑人工执行；未来 App 可在启动回来后读取 build/uname/boot_completed，并辅助提交验证证据，但绝不能自行 fastboot/flash。
+- **远端 Draft 生命周期**：本地 ZIP 已有严格安全删除，远端采集 Draft 为保留证据暂不自动删；后续可在候选/验证证据已归档后提供人工清理。
+
+明确属于安全边界、**不是缺失功能**：App 不刷机、不切 slot、不自动晋升 LKG、不把 Root 后 init_boot 冒充 OEM 原版、不因后端 ACCEPTED/REJECTED 自动删除本地证据，也不承诺后台断点续传。
+
 ## OTA 后恢复 Root 的固定操作顺序（用户真机操作决策）
 
 1. 新 HyperOS OTA 升级成功，核对 **pandora / OS build / 内核 / 当前 slot**。
