@@ -8,9 +8,14 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.zip.*;
 
-/** Read-only rooted capture; never flash or change the device partitions. */
+/**
+ * Read-only rooted snapshot: all intermediate partitions and TARs are disposable.
+ * Successful captures retain ONLY the final uploadable ZIP.
+ * A failed capture removes its partial ZIP and attempts to remove its staging files.
+ */
 final class RootCollector {
     private RootCollector() {}
+    private static final long STALE_AFTER_MS = 30L * 60L * 1000L;
 
     static boolean isPandora() {
         return "pandora".equalsIgnoreCase(Build.DEVICE)
@@ -29,73 +34,187 @@ final class RootCollector {
 
     static File capture(Context ctx, boolean includeBoot) throws Exception {
         if (!isPandora()) throw new IllegalStateException("仅支持小米17 Pro（pandora）");
-        checkRoot();
         if (!includeBoot) throw new IllegalArgumentException("OTA 完整采集必须包括当前 slot 四个启动分区");
-        File parent = new File(ctx.getExternalFilesDir(null), "captures");
-        if (!parent.isDirectory() && !parent.mkdirs()) {
-            throw new IllegalStateException("无法建立采集目录");
-        }
+        checkRoot();
+
+        File parent = captureDirectory(ctx);
+        purgeStaleStaging(ctx); // recover previous interrupted operations before consuming disk again
         String stamp = timestamp();
         File dir = new File(parent, "staging-" + stamp);
-        if (!dir.mkdirs()) throw new IllegalStateException("创建临时目录失败");
+        if (!dir.mkdir()) throw new IllegalStateException("临时采集目录创建失败");
         File zip = new File(parent, "pandora-os4-capture-" + stamp + ".zip");
+        if (zip.exists()) {
+            cleanStaging(parent, dir);
+            throw new IllegalStateException("已有同名 ZIP，拒绝覆盖");
+        }
 
-        String sh = "set -eu\n"
-                + "umask 077\n"
-                + "OUT=" + shellQuote(dir.getAbsolutePath()) + "\n"
-                + "mkdir -p \"$OUT\"\n"
-                + "printf 'schema=pandora-ota-capture-v1\\nsource=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK\\ndevice=pandora\\n' > \"$OUT/manifest.txt\"\n"
-                + "for key in ro.product.device ro.build.version.release ro.build.version.incremental ro.build.fingerprint ro.boot.slot_suffix; do "
-                + "printf '%s=' \"$key\" >> \"$OUT/manifest.txt\"; getprop \"$key\" >> \"$OUT/manifest.txt\"; done\n"
-                + "uname -r > \"$OUT/kernel-release.txt\"\n"
-                + "cat /proc/version > \"$OUT/kernel-version.txt\"\n"
-                + "(cat /proc/modules || true) > \"$OUT/loaded-modules.txt\"\n"
-                + "(cat /sys/kernel/security/lsm || true) > \"$OUT/lsm.txt\"\n"
-                + "(cat /proc/cgroups || true) > \"$OUT/cgroups.txt\"\n"
-                + "modules=''\n"
-                + "for d in vendor_dlkm/lib/modules vendor/lib/modules odm_dlkm/lib/modules system_dlkm/lib/modules; do "
-                + "if [ -d \"/$d\" ]; then modules=\"$modules $d\"; fi; done\n"
-                + "if [ -z \"$modules\" ]; then echo 'OEM module paths missing' >&2; exit 21; fi\n"
-                + "(cd / && tar -chf \"$OUT/oem-modules.tar\" $modules)\n"
-                + "slot=\"$(getprop ro.boot.slot_suffix)\"\n"
-                + "case \"$slot\" in _a|_b) ;; *) echo 'invalid slot' >&2; exit 12;; esac\n"
-                + "for part in boot init_boot vendor_boot dtbo; do "
-                + "dev=\"/dev/block/by-name/$part$slot\"; "
-                + "test -r \"$dev\" || { echo \"missing $dev\" >&2; exit 13; }; "
-                + "dd if=\"$dev\" of=\"$OUT/$part$slot.img\" bs=1048576 2>/dev/null; "
-                + "test \"$(wc -c < \"$OUT/$part$slot.img\")\" -ge 4096 || exit 14; "
-                + "done\n"
-                + "echo \"slot=$slot\" >> \"$OUT/manifest.txt\"\n"
-                + "printf 'uname=' >> \"$OUT/manifest.txt\"; uname -r >> \"$OUT/manifest.txt\"\n"
-                + "chmod 644 \"$OUT\"/*\n";
-        Process p = new ProcessBuilder("su", "-c", sh).redirectErrorStream(true).start();
-        String shellLog = readLimited(p.getInputStream(), 8192);
-        int rc = p.waitFor();
-        if (rc != 0) {
-            throw new IllegalStateException("只读采集失败 (code " + rc + "): " + shellLog);
-        }
-        File[] produced = dir.listFiles();
-        if (produced == null || produced.length == 0) {
-            throw new IllegalStateException("采集结果为空");
-        }
-        try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(zip))) {
-            byte[] buffer = new byte[1024 * 256];
-            for (File f : produced) {
-                if (!f.isFile()) continue;
-                out.putNextEntry(new ZipEntry(f.getName()));
-                try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(f))) {
-                    int n;
-                    while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+        boolean complete = false;
+        Exception failure = null;
+        try {
+            // dir is under the application's own external files directory, never a device partition.
+            String sh = "set -eu\n"
+                    + "umask 077\n"
+                    + "OUT=" + shellQuote(dir.getAbsolutePath()) + "\n"
+                    + "printf 'schema=pandora-ota-capture-v1\\nsource=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK\\ndevice=pandora\\n' > \"$OUT/manifest.txt\"\n"
+                    + "for key in ro.product.device ro.mi.os.version.incremental ro.build.version.release ro.build.version.incremental ro.build.fingerprint ro.boot.slot_suffix; do "
+                    + "printf '%s=' \"$key\" >> \"$OUT/manifest.txt\"; getprop \"$key\" >> \"$OUT/manifest.txt\"; done\n"
+                    + "uname -r > \"$OUT/kernel-release.txt\"\n"
+                    + "cat /proc/version > \"$OUT/kernel-version.txt\"\n"
+                    + "(cat /proc/modules || true) > \"$OUT/loaded-modules.txt\"\n"
+                    + "(cat /sys/kernel/security/lsm || true) > \"$OUT/lsm.txt\"\n"
+                    + "(cat /proc/cgroups || true) > \"$OUT/cgroups.txt\"\n"
+                    + "modules=''\n"
+                    + "for d in vendor_dlkm/lib/modules vendor/lib/modules odm_dlkm/lib/modules system_dlkm/lib/modules; do "
+                    + "if [ -d \"/$d\" ]; then modules=\"$modules $d\"; fi; done\n"
+                    + "if [ -z \"$modules\" ]; then echo 'OEM module paths missing' >&2; exit 21; fi\n"
+                    + "(cd / && tar -chf \"$OUT/oem-modules.tar\" $modules)\n"
+                    + "slot=\"$(getprop ro.boot.slot_suffix)\"\n"
+                    + "case \"$slot\" in _a|_b) ;; *) echo 'invalid slot' >&2; exit 12;; esac\n"
+                    + "for part in boot init_boot vendor_boot dtbo; do "
+                    + "dev=\"/dev/block/by-name/$part$slot\"; "
+                    + "test -r \"$dev\" || { echo \"missing $dev\" >&2; exit 13; }; "
+                    + "dd if=\"$dev\" of=\"$OUT/$part$slot.img\" bs=1048576 2>/dev/null; "
+                    + "test \"$(wc -c < \"$OUT/$part$slot.img\")\" -ge 4096 || exit 14; "
+                    + "done\n"
+                    + "echo \"slot=$slot\" >> \"$OUT/manifest.txt\"\n"
+                    + "printf 'uname=' >> \"$OUT/manifest.txt\"; uname -r >> \"$OUT/manifest.txt\"\n"
+                    + "chmod 644 \"$OUT\"/*\n";
+
+            Process p = new ProcessBuilder("su", "-c", sh).redirectErrorStream(true).start();
+            String shellLog = readLimited(p.getInputStream(), 8192);
+            int rc = p.waitFor();
+            if (rc != 0) throw new IOException("Root 只读采集失败 (code " + rc + "): " + shellLog);
+
+            File[] produced = dir.listFiles();
+            if (produced == null || produced.length < 8)
+                throw new IOException("采集物缺失，拒绝生成部分 ZIP");
+            verifyRequiredStaging(dir);
+            int zipped = 0;
+            try (ZipOutputStream out = new ZipOutputStream(
+                    new BufferedOutputStream(new FileOutputStream(zip), 256 * 1024))) {
+                byte[] buffer = new byte[256 * 1024];
+                for (File f : produced) {
+                    if (!f.isFile() || !f.getName().matches("[A-Za-z0-9._-]+"))
+                        throw new SecurityException("存在非预期采集物：" + f.getName());
+                    out.putNextEntry(new ZipEntry(f.getName()));
+                    try (InputStream in = new BufferedInputStream(new FileInputStream(f))) {
+                        int n;
+                        while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+                    }
+                    out.closeEntry();
+                    zipped++;
                 }
-                out.closeEntry();
+            }
+            if (zipped != produced.length || !zip.isFile() || zip.length() < 4096)
+                throw new IOException("ZIP 内容缺失或异常小");
+
+            // Only return success when ALL intermediate source files have been removed.
+            cleanStaging(parent, dir);
+            complete = true;
+            return zip;
+        } catch (Exception e) {
+            failure = e;
+            throw e;
+        } finally {
+            if (!complete && zip.isFile() && !zip.delete()) {
+                IOException cleanup = new IOException("失败的临时 ZIP 无法删除：" + zip.getName());
+                if (failure != null) failure.addSuppressed(cleanup);
+                else throw cleanup;
+            }
+            // An interrupted/failed capture must not accumulate large root-owned TAR/IMG files.
+            if (dir.exists()) {
+                try {
+                    cleanStaging(parent, dir);
+                } catch (Exception cleanup) {
+                    if (failure != null) failure.addSuppressed(cleanup);
+                    else throw cleanup;
+                }
             }
         }
-        for (File f : produced) if (f.isFile()) f.delete();
-        dir.delete();
-        if (!zip.isFile() || zip.length() == 0) {
-            throw new IllegalStateException("ZIP 打包结果为空");
+    }
+
+    private static void verifyRequiredStaging(File dir) throws Exception {
+        requireFile(dir, "manifest.txt", 48);
+        requireFile(dir, "kernel-release.txt", 12);
+        requireFile(dir, "oem-modules.tar", 1024);
+        File[] files = dir.listFiles();
+        if (files == null) throw new IOException("采集目录丢失");
+        for (String part : new String[]{"boot", "init_boot", "vendor_boot", "dtbo"}) {
+            boolean exists = false;
+            for (String slot : new String[]{"_a", "_b"}) {
+                File image = new File(dir, part + slot + ".img");
+                if (image.isFile() && image.length() >= 4096) exists = true;
+            }
+            if (!exists) throw new IOException("缺少分区镜像：" + part);
         }
-        return zip;
+    }
+
+    private static void requireFile(File dir, String name, long minLength) throws IOException {
+        File f = new File(dir, name);
+        if (!f.isFile() || f.length() < minLength)
+            throw new IOException("采集内容不完整：" + name);
+    }
+
+    static File captureDirectory(Context ctx) throws IOException {
+        File external = ctx.getExternalFilesDir(null);
+        if (external == null) throw new IOException("应用文件目录不可用");
+        File parent = new File(external, "captures");
+        if (!parent.isDirectory() && !parent.mkdirs())
+            throw new IOException("无法创建应用采集目录");
+        return parent.getCanonicalFile();
+    }
+
+    /**
+     * Only the application's flat staging-YYYYMMDD-HHmmss-SSS directories are removable.
+     * The final ZIP and any other user data are NEVER touched by this method.
+     */
+    static void purgeStaleStaging(Context ctx) throws Exception {
+        File parent = captureDirectory(ctx);
+        File[] children = parent.listFiles();
+        if (children == null) return;
+        long cutoff = System.currentTimeMillis() - STALE_AFTER_MS;
+        for (File child : children) {
+            if (child.getName().matches("staging-\\d{8}-\\d{6}-\\d{3}")
+                    && child.isDirectory() && child.lastModified() < cutoff) {
+                cleanStaging(parent, child);
+            }
+        }
+    }
+
+    private static void cleanStaging(File parent, File dir) throws Exception {
+        // Validate both paths, but never follow a child symlink or recurse.
+        if (!dir.getName().matches("staging-\\d{8}-\\d{6}-\\d{3}")
+                || !dir.getCanonicalFile().getParentFile().equals(parent.getCanonicalFile())
+                || !dir.isDirectory()) {
+            throw new SecurityException("拒绝清理非应用临时目录");
+        }
+        File[] files = dir.listFiles();
+        if (files == null) throw new IOException("无法枚举临时目录");
+        for (File file : files) {
+            if (!file.getParentFile().getCanonicalFile().equals(dir.getCanonicalFile())
+                    || !file.getName().matches("[A-Za-z0-9._-]+")
+                    || file.isDirectory()) {
+                throw new SecurityException("临时目录包含异常文件，未执行清理");
+            }
+            if (!file.delete()) {
+                // On some Root implementations the captured files are root-owned.
+                // Restrict this fallback to a single validated flat file in our staging dir.
+                Process p = new ProcessBuilder("su", "-c",
+                        "rm -f -- " + shellQuote(file.getAbsolutePath()))
+                        .redirectErrorStream(true).start();
+                readLimited(p.getInputStream(), 1024);
+                if (p.waitFor() != 0 || file.exists())
+                    throw new IOException("无法删除临时采集物：" + file.getName());
+            }
+        }
+        if (!dir.delete()) {
+            Process p = new ProcessBuilder("su", "-c",
+                    "rmdir -- " + shellQuote(dir.getAbsolutePath()))
+                    .redirectErrorStream(true).start();
+            readLimited(p.getInputStream(), 1024);
+            if (p.waitFor() != 0 || dir.exists())
+                throw new IOException("无法删除临时采集目录");
+        }
     }
 
     private static String shellQuote(String s) {
