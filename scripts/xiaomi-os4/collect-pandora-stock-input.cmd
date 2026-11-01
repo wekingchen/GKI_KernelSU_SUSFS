@@ -96,6 +96,14 @@ mkdir "%OUT%" || exit /b 1
   echo slot=%SLOT%
   echo collected_from_live_device=YES
   echo operation=READ_ONLY
+  echo boot_source=ACTIVE_SLOT_UNVERIFIED_OEM
+  echo boot_oem_original_verified=NO
+  echo boot_role=GKI_KERNEL_ANALYSIS_INPUT
+  echo init_boot_source=ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED
+  echo init_boot_oem_original_verified=NO
+  echo init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE
+  echo vendor_boot_source=ACTIVE_SLOT_UNVERIFIED_OEM
+  echo dtbo_source=ACTIVE_SLOT_UNVERIFIED_OEM
   echo note=boot is used as CI stock input; other images are snapshots of the current active slot
   echo note2=if init_boot was patched for Root, init_boot.img is not a pristine factory image
 ) > "%OUT%\README.txt"

@@ -36,6 +36,19 @@ class CaptureStorageContract(unittest.TestCase):
         self.assertIn("if (!target.delete())", UI)
         self.assertIn("store.isUploaded(", UI)
 
+    def test_rooted_device_never_claims_init_boot_is_factory_oem(self):
+        # The original unmodified init_boot is retained OFF DEVICE by the user.
+        # App reads only the currently active, possibly patched image.
+        for required in (
+            "boot_source=ACTIVE_SLOT_UNVERIFIED_OEM",
+            "boot_oem_original_verified=NO",
+            "boot_role=GKI_KERNEL_ANALYSIS_INPUT",
+            "init_boot_source=ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED",
+            "init_boot_oem_original_verified=NO",
+            "init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+        ):
+            self.assertIn(required, SOURCE)
+
     def test_required_ota_metadata_and_partitions(self):
         self.assertIn("ro.mi.os.version.incremental", SOURCE)
         for name in ("boot", "init_boot", "vendor_boot", "dtbo"):

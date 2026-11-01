@@ -74,13 +74,36 @@ class MobileNormalizerTest(unittest.TestCase):
             self.assertEqual(output.read("oem-modules-count.txt"), b"MODULE_COUNT=1\n")
             with zipfile.ZipFile(io.BytesIO(output.read("oem-modules.zip"))) as nested:
                 self.assertEqual(nested.namelist(), ["vendor_dlkm/lib/modules/x.ko"])
-            self.assertIn(b"ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK",
-                          output.read("README.txt"))
+            readme = output.read("README.txt")
+            self.assertIn(b"ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK", readme)
+            self.assertIn(b"boot_role=GKI_KERNEL_ANALYSIS_INPUT", readme)
+            self.assertIn(b"boot_oem_original_verified=NO", readme)
+            self.assertIn(b"init_boot_source=ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED", readme)
+            self.assertIn(b"init_boot_oem_original_verified=NO", readme)
+            self.assertIn(b"init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE", readme)
+        self.assertFalse(result["boot_oem_original_verified"])
+        self.assertFalse(result["init_boot_oem_original_verified"])
 
     def test_missing_boot_fails_closed(self):
         create_capture(self.capture, include_dtbo=False)
         with self.assertRaisesRegex(ValueError, "missing or too-small"):
             normalize(self.capture, self.output)
+
+    def test_forged_oem_original_claim_fails_closed(self):
+        # Rooted clients must never turn a patched init_boot into OEM "stock"
+        # by placing an assertion in the untrusted manifest.
+        forged = BASE + "init_boot_oem_original_verified=YES\n"
+        create_capture(self.capture, manifest=forged)
+        with self.assertRaisesRegex(ValueError, "false OEM provenance"):
+            normalize(self.capture, self.output)
+
+    def test_old_v1_capture_is_backward_compatible_but_not_oem_trusted(self):
+        create_capture(self.capture, manifest=BASE)
+        result = normalize(self.capture, self.output)
+        self.assertFalse(result["init_boot_oem_original_verified"])
+        with zipfile.ZipFile(self.output) as z:
+            self.assertIn(b"init_boot_oem_original_verified=NO",
+                          z.read("README.txt"))
 
     def test_wrong_device_fails_closed(self):
         create_capture(self.capture, manifest=BASE.replace(

@@ -4,6 +4,36 @@
 
 本页只讲**你实际需要做什么**；具体 GitHub 自动门禁见 [OTA 工作流说明](xiaomi-17-pro-os4-ota-auto-baseline.md)，全部功能与未完成事项见 [独立审计报告](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)。
 
+## 零、已经确定的真机 OTA 操作顺序（以此为首选）
+
+**设备：小米 17 Pro（`pandora`），Android 16 / HyperOS 4，A/B Slot。**
+
+使用者已经明确确认：**每次拿到新的 HyperOS OTA，先从该新版本固件中保留完整、未修补的原始 `init_boot.img`；随后只针对同版本的 `init_boot.img` 修补 Root，待手机正常开机和 Root 通过后，再让本仓库 OTA 采集 App 接管。** 不要求为了采集而撤销 Root。
+
+> 这里的“原始 `init_boot.img`”由使用者在本机离线保存，不从已 Root 的活动分区快照推断，也不要求上传到 GitHub。不要把它误认为 App 采集 ZIP 中的同名文件。
+
+### 一次升级的具体顺序
+
+1. 安装**新 OTA**，正常开机并读取实际 OS build、内核 `uname -r`、设备代号和活动 slot；不要直接拿上一版的任何 `init_boot` / `boot` 去刷。
+2. 从**与此次新 OTA 精确匹配**的官方固件或可信原版备份取得未修补 `init_boot.img`，离线备份原文件与 SHA-256、记录 OS build / slot / 文件来源；不要用 Root 后再从活动分区读取的副本覆盖此备份。另行保留本版本的已知可启动恢复镜像及可回退路径。
+3. 以该版本原始 `init_boot.img` 为输入，使用当前已经可用的 Root 管理器**只修补 `init_boot`**，按照当前 Slot 和当前 Root 实现对应的安全方法部署；成功进入 Android 后检查 `adb shell su -c id`、正常通信与启动。Root 方案或固件分区布局如变化，应先核对，**不能盲目刷上一版修补镜像**。
+4. 在 Root 管理器的「超级用户」中**手动给 OTA 采集助手 `com.wekingchen.pandoraota` 授权**。用户真机首次联调已验证：仅按 App Root 按钮可能收到 `Cannot run program "su": error=13, Permission denied`，手动授权后成功；ADB shell 的 Root 不代表 App 获得授权。
+5. 在已验证的 **STABLE-SIGNED** OTA 采集助手中执行「检查 Root」→「采集并生成 ZIP」→「上传当前采集包」→「查询后端处理结果」。App 只读采集活动 Slot 的 `boot`、`init_boot`、`vendor_boot`、`dtbo` 和 OEM `.ko`，上传为 GitHub 私有管理用途的 **Draft Release**。不要将草稿发布成公开 Release。
+6. GitHub 先完成身份、Boot、OEM 模块及 KMI/ABI 门禁，再产生**未验证的、不可直接刷写** GKI 候选；等真机临时启动和你实际确认通过后，才按原工作流固化新基线或晋升 LKG。真正跨新 OTA 的全链路尚未经过实际新 OTA 验证。
+7. 查看 GitHub 草稿附件应通过 App 的「记录 → 在 GitHub 查看草稿附件」入口；本地 ZIP 在远端附件 ID/大小/SHA-256 与本地 SHA-256 均重新核对后可由用户主动删除。**后端因同版本自定义 Boot 返回 REJECTED，不等于文件未上传。**
+
+### 哪些文件算“原厂”，哪些不能算
+
+| 输入 | 当前实际来源 | 适配用途 / 禁止事项 |
+| --- | --- | --- |
+| **离线原始 `init_boot.img`** | 使用者从**同一新 OTA**的原始固件或可信原版备份取得 | 保留作版本匹配、恢复和需要时的完整引导分析；**不在 App 的 Root 后采集包里** |
+| 活动 `boot.img` | 已 Root 的活动 Slot 只读读取 | **GKI 内核分析主输入**。如果本轮只修补 `init_boot`、没有刷写或改动 `boot`，理论上仍是该 OTA 的 Boot；**但 App 不能独立证明其 OEM 原始性**，以前安装过自定义 Boot 时尤其需要核对 |
+| 活动 `init_boot.img` | 先恢复 Root 后只读读取 | **可能已修补，仅作诊断快照**。不能声称原厂、不能当作未修改的恢复镜像，不参与原厂 `init_boot` 一致性认定 |
+| 活动 `vendor_boot.img`、`dtbo.img` | 当前 Slot 的运行时快照 | 辅助分析厂商启动参数与硬件兼容性；同样不是 OEM 原版证明 |
+| OEM `.ko` | 当前已挂载的厂商模块目录 | **ABI/KMI 兼容性分析主输入**；还需与版本、`vermagic`、符号 CRC 等交叉检验 |
+
+**兼容性说明：** 当前手机 ZIP / `xm.zip` 八文件契约仍包含 `init_boot.img`，以免破坏已有转换/校验链路；但代码现在在采集清单、标准化 README 和审计报告中明确标注 `init_boot_oem_original_verified=NO`、`init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE`，并在服务器替换固定 OTA 输入前强制检查。仓库中传统名称 `stock-input` 只是兼容输入槽位，**不是“整个 ZIP 中每个镜像都是出厂原版”的认证**。
+
 ## 一、先确认何时需要采集
 
 | 情况 | 是否重新采集 |
@@ -36,7 +66,7 @@ adb shell su -c id
 
 > 当前稳定 Gen 3 备份来自 OS4.0.5.0 / slot _a 的历史 LKM Root 状态；它是“当时已知可启动”，不能被误称为完全未修改的纯净原厂镜像，更不能跨 OTA 用来恢复。
 
-## 三、Windows 只读采集（需要 adb / tar / PowerShell）
+## 三、Windows 只读采集（备用方案；手机 App 为首选）
 
 1. 下载本仓库最新版 [`collect-pandora-stock-input.cmd`](../scripts/xiaomi-os4/collect-pandora-stock-input.cmd)。不要使用聊天里复制的旧脚本；此前有一版存在截断 PowerShell 行和重复打包段，现已修复。
 2. Windows 10/11 上使用官方 Android platform-tools，确认 `adb.exe` 在 PATH 中，Windows 的 `tar.exe` 和 PowerShell 可用。
@@ -74,11 +104,11 @@ oem-modules-count.txt
 
 脚本需要手机/Windows 上的 tar；部分旧设备或特殊文件系统可能无法完整打包。如出现错误，请保存报错、不要自行删掉模块清单后强行上传。**该修复尚待下一次真实新 OTA 的 Windows 实机采集验证。**
 
-## 四、上传新 xm.zip 及 GitHub 自动检查
+## 四、Windows 备用流程：手动上传新 xm.zip 及 GitHub 自动检查
 
 固定 Release：[`pandora-os4-stock-input`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-os4-stock-input)。
 
-进入该 Release，删除上一版旧 `*xm.zip`，上传刚采集的**一个**完整新 `*xm.zip` 并保存 Release；始终保持该 Release 中只有一个匹配文件。不要把旧版和新版 ZIP 同时留在同一个 Release。
+**正常情况下无需手动管理固定 Release。** 使用手机 App 时，手机只上传到自己的 Draft Release，接收工作流负责按安全门禁验证、暂存、下载校验后再替换固定 `xm.zip`。手动上传仅为 Windows 备用方案，属于高风险变更：务必先完整备份旧附件并确认所有身份/来源检查通过，不能先删掉唯一可恢复的旧 `xm.zip`，也不能用已 Root 的 `init_boot` 冒充 OEM 原厂镜像。
 
 GitHub 会通过 [`OTA 自动识别与非刷机 GKI 基线候选`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml) 的 Release 事件/每日补查自动进行：
 

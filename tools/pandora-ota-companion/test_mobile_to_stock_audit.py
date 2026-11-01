@@ -94,6 +94,41 @@ class MobileIntakeIntegration(unittest.TestCase):
             self.assertFalse(report["safe_to_flash"])
             self.assertEqual(report["github_asset_id"], "12345")
             self.assertEqual(report["source_provenance"], "BOOT_KERNEL_MARKER_AND_README_AGREE")
+            self.assertFalse(report["boot_oem_original_verified"])
+            self.assertEqual(report["boot_role"], "GKI_KERNEL_ANALYSIS_INPUT")
+            self.assertFalse(report["init_boot_oem_original_verified"])
+            self.assertTrue(report["init_boot_may_be_root_patched"])
+            self.assertEqual(report["init_boot_source"], "ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED")
+            self.assertEqual(report["init_boot_role"], "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE")
+
+    def test_unsafe_oem_init_boot_claim_cannot_pass_stock_audit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source, xm = base / "mobile.zip", base / "xm.zip"
+            config, report = base / "stock.env", base / "report.json"
+            capture(source)
+            normalize(source, xm)
+            with zipfile.ZipFile(xm) as archive:
+                members = {n: archive.read(n) for n in archive.namelist()}
+            members["README.txt"] = members["README.txt"].replace(
+                b"init_boot_oem_original_verified=NO",
+                b"init_boot_oem_original_verified=YES")
+            xm.unlink()
+            with zipfile.ZipFile(xm, "w", zipfile.ZIP_DEFLATED) as archive:
+                for name, data in members.items():
+                    archive.writestr(name, data)
+            config.write_text(
+                "OS4_STOCK_INPUT_BUILD=OS4.0.5.0.XBLCNXM\n"
+                "OS4_STOCK_BOOT_SHA256=" + "0" * 64 + "\n",
+                encoding="utf-8"
+            )
+            result = subprocess.run(
+                [sys.executable, str(STOCK_AUDIT), "--zip", str(xm),
+                 "--stock-config", str(config), "--output", str(report)],
+                check=False, text=True, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("falsely verified OEM", result.stderr + result.stdout)
 
     def test_same_build_boot_drift_stops_before_release_mutation(self):
         with tempfile.TemporaryDirectory() as directory:

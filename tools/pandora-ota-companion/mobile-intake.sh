@@ -82,6 +82,20 @@ python3 - "$NEW" <<'PY'
 import hashlib, io, re, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as z:
     names = ["boot.img","init_boot.img","vendor_boot.img","dtbo.img","oem-modules.zip"]
+    # These mandatory labels prevent the Root-patched active init_boot from
+    # being silently promoted as a factory-original / flashable OEM image.
+    readme = dict(line.split("=", 1) for line in
+                  z.read("README.txt").decode("utf-8").splitlines()
+                  if "=" in line)
+    expected = {
+        "boot_oem_original_verified": "NO",
+        "boot_role": "GKI_KERNEL_ANALYSIS_INPUT",
+        "init_boot_source": "ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED",
+        "init_boot_oem_original_verified": "NO",
+        "init_boot_role": "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+    }
+    if any(readme.get(key) != value for key, value in expected.items()):
+        raise SystemExit("source provenance missing: rooted init_boot is not factory OEM input")
     records = {}
     for line in z.read("SHA256SUMS.txt").decode("ascii").splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
