@@ -141,7 +141,8 @@ public final class MainActivity extends Activity {
             runTask("正在只读采集并打包…", () -> {
                 File output = RootCollector.capture(getApplicationContext(), includeBoot);
                 store.saveArchive(output.getAbsolutePath());
-                return "采集完成：" + output.getName() + "（" + size(output.length()) + "）";
+                return "采集完成：" + output.getName() + "（" + size(output.length()) + "）"
+                        + "\n中间采集物和临时目录已清理，仅保留最终 ZIP。";
             });
         });
 
