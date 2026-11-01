@@ -213,14 +213,16 @@ public final class MainActivity extends Activity {
         work.addView(recentHeader, blockParams(dp(28)));
         TextView recentTitle = text("最近采集", 18, INK, true);
         recentHeader.addView(recentTitle, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView detailsHint = text("详情在「记录」", 11, MUTED, false);
+        TextView detailsHint = text("查看全部", 12, TEAL, true);
+        detailsHint.setClickable(true);
+        detailsHint.setFocusable(true);
+        detailsHint.setPadding(dp(8), dp(4), dp(8), dp(4));
+        detailsHint.setBackground(touchBackground(Color.TRANSPARENT, dp(12)));
+        detailsHint.setOnClickListener(v -> selectTab(1));
         recentHeader.addView(detailsHint);
 
         LinearLayout recent = vertical();
-        recent.setBackground(round(WHITE, dp(22)));
-        recent.setPadding(dp(20), dp(18), dp(20), dp(20));
-        recent.setElevation(dp(1));
-        work.addView(recent, blockParams(dp(10)));
+        work.addView(recent, blockParams(dp(11)));
 
         fileState = text("", 13, INK, true);
         fileState.setTextIsSelectable(true);
@@ -342,9 +344,9 @@ public final class MainActivity extends Activity {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(android.view.Gravity.CENTER_VERTICAL);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
-        bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
+        bottom.setPadding(dp(18), dp(6), dp(18), dp(7));
         bottom.setBackground(topStroke(Color.rgb(252, 253, 255), BORDER));
-        shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
+        shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(64)));
         int[] glyphs = {R.drawable.ic_nav_workbench, R.drawable.ic_nav_records, R.drawable.ic_nav_settings};
         String[] labels = {"工作台", "记录", "设置"};
         for (int i = 0; i < 3; i++) {
@@ -645,7 +647,7 @@ public final class MainActivity extends Activity {
         fileState.setText(exists
                 ? file.getName() + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
-                : "暂无采集文件");
+                : "暂无采集记录");
         recordFileState.setText(exists
                 ? file.getName() + "\n" + size(file.length()) + "\n"
                     + (uploaded ? "已上传 GitHub · " + intakeLabel(state) : "仅保存在手机中")
@@ -844,8 +846,7 @@ public final class MainActivity extends Activity {
             boolean active = i == index;
             navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
-            navItems[i].setBackground(touchBackground(
-                    active ? LIGHT_TEAL : Color.TRANSPARENT, dp(16)));
+            navItems[i].setBackground(touchBackground(Color.TRANSPARENT, dp(16)));
             navItems[i].setSelected(active);
         }
     }
