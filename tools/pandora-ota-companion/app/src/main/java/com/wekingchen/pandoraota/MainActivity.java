@@ -316,7 +316,7 @@ public final class MainActivity extends Activity {
         LinearLayout recordOverview = new LinearLayout(this);
         recordOverview.setOrientation(LinearLayout.HORIZONTAL);
         records.addView(recordOverview, blockParams(dp(18)));
-        LinearLayout collectedTile = metricTile("采集文件", R.drawable.ic_file_zip);
+        LinearLayout collectedTile = metricTile("采集文件", R.drawable.ic_file_outline);
         LinearLayout uploadedTile = metricTile("已上传", R.drawable.ic_external_simple);
         LinearLayout githubTile = metricTile("GitHub", R.drawable.ic_repo);
         recordCountMetric = metricValue(collectedTile);
@@ -473,7 +473,7 @@ public final class MainActivity extends Activity {
         aboutCard.setElevation(dp(1));
         settings.addView(aboutCard, blockParams(dp(10)));
 
-        LinearLayout securityRow = settingRow(R.drawable.ic_key_simple, "安全与隐私");
+        LinearLayout securityRow = settingRow(R.drawable.ic_shield_simple, "安全与隐私");
         TextView securitySub = (TextView) securityRow.getChildAt(1);
         renderSettingRow(securitySub, "安全与隐私", "Keystore 加密 · 只读采集");
         aboutCard.addView(securityRow);
@@ -923,8 +923,7 @@ public final class MainActivity extends Activity {
             if (store.isUploaded(new SecretStore.FileInfo(
                     archive.getAbsolutePath(), archive.length()))) uploadedCount++;
         }
-        if (workUploadedMetric != null) workUploadedMetric.setText(uploadedCount > 0
-                ? String.valueOf(uploadedCount) : "—");
+        if (workUploadedMetric != null) workUploadedMetric.setText(String.valueOf(uploadedCount));
         if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
         if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已连接" : "未连接");
         if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
