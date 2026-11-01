@@ -397,7 +397,10 @@ public final class MainActivity extends Activity {
                     private long lastBytes = 0;
                     @Override
                     public void onStage(String stage) {
-                        runOnUiThread(() -> uploadStage.setText(stage));
+                        runOnUiThread(() -> {
+                            uploadStage.setText(stage);
+                            notifyMessage("GitHub 上传 · " + stage);
+                        });
                     }
                     @Override
                     public void onProgress(long sent, long total) {
@@ -421,7 +424,7 @@ public final class MainActivity extends Activity {
                             + "\nSHA-256：" + result.sha256
                             + "\n工作流通知：" + (result.dispatched
                             ? "请求已发送（不代表工作流已执行）" : "发送失败，需另行处理"));
-                    notifyMessage("上传成功，文件仍保存在手机中。可选择手动删除。");
+                    notifyMessage("GitHub 已保存附件。请查询接收结果后，再决定是否清理本地 ZIP。");
                 });
             } catch (Exception e) {
                 String error = safeMessage(e);
@@ -683,6 +686,9 @@ public final class MainActivity extends Activity {
 
     private void notifyMessage(String value) {
         message.setText(value);
+        boolean error = value.contains("失败") || value.contains("拒收")
+                || value.contains("无法") || value.contains("错误");
+        message.setTextColor(error ? WARNING : INK);
     }
 
     private static String safeMessage(Exception e) {
@@ -896,12 +902,28 @@ public final class MainActivity extends Activity {
         b.setText(caption);
         b.setAllCaps(false);
         b.setTextSize(14);
+        b.setLetterSpacing(0.015f);
         b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         b.setTextColor(primary ? WHITE : TEAL);
-        b.setBackground(round(primary ? TEAL : LIGHT_TEAL, dp(12)));
-        b.setMinHeight(dp(46));
-        b.setMinimumHeight(dp(46));
-        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setBackground(touchBackground(primary ? TEAL : LIGHT_TEAL, dp(15)));
+        b.setMinHeight(dp(primary ? 54 : 48));
+        b.setMinimumHeight(dp(primary ? 54 : 48));
+        b.setPadding(dp(14), 0, dp(14), 0);
+        b.setStateListAnimator(null);
+        b.setOnTouchListener((view, event) -> {
+            if (!view.isEnabled()) return false;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                    view.animate().scaleX(.975f).scaleY(.975f).setDuration(90).start();
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(130).start();
+                    break;
+            }
+            return false;
+        });
         return b;
     }
 
