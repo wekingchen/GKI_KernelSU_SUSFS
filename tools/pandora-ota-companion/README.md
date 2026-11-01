@@ -10,7 +10,7 @@
 3. 回到「工作台」，点击「检查 Root 权限」，随后「开始采集」：强制读取设备代码、OS build、uname、活动 slot、OEM 内核模块以及 `boot/init_boot/vendor_boot/dtbo`，所有读取均只读。**当前分区不等于可信厂商原版**，Root/LKM/自定义内核也可能改变内容。
 4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
 5. **只要 ZIP 打包完成，手机立即清理分区镜像、OEM TAR 等所有中间采集物和 staging 目录，只留下最终 ZIP。采集或压缩出错则同时删除残缺 ZIP 并尝试清理 staging；上次意外终止遗留的 staging 在下次采集时自动回收（保留 30 分钟宽限以避开正在执行的采集）。**
-6. 到「记录」查看本地 ZIP 和 GitHub 回执：只要 GitHub **已确认上传并仍保留完整附件**，就可以手动删除本地 ZIP，即便 OTA 身份审计返回 REJECTED；删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
+6. 到「记录」查看本地 ZIP 和 GitHub 回执：本地清理必须等到 **GitHub 已确认上传、工作流通知已成功发送，且后端状态进入 ACCEPTED / ALREADY_CURRENT / REJECTED 之一**；REJECTED 仍允许清理，但 PENDING 或通知失败时必须先保留 ZIP，以便重试和继续查询。删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
 7. 上传并不等于接收成功：发送 `repository_dispatch` 后可在 App 中查询后端接收结果；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。**无论是否通过 OTA 身份审计，只要远端完整附件得到再次确认，就允许用户主动手动清理本地 ZIP**。
 8. 通知请求失败可直接核对远端附件并重新发送，不重复上传整个 ZIP。
 
@@ -31,7 +31,7 @@
 - **采集空间预检**：当前空间不足会失败关闭并清理 staging/残缺 ZIP，但尚未在开始读取大分区前给出剩余空间预警。
 - **前台自动查询 intake**：当前后端结果由用户点击查询；可在保持前台、不增加后台常驻服务的前提下加入短时自动轮询。
 - **待测 boot 真机反馈辅助**：fastboot boot 仍必须由电脑人工执行；未来 App 可在启动回来后读取 build/uname/boot_completed，并辅助提交验证证据，但绝不能自行 fastboot/flash。
-- **远端 Draft 生命周期**：本地 ZIP 已有严格安全删除，远端采集 Draft 为保留证据暂不自动删；后续可在候选/验证证据已归档后提供人工清理。
+- **远端 Draft 生命周期**：本地 ZIP 只有在通知成功且 intake 已到终态后才允许严格安全删除；远端采集 Draft 为保留证据暂不自动删，后续可在候选/验证证据已归档后提供人工清理。
 
 明确属于安全边界、**不是缺失功能**：App 不刷机、不切 slot、不自动晋升 LKG、不把 Root 后 init_boot 冒充 OEM 原版、不因后端 ACCEPTED/REJECTED 自动删除本地证据，也不承诺后台断点续传。
 
