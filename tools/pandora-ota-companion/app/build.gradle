@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wekingchen.pandoraota'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.wekingchen.pandoraota'
+        minSdk 29
+        targetSdk 35
+        versionCode 3
+        versionName '0.3.0-dev'
+    }
+
+    signingConfigs {
+        stable {
+            def keyfile = System.getenv('PANDORA_OTA_STORE_FILE')
+            if (keyfile) {
+                storeFile file(keyfile)
+                storePassword System.getenv('PANDORA_OTA_STORE_PASSWORD')
+                keyAlias System.getenv('PANDORA_OTA_KEY_ALIAS')
+                keyPassword System.getenv('PANDORA_OTA_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('PANDORA_OTA_STORE_FILE')) {
+                signingConfig signingConfigs.stable
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

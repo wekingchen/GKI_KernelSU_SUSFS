@@ -1,0 +1,59 @@
+name: "小米17 Pro OS4 / 手机 OTA 安全接收入库"
+
+on:
+  repository_dispatch:
+    types: [pandora_ota_upload_v1]
+  workflow_dispatch:
+    inputs:
+      staged_release_id:
+        description: "手机上传的 Draft Release ID"
+        required: true
+        type: string
+      staged_asset_id:
+        description: "手机上传附件 ID"
+        required: true
+        type: string
+      staged_sha256:
+        description: "手机采集包 SHA-256"
+        required: true
+        type: string
+      staged_size:
+        description: "手机采集包字节数"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: pandora-os4-mobile-stock-input
+  cancel-in-progress: false
+
+jobs:
+  receive:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          persist-credentials: false
+      - name: "校验手机来源、规范化 xm.zip、更新固定 OTA 输入"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGED_RELEASE_ID: ${{ github.event.client_payload.release_id || inputs.staged_release_id }}
+          STAGED_ASSET_ID: ${{ github.event.client_payload.asset_id || inputs.staged_asset_id }}
+          CLIENT_SHA: ${{ github.event.client_payload.sha256 || inputs.staged_sha256 }}
+          CLIENT_BYTES: ${{ github.event.client_payload.bytes || inputs.staged_size }}
+        run: bash tools/pandora-ota-companion/mobile-intake.sh
+      - name: "上传输入接收报告"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pandora-mobile-ota-intake-${{ github.run_id }}
+          path: ${{ runner.temp }}/pandora-mobile-intake/*.json
+          if-no-files-found: ignore
+          retention-days: 30
