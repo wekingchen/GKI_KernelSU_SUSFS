@@ -38,7 +38,7 @@ public final class MainActivity extends Activity {
     private Button saveButton, clearButton, rootButton, collectButton, uploadButton;
     private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton, checkIntakeButton;
     private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
-    private TextView percent, receiptState, message;
+    private TextView percent, receiptState, message, rootStatus;
     private ProgressBar uploadBar;
     private boolean busy;
 
@@ -120,8 +120,13 @@ public final class MainActivity extends Activity {
         });
 
         LinearLayout capture = card(content, "02", "采集设备数据", "申请 Root 后读取 OEM 模块和内核状态");
-        capture.addView(text("仅允许 pandora 设备；四个分区均为只读备份，不会修改系统。",
+        capture.addView(text("仅允许 pandora 设备采集；Root 授权检查可在任意设备执行。",
                 12, MUTED, false), blockParams(dp(13)));
+        capture.addView(text("Android 设备标识：Build.DEVICE=" + Build.DEVICE
+                + " / Build.PRODUCT=" + Build.PRODUCT, 12, MUTED, false), blockParams(dp(6)));
+        if (!RootCollector.isPandora()) capture.addView(text(
+                "检测到设备代号不是 pandora：出于安全考虑已锁定分区采集，但仍可独立检查 Root。",
+                12, Color.rgb(154, 90, 30), false), blockParams(dp(6)));
         bootOption = new CheckBox(this);
         bootOption.setText("包含当前 slot 的四个启动分区（OTA 适配必需）");
         bootOption.setTextColor(INK);
@@ -132,10 +137,25 @@ public final class MainActivity extends Activity {
         capture.addView(bootOption, blockParams(dp(6)));
         rootButton = button("检查 Root 授权", false);
         capture.addView(rootButton, blockParams(dp(11)));
+        rootStatus = text("Root 状态：尚未检测。点击按钮后可在此查看结果。", 12, MUTED, false);
+        rootStatus.setTextIsSelectable(true);
+        capture.addView(rootStatus, blockParams(dp(6)));
         collectButton = button("开始采集并打包 ZIP", true);
         capture.addView(collectButton, blockParams(dp(9)));
-        rootButton.setOnClickListener(v -> runTask("正在请求 Root 授权…", () ->
-                "Root 可用：" + RootCollector.checkRoot()));
+        rootButton.setOnClickListener(v -> {
+            rootStatus.setText("正在请求 Root 授权（最多等待 45 秒）…请检查 Root 管理器弹窗。");
+            runTask("正在请求 Root 授权…", () -> {
+                try {
+                    String identity = RootCollector.checkRoot();
+                    runOnUiThread(() -> rootStatus.setText("Root 授权成功：" + identity));
+                    return "Root 可用：" + identity;
+                } catch (Exception e) {
+                    String explanation = safeMessage(e);
+                    runOnUiThread(() -> rootStatus.setText("Root 检查失败：" + explanation));
+                    throw e;
+                }
+            });
+        });
         collectButton.setOnClickListener(v -> {
             final boolean includeBoot = bootOption.isChecked();
             runTask("正在只读采集并打包…", () -> {
@@ -447,7 +467,7 @@ public final class MainActivity extends Activity {
         repoField.setEnabled(!busy);
         tokenField.setEnabled(!busy);
         bootOption.setEnabled(false);
-        rootButton.setEnabled(!busy && RootCollector.isPandora());
+        rootButton.setEnabled(!busy);
         collectButton.setEnabled(!busy && RootCollector.isPandora());
         uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
