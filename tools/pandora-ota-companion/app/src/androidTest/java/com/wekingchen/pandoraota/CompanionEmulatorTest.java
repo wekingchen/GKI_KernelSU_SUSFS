@@ -130,6 +130,18 @@ public class CompanionEmulatorTest {
     }
 
     @Test
+    public void systemIdentityHelpersExposeBuildAndNormalizeSlotsWithoutRoot() {
+        assertNotNull(RootCollector.currentOsVersion());
+        assertFalse(RootCollector.currentOsVersion().trim().isEmpty());
+        assertEquals("A", RootCollector.normalizeSlotLabel("_a"));
+        assertEquals("A", RootCollector.normalizeSlotLabel("a"));
+        assertEquals("B", RootCollector.normalizeSlotLabel("_b"));
+        assertEquals("B", RootCollector.normalizeSlotLabel("B"));
+        assertEquals("未知", RootCollector.normalizeSlotLabel(""));
+        assertTrue(Arrays.asList("A", "B", "未知").contains(RootCollector.currentSlotLabel()));
+    }
+
+    @Test
     public void mainUiOpensAndBlocksRootCaptureOnNonPandoraEmulator() throws Exception {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             scenario.onActivity(activity -> {
