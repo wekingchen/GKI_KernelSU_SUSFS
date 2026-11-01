@@ -25,15 +25,15 @@ import java.util.concurrent.Executors;
 
 /** Single-screen, four-step OTA companion. No background transfer is claimed. */
 public final class MainActivity extends Activity {
-    private static final int BACKGROUND = Color.rgb(247, 249, 248);
-    private static final int INK = Color.rgb(28, 46, 43);
-    private static final int MUTED = Color.rgb(111, 129, 123);
-    private static final int TEAL = Color.rgb(34, 107, 101);
-    private static final int LIGHT_TEAL = Color.rgb(231, 244, 240);
-    private static final int FIELD = Color.rgb(241, 245, 243);
-    private static final int BORDER = Color.rgb(226, 235, 231);
-    private static final int NOTICE = Color.rgb(237, 245, 242);
-    private static final int WARNING = Color.rgb(159, 85, 45);
+    private static final int BACKGROUND = Color.rgb(247, 249, 253);
+    private static final int INK = Color.rgb(24, 34, 53);
+    private static final int MUTED = Color.rgb(112, 124, 145);
+    private static final int TEAL = Color.rgb(35, 105, 230);
+    private static final int LIGHT_TEAL = Color.rgb(233, 241, 255);
+    private static final int FIELD = Color.rgb(243, 246, 252);
+    private static final int BORDER = Color.rgb(230, 235, 244);
+    private static final int NOTICE = Color.rgb(238, 244, 255);
+    private static final int WARNING = Color.rgb(173, 86, 45);
     private static final int WHITE = Color.WHITE;
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
     private LinearLayout archiveListing;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
     private final LinearLayout[] navItems = new LinearLayout[3];
-    private final TextView[] navIcons = new TextView[3];
+    private final ImageView[] navIcons = new ImageView[3];
     private final TextView[] navLabels = new TextView[3];
     private int activeTab;
     private boolean busy;
@@ -81,16 +81,17 @@ public final class MainActivity extends Activity {
         topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         topBar.setPadding(dp(22), dp(11), dp(20), dp(11));
         shell.addView(topBar, new LinearLayout.LayoutParams(-1, dp(70)));
-        TextView brand = text("P", 19, WHITE, true);
-        brand.setGravity(android.view.Gravity.CENTER);
-        brand.setBackground(round(TEAL, dp(14)));
+        ImageView brand = new ImageView(this);
+        brand.setImageResource(R.drawable.ic_pandora_ota);
+        brand.setContentDescription("Pandora OTA");
+        brand.setScaleType(ImageView.ScaleType.FIT_CENTER);
         topBar.addView(brand, new LinearLayout.LayoutParams(dp(44), dp(44)));
         LinearLayout brandTitle = vertical();
         LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(0, -2, 1);
         brandParams.leftMargin = dp(12);
         topBar.addView(brandTitle, brandParams);
-        brandTitle.addView(text("Pandora", 21, INK, true));
-        brandTitle.addView(text("OS4  ·  OTA 采集助手", 11, MUTED, false), blockParams(dp(2)));
+        brandTitle.addView(text("Pandora OTA", 21, INK, true));
+        brandTitle.addView(text("安全采集 · 内核适配", 11, MUTED, false), blockParams(dp(2)));
         TextView readonly = text("只读模式", 11, TEAL, true);
         readonly.setGravity(android.view.Gravity.CENTER);
         readonly.setBackground(round(LIGHT_TEAL, dp(18)));
@@ -107,7 +108,7 @@ public final class MainActivity extends Activity {
         taskSpinner = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
         taskSpinner.setIndeterminateTintList(ColorStateList.valueOf(TEAL));
         notice.addView(taskSpinner, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        message = text("已就绪 · 可以检查 Root 或查看采集记录", 12, INK, false);
+        message = text("准备就绪", 12, INK, false);
         message.setMaxLines(4);
         message.setTextIsSelectable(true);
         LinearLayout.LayoutParams msgParams = new LinearLayout.LayoutParams(0, -2, 1);
@@ -131,14 +132,16 @@ public final class MainActivity extends Activity {
         overview.addView(identity);
         LinearLayout info = vertical();
         identity.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
-        info.addView(text("设备工作台", 23, INK, true));
-        info.addView(text("你的内核适配快照", 13, MUTED, false), blockParams(dp(5)));
-        TextView deviceGlyph = text("⌘", 25, TEAL, true);
-        deviceGlyph.setGravity(android.view.Gravity.CENTER);
+        info.addView(text("设备概览", 25, INK, true));
+        info.addView(text("检查状态，准备下一次 OTA 采集", 13, MUTED, false), blockParams(dp(5)));
+        ImageView deviceGlyph = new ImageView(this);
+        deviceGlyph.setImageResource(android.R.drawable.ic_menu_info_details);
+        deviceGlyph.setImageTintList(ColorStateList.valueOf(TEAL));
+        deviceGlyph.setPadding(dp(15), dp(15), dp(15), dp(15));
         deviceGlyph.setBackground(round(LIGHT_TEAL, dp(17)));
         identity.addView(deviceGlyph, new LinearLayout.LayoutParams(dp(55), dp(55)));
-        deviceStatus = text(RootCollector.isPandora() ? "●  已识别 Xiaomi 17 Pro · pandora"
-                        : "●  当前设备不是 pandora，采集受限",
+        deviceStatus = text(RootCollector.isPandora() ? "Xiaomi 17 Pro · pandora"
+                        : "当前设备不是 pandora · 已暂停采集",
                 12, RootCollector.isPandora() ? TEAL : WARNING, true);
         overview.addView(deviceStatus, blockParams(dp(17)));
         overview.addView(text("Android " + Build.VERSION.RELEASE
@@ -146,7 +149,7 @@ public final class MainActivity extends Activity {
                 blockParams(dp(5)));
 
         LinearLayout capture = surfaceCard(work, dp(14), dp(20));
-        capture.addView(sectionHeading("01", "从设备采集", "只读读取当前活动 slot"));
+        capture.addView(sectionHeading("01", "采集设备数据", "仅从当前活动分区读取，不写入系统"));
         LinearLayout safetyRow = new LinearLayout(this);
         safetyRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         capture.addView(safetyRow, blockParams(dp(17)));
@@ -167,8 +170,10 @@ public final class MainActivity extends Activity {
         bootOption.setChecked(true);
         bootOption.setEnabled(false);
         bootOption.setVisibility(View.GONE);
-        capture.addView(text("采集内容  ·  Boot / Init Boot / Vendor Boot / DTBO / OEM 模块",
+        capture.addView(text("采集内容  ·  Boot / Init Boot（Root 后快照） / Vendor Boot / DTBO / OEM 模块",
                 12, MUTED, false), blockParams(dp(21)));
+        capture.addView(text("原始 init_boot.img 请按新 OTA 流程离线保存；应用不会把当前活动 init_boot 认定为原厂镜像。",
+                11, MUTED, false), blockParams(dp(7)));
         collectButton = button("采集并生成 ZIP", true);
         capture.addView(collectButton, blockParams(dp(10)));
         capture.addView(text("采集期间请保持应用处于前台；完成后仅保留最终 ZIP。",
@@ -206,7 +211,7 @@ public final class MainActivity extends Activity {
         }));
 
         LinearLayout transfer = surfaceCard(work, dp(14), dp(20));
-        transfer.addView(sectionHeading("02", "上传到 GitHub", "上传成功与后端审计是两个不同步骤"));
+        transfer.addView(sectionHeading("02", "安全上传", "上传完成后还需等待服务端审计"));
         fileState = text("", 12, INK, true);
         fileState.setTextIsSelectable(true);
         transfer.addView(fileState, blockParams(dp(17)));
@@ -316,7 +321,7 @@ public final class MainActivity extends Activity {
         bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
         bottom.setBackground(topStroke(WHITE, BORDER));
         shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
-        String[] glyphs = {"⌂", "▤", "⚙"};
+        int[] glyphs = {R.drawable.ic_nav_workbench, R.drawable.ic_nav_records, R.drawable.ic_nav_settings};
         String[] labels = {"工作台", "记录", "设置"};
         for (int i = 0; i < 3; i++) {
             final int destination = i;
@@ -325,9 +330,11 @@ public final class MainActivity extends Activity {
             item.setClickable(true);
             item.setFocusable(true);
             item.setBackground(touchBackground(Color.TRANSPARENT, dp(15)));
-            TextView icon = text(glyphs[i], 21, MUTED, true);
-            icon.setGravity(android.view.Gravity.CENTER);
-            item.addView(icon);
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(glyphs[i]);
+            icon.setImageTintList(ColorStateList.valueOf(MUTED));
+            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            item.addView(icon, new LinearLayout.LayoutParams(dp(23), dp(23)));
             TextView label = text(labels[i], 11, MUTED, true);
             label.setGravity(android.view.Gravity.CENTER);
             item.addView(label, blockParams(dp(2)));
@@ -752,10 +759,10 @@ public final class MainActivity extends Activity {
 
     private LinearLayout surfaceCard(LinearLayout parent, int top, int inset) {
         LinearLayout card = vertical();
-        GradientDrawable bg = round(WHITE, dp(21));
-        bg.setStroke(dp(1), BORDER);
+        GradientDrawable bg = round(WHITE, dp(24));
         card.setBackground(bg);
-        card.setPadding(inset, dp(19), inset, dp(20));
+        card.setElevation(dp(1));
+        card.setPadding(inset, dp(21), inset, dp(23));
         parent.addView(card, blockParams(top));
         return card;
     }
@@ -763,15 +770,14 @@ public final class MainActivity extends Activity {
     private LinearLayout sectionHeading(String number, String heading, String detail) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView sequence = text(number, 12, TEAL, true);
-        sequence.setGravity(android.view.Gravity.CENTER);
-        sequence.setBackground(round(LIGHT_TEAL, dp(12)));
-        row.addView(sequence, new LinearLayout.LayoutParams(dp(37), dp(37)));
+        View accent = new View(this);
+        accent.setBackground(round(TEAL, dp(3)));
+        row.addView(accent, new LinearLayout.LayoutParams(dp(5), dp(34)));
         LinearLayout labels = vertical();
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.leftMargin = dp(11);
+        lp.leftMargin = dp(13);
         row.addView(labels, lp);
-        labels.addView(text(heading, 17, INK, true));
+        labels.addView(text(heading, 18, INK, true));
         labels.addView(text(detail, 11, MUTED, false), blockParams(dp(4)));
         return row;
     }
@@ -790,7 +796,7 @@ public final class MainActivity extends Activity {
     }
 
     private RippleDrawable touchBackground(int base, int radius) {
-        return new RippleDrawable(ColorStateList.valueOf(Color.argb(38, 20, 84, 77)),
+        return new RippleDrawable(ColorStateList.valueOf(Color.argb(30, 35, 105, 230)),
                 round(base, radius), round(WHITE, radius));
     }
 
@@ -803,7 +809,7 @@ public final class MainActivity extends Activity {
         settingsScroll.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         for (int i = 0; i < navItems.length; i++) {
             boolean active = i == index;
-            navIcons[i].setTextColor(active ? TEAL : MUTED);
+            navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
             navItems[i].setBackground(touchBackground(
                     active ? LIGHT_TEAL : Color.TRANSPARENT, dp(16)));
@@ -933,9 +939,9 @@ public final class MainActivity extends Activity {
         b.setLetterSpacing(0.015f);
         b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         b.setTextColor(primary ? WHITE : TEAL);
-        b.setBackground(touchBackground(primary ? TEAL : LIGHT_TEAL, dp(15)));
-        b.setMinHeight(dp(primary ? 54 : 48));
-        b.setMinimumHeight(dp(primary ? 54 : 48));
+        b.setBackground(touchBackground(primary ? TEAL : LIGHT_TEAL, dp(18)));
+        b.setMinHeight(dp(primary ? 56 : 50));
+        b.setMinimumHeight(dp(primary ? 56 : 50));
         b.setPadding(dp(14), 0, dp(14), 0);
         b.setStateListAnimator(null);
         b.setOnTouchListener((view, event) -> {
