@@ -23,6 +23,46 @@ final class RootCollector {
                 || "pandora".equalsIgnoreCase(Build.PRODUCT);
     }
 
+    /** Read-only public system identity; does not require Root. */
+    static String currentOsVersion() {
+        String value = readProperty("ro.mi.os.version.incremental");
+        if (value.isEmpty()) value = Build.VERSION.INCREMENTAL == null ? "" : Build.VERSION.INCREMENTAL.trim();
+        return value.isEmpty() ? "未知版本" : value;
+    }
+
+    /** Human-facing active A/B slot label; collection still re-validates _a/_b under Root. */
+    static String currentSlotLabel() {
+        String value = readProperty("ro.boot.slot_suffix");
+        if (value.isEmpty()) value = readProperty("ro.boot.slot");
+        return normalizeSlotLabel(value);
+    }
+
+    static String normalizeSlotLabel(String value) {
+        if (value == null) return "未知";
+        String slot = value.trim().toLowerCase(Locale.US);
+        if ("_a".equals(slot) || "a".equals(slot)) return "A";
+        if ("_b".equals(slot) || "b".equals(slot)) return "B";
+        return "未知";
+    }
+
+    private static String readProperty(String key) {
+        Process p = null;
+        try {
+            p = new ProcessBuilder("getprop", key).redirectErrorStream(true).start();
+            if (!p.waitFor(2, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                p.waitFor();
+                return "";
+            }
+            if (p.exitValue() != 0) return "";
+            return readLimited(p.getInputStream(), 512).trim();
+        } catch (Exception ignored) {
+            return "";
+        } finally {
+            if (p != null) p.destroy();
+        }
+    }
+
     static String checkRoot() throws Exception {
         // Root Manager might show an interactive prompt or reject this app's UID.
         // Always bound the wait: a hung su must not lock the UI worker indefinitely.
