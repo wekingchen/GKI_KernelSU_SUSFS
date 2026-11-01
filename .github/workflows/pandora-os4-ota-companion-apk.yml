@@ -1,6 +1,11 @@
 name: "小米17 Pro OS4 / OTA 采集助手 APK（独立实验）"
 
 on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "tools/pandora-ota-companion/**"
+      - ".github/workflows/pandora-os4-ota-companion-apk.yml"
   push:
     branches:
       - pandora-os4-ota-companion
