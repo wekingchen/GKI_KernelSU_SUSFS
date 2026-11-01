@@ -1,7 +1,21 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.11.0-dev（采集前预检 + 前台自动跟踪）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.12.0-dev（真机测试反馈表单）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
+
+## 0.12.0 真机测试反馈
+
+工作台「真机测试反馈 → 填写测试结果」直接填写原「提交 OTA 真机测试结果与固化基线」工作流，无需网页填表，也无需测试前登记任务。电脑负责 `fastboot boot`，在手机手动测试功能后打开 App 提交；App 没有 fastboot、flash、重启或分区写入能力。
+
+1. 在设置为目标仓库 PAT 增加 **Actions: Read and write**（原 Contents 读写保留）。原采集/上传功能仅需 Contents 读写，不因新增反馈功能被强制升级权限。
+2. 选择实际测试的候选，或输入来源 Run ID 后「读取候选信息」。新候选额外生成独立小型 `pandora-OTA-MOBILE-FEEDBACK-*` 附件，App 核对 Run、commit、build 和文件身份后预填 SHA-256；不下载完整 boot。旧候选没有该附件时必须手动填写电脑实际测试 IMG 的 SHA-256。
+3. 打开反馈页会自动读取五项本机信息，也可点击重新读取：`getprop ro.product.device`、`getprop ro.mi.os.version.incremental`、`getprop sys.boot_completed`、`uname -r`、`/proc/modules`。前四项不依赖 Root；模块列表普通权限受限时仅尝试 `su -c cat /proc/modules`，失败显示未取得。不会把读取失败当成模块正常。
+4. 选择通过/失败，确认实际测试镜像一致；人工确认已进桌面、关键模块和基础功能正常，填写备注，再核对摘要并提交。自动读数不自动勾选人工项。模块完整文本和采证时间保存在手机表单草稿，用于展开核对；原工作流仍按既有字段接收模块/功能确认，不宣称模块全文已上传。
+5. 若待测无法开机、恢复后才进入 App，选择「待测启动失败，未能进入系统；现已恢复」。只允许失败反馈，build/uname 留空，启动/模块确认强制 false；当前读数标为恢复后环境，避免混淆。
+6. App 对原工作流执行 `workflow_dispatch`，固定 `ref=dev`。新增可选 `client_request_id` 和运行标题仅用于精确定位本次反馈；网页手动入口保持兼容，服务端原来源/IMG/ABI/同 OTA 复现/人工确认门禁不削弱。成功仍只固化开发基线，不修改 LKG。
+7. 本地先保存反馈编号再发请求。恢复页面不重发请求；网络响应未确认时先查询是否已受理，避免因超时自动重复触发。两分钟仍未建立运行记录时可手动重发同一编号及内容；服务端在任何 Issue/基线变更前阻止重复编号，App 跟踪最早的原始运行。前台自动显示等待、执行、完成或失败；后台暂停查询，返回继续。每次终态保留历史，最多 20 条。
+
+`build + uname + boot_completed=1` 不构成指定 IMG 已启动的硬件证明，仍需用户确认电脑实际使用的镜像；绝不以磁盘 boot 分区 SHA-256 冒充 `fastboot boot` 的临时镜像 SHA-256。新功能经模拟器和合成契约验证，不替代新 OTA 实物真机测试。
 
 ## 0.11.0 新增功能
 
@@ -37,7 +51,6 @@
 仍待后续补强、但不阻断现有主链的能力：
 
 - **后端进度可见性**：App 当前只显示手机 intake 的 PENDING / ACCEPTED / ALREADY_CURRENT / REJECTED，还不能继续显示 GKI 候选构建、ABI/KMI、待测 fastboot boot、真机验证状态。
-- **待测 boot 真机反馈辅助**：fastboot boot 仍必须由电脑人工执行；未来 App 可在启动回来后读取 build/uname/boot_completed，并辅助提交验证证据，但绝不能自行 fastboot/flash。
 - **远端 Draft 生命周期**：本地 ZIP 只有在通知成功且 intake 已到终态后才允许严格安全删除；远端采集 Draft 为保留证据暂不自动删，后续可在候选/验证证据已归档后提供人工清理。
 
 明确属于安全边界、**不是缺失功能**：App 不刷机、不切 slot、不自动晋升 LKG、不把 Root 后 init_boot 冒充 OEM 原版、不因后端 ACCEPTED/REJECTED 自动删除本地证据，也不承诺后台断点续传。

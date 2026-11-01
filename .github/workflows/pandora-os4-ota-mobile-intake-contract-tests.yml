@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [dev]
     paths:
+      - "tools/pandora-ota-companion/create_test_feedback_manifest.py"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "tools/pandora-ota-companion/normalize_mobile_capture.py"
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"
@@ -15,6 +18,9 @@ on:
   push:
     branches: [dev]
     paths:
+      - "tools/pandora-ota-companion/create_test_feedback_manifest.py"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "tools/pandora-ota-companion/normalize_mobile_capture.py"
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"

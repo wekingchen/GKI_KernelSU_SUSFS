@@ -145,7 +145,7 @@ fastboot devices
 fastboot boot "你的待测文件.img"
 ~~~
 
-确认能进入 Android 后，重新连接 adb：
+确认能进入 Android 后，首选打开 **OTA 助手 0.12.0 → 工作台 → 真机测试反馈**，自动读取设备、OS build、启动完成状态、uname 和模块列表；也可点击「读取本机验证信息」刷新。以下电脑 ADB 命令保留为备用方式：
 
 ~~~cmd
 adb wait-for-device
@@ -158,7 +158,9 @@ adb shell cat /proc/modules
 
 还应检查 OEM 模块、Wi-Fi、蜂窝网络、蓝牙、基本电话、存储等行为。**这一阶段是纯 GKI 内核，不包含你尚未移植进去的 Built-in BakaSU/SUSFS/NoMount，因此不能以“缺少这些定制功能”直接判纯 GKI 启动失败。** 临时包会在 boot cmdline 中加入 `module_blacklist=kernelsu` 以避免旧 LKM Root 冲突；因此临时会话的 Root 未必可用，不应把“`su` 一定正常”列为纯 GKI 基线 pass 的必要条件。
 
-之后进入 [`提交 OTA 真机测试结果与固化基线`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml)：
+测完后直接在 App 选择实际测试的候选，确认 IMG 校验值和手动测试结果，补充备注并提交；页面会跟踪原工作流执行结果，不需要网页填表。PAT 需要目标仓库 **Contents 读写 + Actions 读写**。新候选自动预填 SHA-256，旧候选需要手填；无法开机、恢复后才进入 App 时选择「待测启动失败，未能进入系统；现已恢复」，App 会清空待测 build/uname，避免误用恢复后的运行信息。
+
+原 [`提交 OTA 真机测试结果与固化基线`](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml) 网页入口仍作为备用，字段对应如下：
 
 | 字段 | 成功 `pass` | 失败 `fail` |
 |---|---|---|

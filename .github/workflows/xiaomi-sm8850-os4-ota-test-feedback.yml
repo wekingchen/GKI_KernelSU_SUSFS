@@ -1,4 +1,5 @@
 name: "小米17 Pro OS4 / 提交 OTA 真机测试结果与固化基线"
+run-name: "Pandora OTA feedback / ${{ inputs.client_request_id || github.run_id }}"
 on:
   workflow_dispatch:
     inputs:
@@ -37,6 +38,10 @@ on:
         description: "异常或补充说明（可选，不含密钥）"
         required: false
         type: string
+      client_request_id:
+        description: "手机反馈编号（App 自动填写；网页提交可留空）"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -64,6 +69,7 @@ jobs:
       CONFIRM_BOOT: ${{ inputs.confirmed_boot_completed }}
       CONFIRM_MODULES: ${{ inputs.confirmed_modules }}
       TEST_NOTE: ${{ inputs.note }}
+      CLIENT_REQUEST_ID: ${{ inputs.client_request_id }}
     steps:
       - name: "检出可信 dev"
         uses: actions/checkout@v7
@@ -83,6 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ -z "$CLIENT_REQUEST_ID" || "$CLIENT_REQUEST_ID" =~ ^[a-f0-9]{32}$ ]] || exit 1
           [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
           [[ "$TESTED_SHA" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$TEST_RESULT" == pass || "$TEST_RESULT" == fail ]] || exit 1
@@ -127,6 +134,14 @@ jobs:
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "test=$TEST" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: "手机反馈编号去重：禁止网络重试重复建 Issue 或固化基线"
+        if: inputs.client_request_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows/xiaomi-sm8850-os4-ota-test-feedback.yml/runs?event=workflow_dispatch&per_page=100" \
+            | python3 tools/pandora-ota-companion/check_feedback_request.py
 
       - name: "测试失败：保存 GitHub Issue，禁止任何基线晋级"
         if: inputs.result == 'fail'
@@ -308,6 +323,7 @@ jobs:
         run: |
           {
             echo "## OTA 真机测试反馈"
+            echo "- 手机反馈编号: $CLIENT_REQUEST_ID"
             echo "- 候选 Run: $SOURCE_RUN_ID"
             echo "- 固件: $OBSERVED_BUILD"
             echo "- 实际内核: $OBSERVED_UNAME"

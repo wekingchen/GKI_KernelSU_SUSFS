@@ -71,6 +71,8 @@ jobs:
             sleep 2
             adb exec-out screencap -p > app/build/reports/androidTests/preview/settings.png
             test -s app/build/reports/androidTests/preview/settings.png
+            python3 capture_feedback_preview.py app/build/reports/androidTests/preview/feedback-form.png
+            test -s app/build/reports/androidTests/preview/feedback-form.png
       - name: 保存模拟器测试报告（失败也收集）
         if: always()
         uses: actions/upload-artifact@v4
