@@ -56,6 +56,14 @@ class NativeRestoration(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "menu removed"):
             mod.validate_native_source(self.build, changed)
 
+    def test_removed_feature_forwarding_rejected(self):
+        altered = self.custom.replace(
+            "      use_bbg: ${{ inputs.use_bbg }}",
+            "      use_bbg: false", 1)
+        self.assertNotEqual(altered, self.custom)
+        with self.assertRaisesRegex(ValueError, "stopped forwarding"):
+            mod.validate_native_source(self.build, altered)
+
     def test_rewired_upstream_caller_rejected(self):
         changed = self.custom.replace("uses: ./.github/workflows/build.yml",
                                       "uses: ./.github/workflows/unknown.yml", 1)
@@ -114,8 +122,9 @@ class NativeRestoration(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/generic-custom-auto-sync.yml").read_text()
         self.assertIn("try_native_upstream.sh", workflow)
         self.assertIn("run_auto_sync.sh", workflow)
-        self.assertLess(workflow.index("try_native_upstream.sh"),
-                        workflow.index("run_auto_sync.sh"))
+        run_body = workflow.split("run: |", 1)[-1]
+        self.assertLess(run_body.index("try_native_upstream.sh"),
+                        run_body.index("run_auto_sync.sh"))
 
 
 if __name__ == "__main__":
