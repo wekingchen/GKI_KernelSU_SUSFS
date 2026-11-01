@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.TextView;
 import androidx.test.core.app.ActivityScenario;
@@ -146,6 +147,41 @@ public class CompanionEmulatorTest {
                     assertFalse(upload.isEnabled());
                     assertFalse(delete.isEnabled());
                     assertTrue(field(activity, "tokenState", TextView.class).getText().length() > 0);
+                } catch (Exception e) {
+                    throw new AssertionError(e);
+                }
+            });
+        }
+    }
+
+    @Test
+    public void nativeDestinationsSwitchWithoutLosingSavedConfiguration() throws Exception {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            scenario.onActivity(activity -> {
+                try {
+                    LinearLayout[] tabs = field(activity, "navItems", LinearLayout[].class);
+                    android.widget.ScrollView work = field(activity, "workScroll",
+                            android.widget.ScrollView.class);
+                    android.widget.ScrollView records = field(activity, "recordsScroll",
+                            android.widget.ScrollView.class);
+                    android.widget.ScrollView settings = field(activity, "settingsScroll",
+                            android.widget.ScrollView.class);
+                    assertEquals(3, tabs.length);
+                    assertEquals(android.view.View.VISIBLE, work.getVisibility());
+                    assertEquals(android.view.View.GONE, records.getVisibility());
+                    assertTrue(tabs[1].performClick());
+                    assertEquals(android.view.View.VISIBLE, records.getVisibility());
+                    assertEquals(android.view.View.GONE, work.getVisibility());
+                    assertTrue(tabs[2].performClick());
+                    assertEquals(android.view.View.VISIBLE, settings.getVisibility());
+                    assertNotNull(field(activity, "repoField", EditText.class));
+                    assertNotNull(field(activity, "tokenState", TextView.class));
+                    assertTrue(tabs[0].performClick());
+                    assertEquals(android.view.View.VISIBLE, work.getVisibility());
+                    Button upload = field(activity, "uploadButton", Button.class);
+                    assertFalse(upload.isEnabled());
+                    assertTrue(field(activity, "taskSpinner", android.widget.ProgressBar.class)
+                            .getVisibility() != android.view.View.VISIBLE);
                 } catch (Exception e) {
                     throw new AssertionError(e);
                 }
