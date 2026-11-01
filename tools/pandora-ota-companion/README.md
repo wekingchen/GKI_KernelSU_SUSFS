@@ -1,6 +1,6 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.7.0-dev（原生 UI 2.0）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.7.1-dev（原生 UI 2.0）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
 
 ## 操作流程
@@ -10,7 +10,7 @@
 3. 回到「工作台」，点击「检查 Root 权限」，随后「采集并生成 ZIP」：强制读取设备代码、OS build、uname、活动 slot、OEM 内核模块以及 `boot/init_boot/vendor_boot/dtbo`，所有读取均只读。**当前分区不等于可信厂商原版**，Root/LKM/自定义内核也可能改变内容。
 4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
 5. **只要 ZIP 打包完成，手机立即清理分区镜像、OEM TAR 等所有中间采集物和 staging 目录，只留下最终 ZIP。采集或压缩出错则同时删除残缺 ZIP 并尝试清理 staging；上次意外终止遗留的 staging 在下次采集时自动回收（保留 30 分钟宽限以避开正在执行的采集）。**
-6. 到「记录」查看本地 ZIP 和 GitHub 回执：只有 GitHub **后端确认接收**，才能手动删除；删除前再次核验 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除。
+6. 到「记录」查看本地 ZIP 和 GitHub 回执：只要 GitHub **已确认上传并仍保留完整附件**，就可以手动删除本地 ZIP，即便 OTA 身份审计返回 REJECTED；删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
 7. 上传并不等于接收成功：发送 `repository_dispatch` 后可在 APP 中查询后端接收结果；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。仅在接收已确认后开放最终 ZIP 手动清理。
 8. 通知请求失败可直接核对远端附件并重新发送，不重复上传整个 ZIP。
 
@@ -52,7 +52,7 @@ gradle --no-daemon :app:assembleDebug
 
 设置后分支工作流自动额外输出 `pandora-os4-ota-companion-STABLE-SIGNED` 的正式签名 Release APK。**私钥/密码不要上传仓库、日志、Release、Artifact。** 预先保管签名私钥和密码的离线备份；签名不同的 Debug APK 不能直接覆盖稳定版。
 
-## 界面 UI 2.0（0.7.0-dev）
+## 界面 UI 2.0（0.7.1-dev）
 
 - 原生 Android Activity 顶部信息区、固定状态条与底部三目的地导航：**工作台 / 记录 / 设置**。不采用 WebView 或 HTML。
 - 工作台只保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
@@ -78,3 +78,10 @@ gradle --no-daemon :app:assembleDebug
 - Root 命令 `su -c id` 最多等待 45 秒，成功、拒绝、超时均在检测按钮下面即时显示；不再只在页面底部输出结果。
 - `adb shell su -c id` 的授权主体是 ADB shell，**不等于**本应用被授予 Root；请在 ReSukiSU/BakaSU 的「超级用户」中独立核对 `com.wekingchen.pandoraota`。
 - 如果出现「等待 Root 授权超时」，先检查管理器对本应用的授权，不要删除数据重装，否则加密存储的 PAT 可能丢失。
+
+## 0.7.1-dev 本地空间清理安全修复
+
+- OTA 安全拒收（如同版本自定义 Boot 漂移）**不等于 GitHub 上传失败**，也不应阻止用户手动清理自己的本地 ZIP。
+- 「记录」页只有存在 GitHub 上传回执且有已保存 PAT 时开放清理。先明确提示删除本地副本无法恢复；后台再次读取对应 Draft Release 并核验附件 ID、名称、字节大小、上传状态、SHA-256，再次核验本地文件 SHA-256 后才执行删除。
+- 远端不存在、被修改、网络错误或 SHA 不符时，**禁止删除**；不会删除远端 Draft Release，也不会修改原有 OTA 固定输入或 LKG。
+- 校验采用独立 HTTP GET，不会改变已验证的采集/上传/后端门禁。

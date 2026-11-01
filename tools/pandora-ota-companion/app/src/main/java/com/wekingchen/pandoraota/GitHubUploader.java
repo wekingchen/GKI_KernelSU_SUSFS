@@ -100,6 +100,55 @@ final class GitHubUploader {
                 releaseUrl, dispatched);
     }
 
+    /**
+     * Confirm the exact remote archive still exists before optional local deletion.
+     * Server OTA acceptance is deliberately NOT required: a custom boot may be
+     * legitimately rejected while the original archive remains stored on GitHub.
+     * This method does not mutate Releases or any other remote resources.
+     */
+    static void verifyRemoteArchive(String repo, String token, long releaseId,
+                                    long assetId, File localFile, String sha) throws Exception {
+        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || token == null || token.isEmpty() || releaseId <= 0 || assetId <= 0
+                || sha == null || !sha.matches("[0-9a-f]{64}") || !localFile.isFile()
+                || localFile.length() <= 0) {
+            throw new SecurityException("缺少有效的 GitHub 上传回执，禁止删除本地文件");
+        }
+        JSONObject release = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        verifyRemoteArchiveMetadata(release, releaseId, assetId,
+                localFile.getName(), localFile.length(), sha);
+    }
+
+    /** Pure validation for real API responses and offline emulator tests. */
+    static void verifyRemoteArchiveMetadata(JSONObject release, long releaseId, long assetId,
+                                            String filename, long bytes, String sha) throws Exception {
+        if (release.optLong("id") != releaseId || !release.optBoolean("draft")
+                || !"Pandora OS4 OTA capture — private intake"
+                        .equals(release.optString("name"))) {
+            throw new SecurityException("GitHub Release 身份不匹配，禁止删除");
+        }
+        String tag = release.optString("tag_name");
+        if (!tag.startsWith("pandora-ota-capture-") && !tag.startsWith("untagged-")) {
+            throw new SecurityException("GitHub Release 标签异常，禁止删除");
+        }
+        org.json.JSONArray assets = release.optJSONArray("assets");
+        if (assets == null) throw new SecurityException("GitHub Release 不包含附件列表");
+        int found = 0;
+        for (int i = 0; i < assets.length(); i++) {
+            JSONObject item = assets.optJSONObject(i);
+            if (item == null || item.optLong("id") != assetId) continue;
+            found++;
+            if (!filename.equals(item.optString("name"))
+                    || item.optLong("size", -1) != bytes
+                    || !"uploaded".equals(item.optString("state"))
+                    || !("sha256:" + sha).equalsIgnoreCase(item.optString("digest"))) {
+                throw new SecurityException("远端附件名称、大小或 SHA-256 不一致，禁止删除");
+            }
+        }
+        if (found != 1) throw new SecurityException("远端附件不存在或重复，禁止删除");
+    }
+
     /** Retry notification for an already-uploaded GitHub attachment, without uploading again. */
     static void retryDispatch(String repo, String token, File file,
                               long releaseId, long assetId, String expectedSha) throws Exception {
