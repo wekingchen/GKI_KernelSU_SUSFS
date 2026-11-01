@@ -232,6 +232,9 @@ public class CompanionEmulatorTest {
                     assertEquals(android.view.View.VISIBLE, settings.getVisibility());
                     assertNotNull(field(activity, "repoField", EditText.class));
                     assertNotNull(field(activity, "tokenState", TextView.class));
+                    LinearLayout help = field(activity, "helpRow", LinearLayout.class);
+                    assertNotNull(help);
+                    assertTrue(help.hasOnClickListeners());
                     assertTrue(tabs[0].performClick());
                     assertEquals(android.view.View.VISIBLE, work.getVisibility());
                     Button upload = field(activity, "uploadButton", Button.class);
