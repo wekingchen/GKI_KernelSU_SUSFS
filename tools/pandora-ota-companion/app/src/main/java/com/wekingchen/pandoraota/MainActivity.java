@@ -430,7 +430,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout securityRow = settingRow(R.drawable.ic_key_simple, "安全与隐私");
         TextView securitySub = (TextView) securityRow.getChildAt(1);
-        securitySub.setText("Keystore 加密 · 只读采集");
+        renderSettingRow(securitySub, "安全与隐私", "Keystore 加密 · 只读采集");
         aboutCard.addView(securityRow);
         securityRow.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("安全与隐私")
@@ -447,7 +447,8 @@ public final class MainActivity extends Activity {
 
         LinearLayout aboutRow = settingRow(R.drawable.ic_pandora_ota, "关于 Pandora OTA");
         TextView aboutSub = (TextView) aboutRow.getChildAt(1);
-        aboutSub.setText("版本 " + getAppVersion() + " · Xiaomi 17 Pro");
+        renderSettingRow(aboutSub, "关于 Pandora OTA",
+                "版本 " + getAppVersion() + " · Xiaomi 17 Pro");
         aboutCard.addView(aboutRow);
         aboutRow.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("Pandora OTA")
@@ -490,7 +491,8 @@ public final class MainActivity extends Activity {
             icon.setImageResource(glyphs[i]);
             icon.setImageTintList(ColorStateList.valueOf(MUTED));
             icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            item.addView(icon, new LinearLayout.LayoutParams(dp(23), dp(23)));
+            icon.setPadding(dp(6), dp(6), dp(6), dp(6));
+            item.addView(icon, new LinearLayout.LayoutParams(dp(35), dp(35)));
             TextView label = text(labels[i], 11, MUTED, true);
             label.setGravity(android.view.Gravity.CENTER);
             item.addView(label, blockParams(dp(2)));
@@ -1076,8 +1078,8 @@ public final class MainActivity extends Activity {
             boolean active = i == index;
             navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
-            navItems[i].setBackground(touchBackground(
-                    active ? LIGHT_TEAL : Color.TRANSPARENT, dp(18)));
+            navItems[i].setBackground(touchBackground(Color.TRANSPARENT, dp(18)));
+            navIcons[i].setBackground(round(active ? LIGHT_TEAL : Color.TRANSPARENT, dp(18)));
             navItems[i].setSelected(active);
         }
     }
