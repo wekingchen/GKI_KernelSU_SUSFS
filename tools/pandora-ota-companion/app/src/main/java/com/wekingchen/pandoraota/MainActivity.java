@@ -18,7 +18,6 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.*;
-import android.graphics.drawable.Drawable;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -109,7 +108,7 @@ public final class MainActivity extends Activity {
         taskSpinner = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
         taskSpinner.setIndeterminateTintList(ColorStateList.valueOf(TEAL));
         notice.addView(taskSpinner, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        message = text("已就绪 · 可以检查 Root 或查看采集记录", 12, INK, false);
+        message = text("准备就绪", 12, INK, false);
         message.setMaxLines(4);
         message.setTextIsSelectable(true);
         LinearLayout.LayoutParams msgParams = new LinearLayout.LayoutParams(0, -2, 1);
@@ -141,8 +140,8 @@ public final class MainActivity extends Activity {
         deviceGlyph.setPadding(dp(15), dp(15), dp(15), dp(15));
         deviceGlyph.setBackground(round(LIGHT_TEAL, dp(17)));
         identity.addView(deviceGlyph, new LinearLayout.LayoutParams(dp(55), dp(55)));
-        deviceStatus = text(RootCollector.isPandora() ? "●  已识别 Xiaomi 17 Pro · pandora"
-                        : "●  当前设备不是 pandora，采集受限",
+        deviceStatus = text(RootCollector.isPandora() ? "Xiaomi 17 Pro · pandora"
+                        : "当前设备不是 pandora · 已暂停采集",
                 12, RootCollector.isPandora() ? TEAL : WARNING, true);
         overview.addView(deviceStatus, blockParams(dp(17)));
         overview.addView(text("Android " + Build.VERSION.RELEASE
@@ -320,7 +319,7 @@ public final class MainActivity extends Activity {
         bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
         bottom.setBackground(topStroke(WHITE, BORDER));
         shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
-        int[] glyphs = {android.R.drawable.ic_menu_view, android.R.drawable.ic_menu_recent_history, android.R.drawable.ic_menu_preferences};
+        int[] glyphs = {R.drawable.ic_nav_workbench, R.drawable.ic_nav_records, R.drawable.ic_nav_settings};
         String[] labels = {"工作台", "记录", "设置"};
         for (int i = 0; i < 3; i++) {
             final int destination = i;
@@ -759,8 +758,8 @@ public final class MainActivity extends Activity {
     private LinearLayout surfaceCard(LinearLayout parent, int top, int inset) {
         LinearLayout card = vertical();
         GradientDrawable bg = round(WHITE, dp(24));
-        bg.setStroke(dp(1), BORDER);
         card.setBackground(bg);
+        card.setElevation(dp(1));
         card.setPadding(inset, dp(21), inset, dp(23));
         parent.addView(card, blockParams(top));
         return card;
@@ -769,15 +768,14 @@ public final class MainActivity extends Activity {
     private LinearLayout sectionHeading(String number, String heading, String detail) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView sequence = text(number, 12, TEAL, true);
-        sequence.setGravity(android.view.Gravity.CENTER);
-        sequence.setBackground(round(LIGHT_TEAL, dp(18)));
-        row.addView(sequence, new LinearLayout.LayoutParams(dp(37), dp(37)));
+        View accent = new View(this);
+        accent.setBackground(round(TEAL, dp(3)));
+        row.addView(accent, new LinearLayout.LayoutParams(dp(5), dp(34)));
         LinearLayout labels = vertical();
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.leftMargin = dp(11);
+        lp.leftMargin = dp(13);
         row.addView(labels, lp);
-        labels.addView(text(heading, 17, INK, true));
+        labels.addView(text(heading, 18, INK, true));
         labels.addView(text(detail, 11, MUTED, false), blockParams(dp(4)));
         return row;
     }
