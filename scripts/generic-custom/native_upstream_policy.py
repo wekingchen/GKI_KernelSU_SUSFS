@@ -37,10 +37,19 @@ def validate_native_source(build: str, custom: str) -> None:
         raise ValueError("upstream native caller no longer uses native build.yml")
     # Never accidentally test a simplified configuration in lieu of
     # the proven K50 Pro full-feature selectable workflow.
-    for expected in ("use_bbg:", "use_nomount:", "use_networking:", "use_rekernel:",
-                     "kernelsu_variant:", "droidspaces:", "cve_2026_43499_patch:"):
-        if expected not in custom:
-            raise ValueError("upstream native menu removed K50 Pro option: " + expected)
+    # A feature must still be both selectable and forwarded to build.yml;
+    # finding a duplicate "use_bbg:" only in the with: map is not enough.
+    for option, forwarded in (
+        ("use_bbg", "use_bbg"), ("use_nomount", "use_nomount"),
+        ("use_networking", "use_networking"), ("use_rekernel", "use_rekernel"),
+        ("use_zram", "use_zram"), ("kernelsu_variant", "ksu_variant"),
+        ("droidspaces", "droidspaces"),
+        ("cve_2026_43499_patch", "cve_2026_43499_patch"),
+    ):
+        definition = rf"(?m)^      {option}:\\s*$"
+        mapping = rf"(?m)^      {forwarded}:\\s*\\$\\{{\\{{\\s*inputs\\.{option}\\b"
+        if not re.search(definition, custom) or not re.search(mapping, custom):
+            raise ValueError("upstream native menu removed or stopped forwarding K50 Pro option: " + option)
     for expected in ("nick-fields/retry", "enable_susfs", "BBG", "AnyKernel3"):
         if expected not in build:
             raise ValueError("upstream native build lacks required feature: " + expected)
