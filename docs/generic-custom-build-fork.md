@@ -50,3 +50,19 @@
 **边界：**这套机制可以对安全可合并且能通过实际构建的上游更新实现无人值守自动跟进；**不能**安全地承诺无论上游怎样不兼容都自动修好并刷机。冲突、新版本编译失败、GitHub Runner 故障、GitHub 仓库策略阻止写入、或未来上游彻底改写工作流时，系统会拒绝发布有问题的版本，保留旧版稳定构建入口并输出失败原因。它永远不会自动把编译产物刷入红米 K50 Pro，真机长期可靠性仍需与编译成功区分。
 
 版本来源与本仓私有基线的 Git blob SHA 记录在 `.github/config/generic-custom-upstream-sync.json`，同步脚本和回归测试在 `scripts/generic-custom/`，不会成为上游仓库的同名脚本。私有构建工作流更新后仍保留你现在使用的单独入口 `kernel-custom-fork.yml`。
+
+## 上游恢复后自动停用隔离修复版（不再要求真机确认）
+
+自 2026-11-01 的“原版恢复”改造起，每次自动检查首先比较 `zzh20188/GKI_KernelSU_SUSFS` 的**原版** `.github/workflows/kernel-custom.yml` 和 `.github/workflows/build.yml`，而不是仅查看隔离副本的 SHA。初始模式为 `fork`，来源状态保存在 `.github/config/generic-custom-route.json`。
+
+- **来源未变：**不重复编译。当前模式为 `fork` 则沿用原隔离同步逻辑；已恢复 `upstream` 则不运行隔离补丁同步。
+- **上游任一原版工作流变更：**先验证原版仍包含已用功能菜单和构建契约、不会强制使用未经 K50 Pro 真机验证的 Thin LTO。条件不满足直接跳过原版恢复，保留安全的旧版。
+- **安全条件通过：**创建仅供测试的临时分支，把上述两份上游文件**原样**放入该分支，不改变正式 `dev`，用原始 `Android 内核构建-自定义` 和 [成功 Run #41239924766](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/41239924766) 的全部功能配置执行实际编译。
+- **原版 CI 成功：**同时检查构建 Run、Git 提交、5.10.209/BakaSU 内核 Job、AnyKernel3 Artifact、BBG 宿主头文件错误及 LTO 链接阶段证据，随后再次核对正式 `dev` 和上游文件 Git SHA 未发生变化。以上全部通过即可**自动恢复原版**：把原始 `build.yml` 和 `kernel-custom.yml` 与路由状态一同更新到正式 `dev`。不要求用户确认真机刷入，也不会自动给设备刷机。
+- **原版验证失败：**不改正式分支，清理候选分支；继续尝试把可安全合并的上游变更同步到隔离版，并用其真实编译结果决定是否更新。
+- **恢复后：**`mode=upstream`，私有 `build-fork-custom.yml` 的定时同步自动停用。每天的上游检查**仍保留**，后续新的上游变更仍需再通过原版完整 CI 才能更新 `dev`；隔离版及补丁文件保留为应急回退，不会自动删除。
+- **严格限制：**原版恢复时覆盖正式 `dev` 上的共用 `build.yml`，但内容必须与刚刚通过 CI 的上游原文件逐字相同；这是有意恢复上游，并不是往共用路径添加私有补丁。由于其它通用设备工作流也可能使用该共用文件，无法保证它们都和 K50 Pro 一样可用；K50 Pro 的通过结果不能替代其它设备测试。
+
+路由检测、真实构建调度和 SHA 门禁在 `scripts/generic-custom/try_native_upstream.sh`；配置安全策略在 `scripts/generic-custom/native_upstream_policy.py`；回归用例在 `scripts/generic-custom/test_native_upstream_policy.py`。
+
+**当前状态**：现有原版仍有强制 Thin LTO 的历史设置，且尚未出现新的可确认修复，因此保持 `fork`（红米 K50 Pro 已成功真机刷入的稳定隔离版），绝不提前退役。
