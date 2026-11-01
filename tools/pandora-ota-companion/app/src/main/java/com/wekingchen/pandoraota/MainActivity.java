@@ -46,7 +46,7 @@ public final class MainActivity extends Activity {
     private TextView percent, receiptState, message, rootStatus;
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
-    private LinearLayout archiveListing, statusBanner, appBar, recordCard, recordActionRow;
+    private LinearLayout archiveListing, statusBanner, appBar, recordCard, recordActionRow, helpRow;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount, capturePolicySub;
     private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
     private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
@@ -55,6 +55,8 @@ public final class MainActivity extends Activity {
     private final TextView[] navLabels = new TextView[3];
     private int activeTab;
     private boolean busy;
+    private volatile String liveOsVersion = "正在读取";
+    private volatile String liveSlotLabel = "…";
 
     @Override
     public void onCreate(Bundle state) {
@@ -464,7 +466,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("知道了", null)
                 .show());
 
-        TextView aboutTitle = text("关于", 18, INK, true);
+        TextView aboutTitle = text("帮助与关于", 18, INK, true);
         settings.addView(aboutTitle, blockParams(dp(28)));
 
         LinearLayout aboutCard = vertical();
@@ -472,6 +474,19 @@ public final class MainActivity extends Activity {
         aboutCard.setPadding(dp(8), dp(7), dp(8), dp(7));
         aboutCard.setElevation(dp(1));
         settings.addView(aboutCard, blockParams(dp(10)));
+
+        helpRow = settingRow(R.drawable.ic_guide_simple, "使用指南");
+        TextView helpSub = (TextView) helpRow.getChildAt(1);
+        renderSettingRow(helpSub, "使用指南", "新 OTA → 采集 → 审计 → 待测 → LKG");
+        aboutCard.addView(helpRow);
+        helpRow.setOnClickListener(v -> showHelpGuide());
+
+        View helpDivider = new View(this);
+        helpDivider.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams helpDividerParams = new LinearLayout.LayoutParams(-1, dp(1));
+        helpDividerParams.leftMargin = dp(66);
+        helpDividerParams.rightMargin = dp(12);
+        aboutCard.addView(helpDivider, helpDividerParams);
 
         LinearLayout securityRow = settingRow(R.drawable.ic_shield_simple, "安全与隐私");
         TextView securitySub = (TextView) securityRow.getChildAt(1);
@@ -556,6 +571,8 @@ public final class MainActivity extends Activity {
         worker.execute(() -> {
             final String osVersion = RootCollector.currentOsVersion();
             final String slotLabel = RootCollector.currentSlotLabel();
+            liveOsVersion = osVersion;
+            liveSlotLabel = slotLabel;
             runOnUiThread(() -> {
                 if (deviceStatus != null && RootCollector.isPandora()) {
                     deviceStatus.setText(osVersion);
@@ -611,6 +628,137 @@ public final class MainActivity extends Activity {
         view.setTextSize(14);
         view.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
         view.setLineSpacing(dp(1), 1.06f);
+    }
+
+    private void showHelpGuide() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(false);
+
+        LinearLayout guide = vertical();
+        guide.setPadding(dp(20), dp(18), dp(20), dp(12));
+        guide.setBackgroundColor(BACKGROUND);
+        scroll.addView(guide, new ScrollView.LayoutParams(-1, -2));
+
+        guide.addView(text("使用指南", 24, INK, true));
+        guide.addView(text("从新 OTA 到稳定内核，一条链路看懂", 12, MUTED, false),
+                blockParams(dp(4)));
+
+        LinearLayout current = vertical();
+        current.setPadding(dp(16), dp(14), dp(16), dp(14));
+        current.setBackground(round(LIGHT_TEAL, dp(20)));
+        guide.addView(current, blockParams(dp(16)));
+        current.addView(text("当前设备", 11, TEAL, true));
+        current.addView(text(liveOsVersion + "  ·  slot " + liveSlotLabel,
+                17, INK, true), blockParams(dp(4)));
+        current.addView(text("Xiaomi 17 Pro · pandora", 11, MUTED, false),
+                blockParams(dp(3)));
+
+        guide.addView(text("这款 App 做什么", 17, INK, true), blockParams(dp(20)));
+        guide.addView(text(
+                "系统更新到新的 HyperOS OTA 后，读取当前活动 slot 的只读快照，"
+                + "交给 GitHub 建立同版本内核适配基线。App 不刷机，也不会自动晋升 LKG。",
+                12, MUTED, false), blockParams(dp(7)));
+
+        LinearLayout steps = vertical();
+        steps.setBackground(round(WHITE, dp(22)));
+        steps.setPadding(dp(15), dp(8), dp(15), dp(8));
+        steps.setElevation(dp(1));
+        guide.addView(steps, blockParams(dp(16)));
+        steps.addView(guideStep("1", R.drawable.ic_refresh_simple, "更新后准备",
+                "升级到新 OTA；离线保留同版本原始 init_boot.img，再恢复 Root。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("2", R.drawable.ic_file_zip, "采集当前系统",
+                "读取 boot / init_boot / vendor_boot / dtbo 与 OEM 模块；只读，不改活动分区。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("3", R.drawable.ic_external_simple, "上传并审计",
+                "上传到 GitHub Draft；校验 build、slot、SHA。历史 OTA 或旧 slot 会被阻止。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("4", R.drawable.ic_repo, "生成待测候选",
+                "GitHub 构建 GKI 并检查 OEM ABI/KMI；静态门禁全绿后才生成临时启动 boot。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("5", R.drawable.ic_shield_simple, "真机确认与 LKG",
+                "只用 fastboot boot 临时启动。确认系统、模块与功能正常后提交结果；稳定版再由你确认晋升 LKG。"));
+
+        guide.addView(text("为什么要分这么多步", 17, INK, true), blockParams(dp(20)));
+        LinearLayout reason = vertical();
+        reason.setPadding(dp(16), dp(14), dp(16), dp(14));
+        reason.setBackground(round(WHITE, dp(20)));
+        reason.setElevation(dp(1));
+        guide.addView(reason, blockParams(dp(8)));
+        reason.addView(text(
+                "Root 后的 init_boot 可能已经被修改，所以 App 采集的是“当前设备快照”，"
+                + "不能冒充厂商原始镜像。把采集、静态审计、临时启动和 LKG 分开，"
+                + "可以避免旧 OTA、错误 slot 或未验证内核被当成稳定版本。",
+                12, MUTED, false));
+
+        LinearLayout caution = vertical();
+        caution.setPadding(dp(16), dp(14), dp(16), dp(14));
+        caution.setBackground(round(Color.rgb(255, 247, 242), dp(20)));
+        guide.addView(caution, blockParams(dp(12)));
+        caution.addView(text("记住这 3 件事", 13, WARNING, true));
+        caution.addView(text("• 新 OTA 到来后重新采集，不要上传旧版本 ZIP。", 12, INK, false),
+                blockParams(dp(8)));
+        caution.addView(text("• GitHub Draft 只用于私有接收，不要 Publish。", 12, INK, false),
+                blockParams(dp(5)));
+        caution.addView(text("• 待测 boot 只能 fastboot boot，不要 fastboot flash。", 12, INK, false),
+                blockParams(dp(5)));
+
+        guide.addView(text("完成 App 内步骤之后", 17, INK, true), blockParams(dp(20)));
+        guide.addView(text(
+                "你只需要等待 GitHub 的接收与 ABI/KMI 结果。若生成待测 boot，"
+                + "再进行一次真机临时启动验证；通过后系统会建立该 OTA 的已验证开发基线，"
+                + "后续自定义内核稳定后再进入 LKG 晋升与长期归档。",
+                12, MUTED, false), blockParams(dp(7)));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(scroll)
+                .setPositiveButton("看懂了", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(TEAL);
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            }
+        });
+        dialog.show();
+    }
+
+    private LinearLayout guideStep(String number, int drawable, String title, String detail) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.TOP);
+        row.setPadding(0, dp(12), 0, dp(12));
+
+        TextView badge = text(number, 11, WHITE, true);
+        badge.setGravity(android.view.Gravity.CENTER);
+        badge.setBackground(round(TEAL, dp(16)));
+        row.addView(badge, new LinearLayout.LayoutParams(dp(30), dp(30)));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawable);
+        icon.setImageTintList(ColorStateList.valueOf(TEAL));
+        icon.setPadding(dp(5), dp(5), dp(5), dp(5));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        iconParams.leftMargin = dp(8);
+        row.addView(icon, iconParams);
+
+        LinearLayout copy = vertical();
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1);
+        copyParams.leftMargin = dp(10);
+        row.addView(copy, copyParams);
+        copy.addView(text(title, 14, INK, true));
+        copy.addView(text(detail, 11, MUTED, false), blockParams(dp(4)));
+        return row;
+    }
+
+    private View guideDivider() {
+        View line = new View(this);
+        line.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(1));
+        params.leftMargin = dp(68);
+        line.setLayoutParams(params);
+        return line;
     }
 
     private void showRepoEditor() {
