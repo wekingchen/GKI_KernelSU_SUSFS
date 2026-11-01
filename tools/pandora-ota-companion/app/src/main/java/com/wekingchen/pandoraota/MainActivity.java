@@ -265,9 +265,9 @@ public final class MainActivity extends Activity {
         listing.addView(archiveListing, blockParams(dp(9)));
         LinearLayout cleanup = surfaceCard(records, dp(14), dp(19));
         cleanup.addView(text("存储空间", 15, INK, true));
-        cleanup.addView(text("必须由 GitHub 确认接收，并再次校验本地 SHA-256 后，才允许删除。",
+        cleanup.addView(text("已上传的 ZIP 可手动清理；无论 OTA 审计是否通过，都必须核验远端附件和本地 SHA-256。",
                 12, MUTED, false), blockParams(dp(9)));
-        deleteButton = button("删除已接收的本地 ZIP", false);
+        deleteButton = button("核验并清理本地 ZIP", false);
         cleanup.addView(deleteButton, blockParams(dp(12)));
         deleteButton.setOnClickListener(v -> confirmDelete());
 
@@ -303,7 +303,7 @@ public final class MainActivity extends Activity {
                 12, MUTED, false), blockParams(dp(13)));
         security.addView(text("· 不刷机、不修改活动分区、不自动晋升 LKG\n"
                         + "· 只读采集必须为 pandora\n"
-                        + "· 仅 GitHub 接收成功后允许删除本地 ZIP\n"
+                        + "· 仅 GitHub 接收成功后允许核验远端并清理本地 ZIP\n"
                         + "· 前台运行上传任务，不承诺后台断点续传",
                 12, MUTED, false), blockParams(dp(12)));
         security.addView(text("版本  ·  " + getAppVersion(), 11, MUTED, false),
@@ -466,7 +466,7 @@ public final class MainActivity extends Activity {
         switch (state) {
             case "ACCEPTED": return "新输入已接收（不是 ABI/KMI 或真机验证通过）";
             case "ALREADY_CURRENT": return "与固定输入一致，无须重复分析";
-            case "REJECTED": return "后端拒收，请保留本地 ZIP 查看 Actions 报告";
+            case "REJECTED": return "OTA 身份门禁未通过，远端采集附件已保留";
             default: return "尚无处理结果，可稍后点查询";
         }
     }
@@ -531,12 +531,12 @@ public final class MainActivity extends Activity {
         if (file == null || !store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
                 || !store.hasToken() || store.lastAssetId() <= 0) {
-            notifyMessage("必须先取得 GitHub 后端接收成功的回执，才能删除本地采集包");
+            notifyMessage("未取得 GitHub 附件上传回执，请先确认上传成功");
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("确认删除本地文件？")
-                .setMessage(file.getName() + "\n\n仅删除手机上的采集 ZIP，GitHub 附件不受影响。"
+                .setMessage(file.getName() + "\n\n即使 OTA 审计拒收，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
                         + "本地删除后无法在应用内恢复。")
                 .setNegativeButton("保留文件", null)
                 .setPositiveButton("删除本地 ZIP", (dialog, which) ->
