@@ -23,7 +23,10 @@ ASSET="$(jq -e --argjson id "$STAGED_ASSET_ID" \
 ASSET_NAME="$(jq -r .name <<< "$ASSET")"
 [[ "$ASSET_NAME" =~ ^pandora-os4-capture-[0-9]{8}-[0-9]{6}(-[0-9]{3})?\.zip$ ]] || exit 3
 test "$(jq -r .size <<< "$ASSET")" = "$CLIENT_BYTES"
-gh release download "$TAG" --repo "$R" --pattern "$ASSET_NAME" --dir "$DIR/input"
+# Draft Releases may not resolve by tag (GitHub gives untagged-* links).
+# Fetch the exact authenticated asset by ID; a SHA-256 and size match is mandatory.
+gh api -H "Accept: application/octet-stream" \
+  "repos/$R/releases/assets/$STAGED_ASSET_ID" > "$DIR/input/$ASSET_NAME"
 SOURCE="$DIR/input/$ASSET_NAME"
 test -s "$SOURCE"
 echo "$CLIENT_SHA  $SOURCE" | sha256sum -c -
