@@ -58,6 +58,22 @@ def parse_manifest(content: bytes) -> dict[str, str]:
         fail("unknown data origin")
     if result.get("device") != "pandora" or result.get("ro.product.device") != "pandora":
         fail("device is not pandora")
+    # Optional for pre-v0.7.2 uploads; all new snapshots use these exact
+    # UNVERIFIED values. A client can never elevate a rooted active image
+    # to OEM factory provenance by claiming it in a manifest.
+    allowed = {
+        "boot_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+        "boot_oem_original_verified": "NO",
+        "boot_role": "GKI_KERNEL_ANALYSIS_INPUT",
+        "init_boot_source": "ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED",
+        "init_boot_oem_original_verified": "NO",
+        "init_boot_role": "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+        "vendor_boot_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+        "dtbo_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+    }
+    if any(key in result and result[key] != value
+           for key, value in allowed.items()):
+        fail("unsupported or false OEM provenance claim in mobile manifest")
     return result
 
 
@@ -175,6 +191,14 @@ def normalize(source: Path, output: Path) -> dict:
             readme = (
                 f"device=pandora\nbuild={build}\nuname={uname}\nslot={slot}\n"
                 "collected_from_live_device=YES\noperation=READ_ONLY\n"
+                "boot_source=ACTIVE_SLOT_UNVERIFIED_OEM\n"
+                "boot_oem_original_verified=NO\n"
+                "boot_role=GKI_KERNEL_ANALYSIS_INPUT\n"
+                "init_boot_source=ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED\n"
+                "init_boot_oem_original_verified=NO\n"
+                "init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE\n"
+                "vendor_boot_source=ACTIVE_SLOT_UNVERIFIED_OEM\n"
+                "dtbo_source=ACTIVE_SLOT_UNVERIFIED_OEM\n"
                 "note=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK; boot may be modified\n"
                 "note2=init_boot may include Root modifications; never assume factory original\n"
             ).encode("utf-8")
@@ -207,7 +231,10 @@ def normalize(source: Path, output: Path) -> dict:
     return dict(build=build, slot=slot, uname=uname, modules=count,
                 ignored_module_links=links_skipped,
                 sha256=digest, bytes=output.stat().st_size, filename=output.name,
-                provenance="ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK")
+                provenance="ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK",
+                boot_oem_original_verified=False,
+                init_boot_oem_original_verified=False,
+                init_boot_role="DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE")
 
 
 if __name__ == "__main__":
