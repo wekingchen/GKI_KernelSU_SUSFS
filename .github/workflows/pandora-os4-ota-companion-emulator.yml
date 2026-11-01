@@ -2,7 +2,7 @@ name: "小米17 Pro OS4 / OTA 助手 Android 模拟器验证"
 
 on:
   push:
-    branches: [pandora-os4-ota-companion, dev, pandora-ota-native-ui-v2]
+    branches: [pandora-os4-ota-companion, dev]
     paths:
       - "tools/pandora-ota-companion/**"
       - ".github/workflows/pandora-os4-ota-companion-emulator.yml"
