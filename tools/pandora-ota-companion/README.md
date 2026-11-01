@@ -33,6 +33,7 @@
 - APP 上传的 `pandora-ota-capture-v1` 包含活动 slot 的分区快照、`oem-modules.tar` 及身份清单。
 - `normalize_mobile_capture.py` 严格校验清单、slot、uname、目录、大小和内核模块数量，转换成当前 Windows `collect-pandora-stock-input.cmd` 的同款 **八文件 `*xm.zip`**，并加上 `boot_oem_original_verified=NO`、`init_boot_oem_original_verified=NO` 和 `init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE` 等明确来源标签；不会因内核版本标记匹配便认定镜像出厂原版。
 - `mobile-intake.sh` 仅接受对应 Draft Release 的特定 Asset ID、实际文件长度与 SHA-256 一致的输入；转换后还执行原 `inspect-ota-stock-input.py` 身份审计。旧固定 Release 不会因为无效上传被覆盖。
+- App 上传前会重新读取本地采集包 manifest，并强制其 OS build / 活动 slot 与当前手机一致；服务端进一步拒绝比当前固定版本更旧或非向前的 build，固件渠道发生变化则转人工审核，避免历史 ZIP 被误认为新 OTA。
 - 验证通过的新 OTA 先上传到固定 Release 的非 `*xm.zip` 暂存名并从 GitHub 下载回检，再更名、替换旧单一 `xm.zip`，最后触发原 `xiaomi-sm8850-os4-ota-auto-candidate.yml`。
 - **`repository_dispatch` 从仓库默认分支执行。** 目前接收工作流及转换脚本已在默认 `dev` 上部署；真机采集包已成功触发并执行审计，但因同版本自定义 Boot 与固定基线不同而安全拒收。
 - 原 GKI/KMI/OEM ABI 门禁、临时 `fastboot boot` 真机确认、LKG 人工晋升不变。不直接产生可刷内核或跳过风控。
@@ -64,7 +65,7 @@ gradle --no-daemon :app:assembleDebug
 
 设置后分支工作流自动额外输出 `pandora-os4-ota-companion-STABLE-SIGNED` 的正式签名 Release APK。**私钥/密码不要上传仓库、日志、Release、Artifact。** 预先保管签名私钥和密码的离线备份；签名不同的 Debug APK 不能直接覆盖稳定版。
 
-## 界面 UI 2.0（0.7.3-dev）
+## 当前原生 UI 与功能状态（0.10.4-dev）
 
 - 原生 Android Activity 顶部信息区、固定状态条与底部三目的地导航：**工作台 / 记录 / 设置**。不采用 WebView 或 HTML。
 - 工作台显示当前 HyperOS 完整版本号，并保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
@@ -79,7 +80,7 @@ gradle --no-daemon :app:assembleDebug
 - ✅ GitHub Draft Release #430401431、附件 #697520792 上传成功；Run #41280701707 第三次重跑通过 ZIP SHA-256、OEM 模块格式转换及原 OTA 身份审计。
 - ✅ 同版本自定义内核 `6.12.69-android16-6-os4r62-custom-4k` 与固定 Boot 不一致，被 `SAME_BUILD_BOOT_DRIFT_REVIEW` 安全拒收，固定 `xm.zip` 和 LKG 保持不变。
 - ✅ 修复的 OEM TAR 链接处理、Draft 重试机制在 Python/CI 回归中通过。
-- ✅ 原生 UI 2.0 Android 15 模拟器 14 项测试、正式固定签名 APK 构建通过；视觉和触感仍需要用户真机确认。
+- ✅ 原生三页 UI 已在 Xiaomi 17 Pro 真机完成定版；Android 15 模拟器设备端回归、正式固定签名 APK 与签名指纹校验持续作为 PR/`dev` 门禁。
 - ⏳ **真正新 OTA** 的自动成功入库、候选 GKI 构建与 OEM ABI/KMI 全链路尚需实际新固件验证。
 - ✅ **本地 ZIP 手动安全删除、GitHub 草稿附件查看**均已由用户真机确认；通过远端 ID/大小/SHA-256 和本地 SHA-256 校验后删除本地文件，不影响云端附件。
 - ⚠️ Root 设备抓取的 boot 属于活动快照，不保证厂商原始完整性；Root 后 `init_boot` 明确标记非原厂可信输入。
