@@ -53,6 +53,7 @@ public class PreflightEmulatorTest {
         String name;
         int repoStatus = 200, createStatus = 201, deleteStatus = 204, dispatchStatus = 204;
         boolean offline, mismatch;
+        String repoPadding = "", draftPadding = "";
         public HttpURLConnection open(URL url) throws Exception {
             if (offline) throw new IOException("synthetic network timeout");
             return new HttpURLConnection(url) {
@@ -87,10 +88,12 @@ public class PreflightEmulatorTest {
                     if (method.equals("DELETE") || url.getPath().endsWith("/dispatches")) return bytes("");
                     if (url.getPath().endsWith("/73")) {
                         return bytes("{\"id\":73,\"draft\":true,\"assets\":[],\"tag_name\":\""
-                                + (mismatch ? "wrong" : tag) + "\",\"name\":\"" + name + "\"}");
+                                + (mismatch ? "wrong" : tag) + "\",\"name\":\"" + name
+                                + "\",\"padding\":\"" + draftPadding + "\"}");
                     }
                     return bytes(method.equals("POST") ? "{\"id\":73}"
-                            : "{\"full_name\":\"" + REPO + "\",\"permissions\":{\"push\":true}}");
+                            : "{\"full_name\":\"" + REPO + "\",\"permissions\":{\"push\":true},"
+                            + "\"padding\":\"" + repoPadding + "\"}");
                 }
             };
         }
@@ -106,6 +109,35 @@ public class PreflightEmulatorTest {
         assertEquals(Arrays.asList("GET /repos/" + REPO, "POST /repos/" + REPO + "/releases",
                 "GET /repos/" + REPO + "/releases/73", "DELETE /repos/" + REPO + "/releases/73",
                 "POST /repos/" + REPO + "/dispatches"), t.calls);
+    }
+    private static String padding(int size) {
+        char[] chars = new char[size];
+        Arrays.fill(chars, 'x');
+        return new String(chars);
+    }
+    @Test public void repositoryMetadataLargerThan16KiBIsNotTruncated() throws Exception {
+        Transport t = new Transport();
+        t.repoPadding = padding(24 * 1024);
+        GitHubUploader.verifyConnection(REPO, "synthetic", t);
+        assertEquals(5, t.calls.size());
+    }
+    @Test public void draftMetadataLargerThan16KiBIsNotTruncatedAndDraftIsCleaned() throws Exception {
+        Transport t = new Transport();
+        t.draftPadding = padding(24 * 1024);
+        GitHubUploader.verifyConnection(REPO, "synthetic", t);
+        assertTrue(t.calls.get(3).startsWith("DELETE"));
+        assertEquals(5, t.calls.size());
+    }
+    @Test public void oversizedSuccessResponseFailsExplicitlyWithoutTryingToParsePartialJson() throws Exception {
+        Transport t = new Transport();
+        t.repoPadding = padding(2 * 1024 * 1024);
+        try {
+            GitHubUploader.verifyConnection(REPO, "synthetic", t);
+            fail("oversized success response must fail closed");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("超过 2 MiB"));
+        }
+        assertEquals(1, t.calls.size());
     }
     @Test public void repositoryPushMetadataDoesNotProveTokenWritePermission() throws Exception {
         Transport t = new Transport(); t.createStatus = 403; mustFail(t);
