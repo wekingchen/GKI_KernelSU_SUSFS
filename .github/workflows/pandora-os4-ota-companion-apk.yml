@@ -43,7 +43,7 @@ jobs:
           test -d "$SDK/build-tools/35.0.0"
       - name: OTA 采集包格式与失败关闭测试
         working-directory: tools/pandora-ota-companion
-        run: python3 -m unittest -v test_normalize_mobile_capture.py
+        run: python3 -m unittest discover -s . -p 'test_*.py' -v
       - name: 接入脚本 Bash 语法审计
         run: bash -n tools/pandora-ota-companion/mobile-intake.sh
       - name: 编译 Debug APK
