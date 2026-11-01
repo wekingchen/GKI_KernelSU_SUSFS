@@ -11,7 +11,7 @@ ROUTE=".github/config/generic-custom-route.json"
 WORK="$(mktemp -d)"
 BRANCH=""
 CANDIDATE_SHA=""
-FINISHED=false
+REMOTE_SHA=""
 
 cleanup_native_candidate() {
   # A rejected original candidate must restore the checked-out dev before
@@ -19,10 +19,10 @@ cleanup_native_candidate() {
   if [[ -n "$BRANCH" && "$(git branch --show-current)" == "$BRANCH" ]]; then
     git switch -f dev >/dev/null || true
   fi
-  if [[ -n "$BRANCH" && -n "$CANDIDATE_SHA" ]]; then
+  if [[ -n "$BRANCH" && -n "$REMOTE_SHA" ]]; then
     CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" \
       --jq .object.sha 2>/dev/null || true)"
-    if [[ "$CURRENT" == "$CANDIDATE_SHA" ]]; then
+    if [[ "$CURRENT" == "$REMOTE_SHA" ]]; then
       gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null || true
     fi
   fi
@@ -78,6 +78,7 @@ git add .github/workflows/build.yml .github/workflows/kernel-custom.yml
 git commit -m "test(K50Pro): candidate exact native upstream generic build"
 CANDIDATE_SHA="$(git rev-parse HEAD)"
 git push origin "$BRANCH"
+REMOTE_SHA="$CANDIDATE_SHA"
 
 # Reuse all features from the already flashed Run #41239924766.
 gh workflow run kernel-custom.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
@@ -181,4 +182,3 @@ git fetch -q --depth 1 --no-tags \
 [[ "$(git rev-parse HEAD)" == "$CANDIDATE_SHA" ]] || exit 1
 git push origin HEAD:dev
 echo "原版真实 CI #$RUN 和 AnyKernel3 均通过：已切换到上游原版并自动停用私有构建同步，不要求刷机确认。" >> "$GITHUB_STEP_SUMMARY"
-FINISHED=true
