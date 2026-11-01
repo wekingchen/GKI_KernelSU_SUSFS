@@ -426,15 +426,27 @@ final class GitHubUploader {
         return conn;
     }
 
+    // Never parse a truncated successful JSON response. Only error-message previews may be clipped.
+    private static final int MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_ERROR_RESPONSE_BYTES = 16 * 1024;
+
     private static String readResponse(HttpURLConnection conn, int status) throws IOException {
         InputStream stream = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
         if (stream == null) return "";
+        final int limit = status >= 400 ? MAX_ERROR_RESPONSE_BYTES : MAX_JSON_RESPONSE_BYTES;
         try (InputStream in = stream; ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
             int n;
             while ((n = in.read(buffer)) != -1) {
-                if (bytes.size() < 16384)
-                    bytes.write(buffer, 0, Math.min(n, 16384 - bytes.size()));
+                int remaining = limit - bytes.size();
+                if (n > remaining) {
+                    if (status >= 400) {
+                        bytes.write(buffer, 0, remaining);
+                        break; // Error text is only diagnostic; it is never parsed as JSON.
+                    }
+                    throw new IOException("GitHub API 响应超过 2 MiB 安全上限，拒绝解析不完整 JSON");
+                }
+                bytes.write(buffer, 0, n);
             }
             return bytes.toString(StandardCharsets.UTF_8.name());
         }
