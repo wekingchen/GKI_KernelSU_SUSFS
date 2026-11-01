@@ -126,7 +126,11 @@ public final class MainActivity extends Activity {
 
         // Workbench — minimal, state-driven UI. Technical detail stays in Records/Settings.
         LinearLayout hero = vertical();
-        hero.setBackground(round(WHITE, dp(28)));
+        GradientDrawable heroBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(255, 255, 255), Color.rgb(239, 245, 255)});
+        heroBackground.setCornerRadius(dp(28));
+        hero.setBackground(heroBackground);
         hero.setPadding(dp(24), dp(25), dp(24), dp(25));
         hero.setElevation(dp(1));
         work.addView(hero, blockParams(dp(7)));
@@ -248,55 +252,67 @@ public final class MainActivity extends Activity {
         recent.addView(checkIntakeButton, blockParams(dp(10)));
         checkIntakeButton.setOnClickListener(v -> checkBackendIntake());
 
-        // Records — detail, history, diagnostic receipt and destructive actions.
-        records.addView(pageHeading("采集记录", "本地文件与 GitHub 接收状态分开记录"));
-        LinearLayout latest = surfaceCard(records, dp(12), dp(19));
-        latest.addView(text("当前采集包", 15, INK, true));
-        recordFileState = text("", 13, MUTED, false);
+        // Records — one compact surface; detailed server metadata only lives here.
+        records.addView(pageHeading("记录", "采集文件与 GitHub 状态"));
+        LinearLayout recordCard = vertical();
+        recordCard.setBackground(round(WHITE, dp(24)));
+        recordCard.setPadding(dp(20), dp(20), dp(20), dp(22));
+        recordCard.setElevation(dp(1));
+        records.addView(recordCard, blockParams(dp(12)));
+
+        recordCard.addView(text("当前文件", 13, MUTED, true));
+        recordFileState = text("", 14, INK, true);
         recordFileState.setTextIsSelectable(true);
-        latest.addView(recordFileState, blockParams(dp(12)));
-        chooseArchiveButton = button("切换本地采集包", false);
-        latest.addView(chooseArchiveButton, blockParams(dp(12)));
+        recordCard.addView(recordFileState, blockParams(dp(8)));
+        chooseArchiveButton = button("切换文件", false);
+        recordCard.addView(chooseArchiveButton, blockParams(dp(13)));
         chooseArchiveButton.setOnClickListener(v -> chooseArchive());
 
-        LinearLayout details = surfaceCard(records, dp(14), dp(19));
-        details.addView(text("服务器回执", 15, INK, true));
-        receiptState = text("", 12, MUTED, false);
+        View recordDivider = new View(this);
+        recordDivider.setBackgroundColor(BORDER);
+        recordCard.addView(recordDivider, new LinearLayout.LayoutParams(-1, dp(1)));
+
+        TextView receiptLabel = text("GitHub", 13, MUTED, true);
+        recordCard.addView(receiptLabel, blockParams(dp(18)));
+        receiptState = text("", 12, INK, false);
         receiptState.setTextIsSelectable(true);
-        details.addView(receiptState, blockParams(dp(12)));
-        openReleaseButton = button("在 GitHub 查看草稿附件", false);
-        details.addView(openReleaseButton, blockParams(dp(11)));
+        recordCard.addView(receiptState, blockParams(dp(8)));
+        openReleaseButton = button("查看 GitHub 草稿", false);
+        recordCard.addView(openReleaseButton, blockParams(dp(12)));
         openReleaseButton.setOnClickListener(v -> openRelease());
-        retryNoticeButton = button("重新通知 GitHub（不重复上传）", false);
-        details.addView(retryNoticeButton, blockParams(dp(9)));
+        retryNoticeButton = button("重新通知 GitHub", false);
+        recordCard.addView(retryNoticeButton, blockParams(dp(8)));
         retryNoticeButton.setOnClickListener(v -> retryDispatch());
-        LinearLayout listing = surfaceCard(records, dp(14), dp(19));
-        listing.addView(text("本地文件", 15, INK, true));
+
+        TextView localLabel = text("本地文件", 13, MUTED, true);
+        records.addView(localLabel, blockParams(dp(24)));
         archiveListing = vertical();
-        listing.addView(archiveListing, blockParams(dp(9)));
-        LinearLayout cleanup = surfaceCard(records, dp(14), dp(19));
-        cleanup.addView(text("存储空间", 15, INK, true));
-        cleanup.addView(text("已上传的 ZIP 可手动清理；无论 OTA 审计是否通过，都必须核验远端附件和本地 SHA-256。",
-                12, MUTED, false), blockParams(dp(9)));
-        deleteButton = button("核验并清理本地 ZIP", false);
-        cleanup.addView(deleteButton, blockParams(dp(12)));
+        records.addView(archiveListing, blockParams(dp(7)));
+
+        deleteButton = button("核验后清理本地 ZIP", false);
+        records.addView(deleteButton, blockParams(dp(16)));
         deleteButton.setOnClickListener(v -> confirmDelete());
 
-        // Settings — credentials are intentionally off the workbench.
-        settings.addView(pageHeading("连接与安全", "仅配置一次，正常使用时无需进入"));
-        LinearLayout connect = surfaceCard(settings, dp(12), dp(19));
-        connect.addView(text("GitHub 仓库", 13, INK, true));
+        // Settings — configuration first, technical notes second.
+        settings.addView(pageHeading("设置", "连接与安全"));
+        LinearLayout connect = vertical();
+        connect.setBackground(round(WHITE, dp(24)));
+        connect.setPadding(dp(20), dp(20), dp(20), dp(22));
+        connect.setElevation(dp(1));
+        settings.addView(connect, blockParams(dp(12)));
+
+        connect.addView(text("GitHub 仓库", 13, MUTED, true));
         repoField = field("owner/repo", store.repo(), false);
         connect.addView(repoField, blockParams(dp(8)));
-        connect.addView(text("Fine-grained PAT", 13, INK, true), blockParams(dp(17)));
+        connect.addView(text("访问令牌", 13, MUTED, true), blockParams(dp(17)));
         tokenField = field("留空则保留已保存的令牌", "", true);
         connect.addView(tokenField, blockParams(dp(8)));
         tokenState = text("", 12, TEAL, true);
-        connect.addView(tokenState, blockParams(dp(12)));
-        saveButton = button("保存连接设置", true);
+        connect.addView(tokenState, blockParams(dp(10)));
+        saveButton = button("保存", true);
         connect.addView(saveButton, blockParams(dp(15)));
         clearButton = button("清除本机令牌", false);
-        connect.addView(clearButton, blockParams(dp(9)));
+        connect.addView(clearButton, blockParams(dp(8)));
         saveButton.setOnClickListener(v -> saveConnection());
         clearButton.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("删除本机令牌？")
@@ -308,25 +324,26 @@ public final class MainActivity extends Activity {
                     refresh();
                     notifyMessage("本机 GitHub 令牌已删除");
                 }).show());
-        LinearLayout security = surfaceCard(settings, dp(14), dp(19));
-        security.addView(text("安全边界", 15, INK, true));
-        security.addView(text("设备：" + Build.DEVICE + " / " + Build.PRODUCT,
-                12, MUTED, false), blockParams(dp(13)));
-        security.addView(text("· 不刷机、不修改活动分区、不自动晋升 LKG\n"
-                        + "· 原始 init_boot.img 需从同版本 OTA 离线保存；App 内为 Root 后快照\n"
-                        + "· 只读采集必须为 pandora\n"
-                        + "· 仅 GitHub 接收成功后允许核验远端并清理本地 ZIP\n"
-                        + "· 前台运行上传任务，不承诺后台断点续传",
-                12, MUTED, false), blockParams(dp(12)));
-        security.addView(text("版本  ·  " + getAppVersion(), 11, MUTED, false),
-                blockParams(dp(13)));
+
+        TextView aboutTitle = text("关于", 13, MUTED, true);
+        settings.addView(aboutTitle, blockParams(dp(24)));
+        LinearLayout about = vertical();
+        about.setBackground(round(WHITE, dp(22)));
+        about.setPadding(dp(18), dp(17), dp(18), dp(18));
+        about.setElevation(dp(1));
+        settings.addView(about, blockParams(dp(8)));
+        about.addView(text("Pandora OTA  ·  " + getAppVersion(), 14, INK, true));
+        about.addView(text("仅用于 Xiaomi 17 Pro · pandora 的只读 OTA 采集。",
+                12, MUTED, false), blockParams(dp(7)));
+        about.addView(text("原始 init_boot.img 请从同版本 OTA 离线保存；应用内采集的是 Root 后快照。",
+                11, MUTED, false), blockParams(dp(9)));
 
         // Material-like native bottom destination bar, always visible.
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(android.view.Gravity.CENTER_VERTICAL);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
-        bottom.setBackground(topStroke(WHITE, BORDER));
+        bottom.setBackground(topStroke(Color.rgb(252, 253, 255), BORDER));
         shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
         int[] glyphs = {R.drawable.ic_nav_workbench, R.drawable.ic_nav_records, R.drawable.ic_nav_settings};
         String[] labels = {"工作台", "记录", "设置"};
