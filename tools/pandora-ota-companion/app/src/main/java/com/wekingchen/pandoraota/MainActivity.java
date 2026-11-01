@@ -334,7 +334,7 @@ public final class MainActivity extends Activity {
                                 .getCanonicalFile();
                         if (!directory.equals(target.getParentFile())
                                 || !target.getName().matches(
-                                "pandora-os4-capture-\\d{8}-\\d{6}\\.zip")) {
+                                "pandora-os4-capture-\\d{8}-\\d{6}(?:-\\d{3})?\\.zip")) {
                             throw new SecurityException("路径不在应用的 OTA 采集目录内");
                         }
                         if (!store.isUploaded(new SecretStore.FileInfo(
