@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Minimal OTA mark, original vector. Keep 18dp safe margin for launcher masks. -->
+    <path android:fillColor="#2568EA"
+        android:pathData="M24,5 L84,5 C94.5,5 103,13.5 103,24 L103,84 C103,94.5 94.5,103 84,103 L24,103 C13.5,103 5,94.5 5,84 L5,24 C5,13.5 13.5,5 24,5 Z"/>
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M38,19 L70,19 Q77,19 77,26 L77,82 Q77,89 70,89 L38,89 Q31,89 31,82 L31,26 Q31,19 38,19 Z"/>
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M39,52 C39,43 46,37 54,37 C62,37 68,43 69,50"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M63,48 L72,49 L68,57 Z"/>
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,55 L54,69 M47,63 L54,70 L61,63"/>
+</vector>
