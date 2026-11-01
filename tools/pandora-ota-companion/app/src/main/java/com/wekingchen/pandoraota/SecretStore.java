@@ -113,6 +113,12 @@ final class SecretStore {
                 && !entry.optString("sha256", "").isEmpty();
     }
 
+    String uploadedSha256(FileInfo file) {
+        if (!isUploaded(file)) return "";
+        JSONObject entry = receipts().optJSONObject(file.path);
+        return entry == null ? "" : entry.optString("sha256", "");
+    }
+
     static final class FileInfo {
         final String path;
         final long size;
