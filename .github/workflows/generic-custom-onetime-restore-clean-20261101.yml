@@ -1,0 +1,29 @@
+name: "一次性维护 / 清理已合并 K50Pro 上游自动恢复开发分支"
+on:
+  push:
+    paths:
+      - ".github/workflows/generic-custom-onetime-restore-clean-20261101.yml"
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "逐项确认 PR / SHA / 源分支状态后清理"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" ]] || exit 1
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/45" --jq .merged)" == true ]] || exit 1
+          BRANCH="k50pro-native-upstream-auto-restore-20261101"
+          HEAD="b7e1dd2141083407311d1f45a3ab4097f4b76a4f"
+          ACTUAL="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)"
+          [[ "$ACTUAL" == "$HEAD" ]] || { echo "::error::工作分支已改变，拒绝删除"; exit 1; }
+          OPEN="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq "[.[]|select(.head.ref==\"$BRANCH\")]|length")"
+          [[ "$OPEN" == 0 ]] || exit 1
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" >/dev/null
+          echo "原版恢复自动化已合入 dev，已删除完成的临时开发分支。" >> "$GITHUB_STEP_SUMMARY"
