@@ -530,7 +530,7 @@ public final class MainActivity extends Activity {
         File file = selectedFile();
         if (file == null || !store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
-                || !store.intakeAccepted()) {
+                || !store.hasToken() || store.lastAssetId() <= 0) {
             notifyMessage("必须先取得 GitHub 后端接收成功的回执，才能删除本地采集包");
             return;
         }
@@ -549,7 +549,7 @@ public final class MainActivity extends Activity {
                                 "pandora-os4-capture-\\d{8}-\\d{6}(?:-\\d{3})?\\.zip")) {
                             throw new SecurityException("路径不在应用的 OTA 采集目录内");
                         }
-                        if (!store.intakeAccepted() || !store.isUploaded(new SecretStore.FileInfo(
+                        if (!store.isUploaded(new SecretStore.FileInfo(
                                 target.getAbsolutePath(), target.length()))) {
                             throw new SecurityException("无 GitHub 成功上传回执");
                         }
@@ -602,7 +602,7 @@ public final class MainActivity extends Activity {
         uploadButton.setEnabled(!busy && exists && !uploaded && credentials);
         uploadButton.setText(uploaded ? "已上传到 GitHub" : "上传当前采集包");
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
-        deleteButton.setEnabled(!busy && uploaded && store.intakeAccepted());
+        deleteButton.setEnabled(!busy && uploaded && store.hasToken() && store.lastAssetId() > 0);
         checkIntakeButton.setVisibility(uploaded && store.dispatched()
                 ? View.VISIBLE : View.GONE);
         checkIntakeButton.setEnabled(!busy && credentials);
