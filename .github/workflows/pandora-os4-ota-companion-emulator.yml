@@ -51,12 +51,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop com.wekingchen.pandoraota
             adb shell am start -n com.wekingchen.pandoraota/.MainActivity
-            for attempt in 1 2 3 4 5 6; do
-              adb shell uiautomator dump /sdcard/pandora-ui.xml >/dev/null 2>&1 || true
-              if adb shell cat /sdcard/pandora-ui.xml 2>/dev/null | grep -q '设备工作台'; then break; fi
-              sleep 2
-            done
-            adb shell cat /sdcard/pandora-ui.xml | grep -q '设备工作台'
+            bash -c 'for attempt in 1 2 3 4 5 6; do adb shell uiautomator dump /sdcard/pandora-ui.xml >/dev/null 2>&1 || true; if adb shell cat /sdcard/pandora-ui.xml 2>/dev/null | grep -q "设备工作台"; then exit 0; fi; sleep 2; done; exit 1'
             adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/workbench.png
       - name: 保存模拟器测试报告（失败也收集）
