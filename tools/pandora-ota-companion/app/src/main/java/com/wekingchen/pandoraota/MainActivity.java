@@ -253,7 +253,7 @@ public final class MainActivity extends Activity {
         receiptState = text("", 12, MUTED, false);
         receiptState.setTextIsSelectable(true);
         details.addView(receiptState, blockParams(dp(12)));
-        openReleaseButton = button("在 GitHub 查看采集附件", false);
+        openReleaseButton = button("在 GitHub 查看草稿附件", false);
         details.addView(openReleaseButton, blockParams(dp(11)));
         openReleaseButton.setOnClickListener(v -> openRelease());
         retryNoticeButton = button("重新通知 GitHub（不重复上传）", false);
@@ -571,12 +571,34 @@ public final class MainActivity extends Activity {
     }
 
     private void openRelease() {
-        String url = store.lastReleaseUrl();
-        if (!url.startsWith("https://github.com/")) {
-            notifyMessage("尚无有效的 GitHub Release 链接");
+        File file = selectedFile();
+        if (file == null || !file.isFile()
+                || !store.isUploaded(new SecretStore.FileInfo(
+                        file.getAbsolutePath(), file.length()))
+                || !store.hasToken() || store.lastReleaseId() <= 0
+                || store.lastAssetId() <= 0) {
+            notifyMessage("尚无可核验的 GitHub 草稿采集附件");
             return;
         }
-        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        final String repo = store.repo();
+        final String path = file.getAbsolutePath();
+        final long releaseId = store.lastReleaseId();
+        final long assetId = store.lastAssetId();
+        final String sha = store.uploadedSha256(
+                new SecretStore.FileInfo(path, file.length()));
+        runTask("正在核验 GitHub 草稿附件并打开管理页面…", () -> {
+            String target = GitHubUploader.verifiedDraftEditorUrl(
+                    repo, store.loadToken(), releaseId, assetId, file, sha);
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(target)));
+                } catch (Exception e) {
+                    notifyMessage("无法打开浏览器：" + safeMessage(e));
+                }
+            });
+            return "已请求打开 GitHub 草稿管理页。请使用有仓库写权限的账号登录；"
+                    + "切勿发布此未经原厂身份验证的采集包。";
+        });
     }
 
     private void refresh() {
@@ -615,8 +637,9 @@ public final class MainActivity extends Activity {
                 && store.lastAssetId() > 0 ? View.VISIBLE : View.GONE);
         retryNoticeButton.setEnabled(!busy && credentials);
         openReleaseButton.setVisibility(uploaded
-                && store.lastReleaseUrl().startsWith("https://github.com/")
+                && store.lastReleaseId() > 0 && store.lastAssetId() > 0
                 ? View.VISIBLE : View.GONE);
+        openReleaseButton.setEnabled(!busy && credentials);
         taskSpinner.setVisibility(busy ? View.VISIBLE : View.GONE);
         if (!busy && uploaded) {
             uploadStage.setText(store.intakeAccepted() ? "已接收 · 校验完成"
