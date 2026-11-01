@@ -98,7 +98,9 @@ final class SecretStore {
         info.put("sha256", result.sha256);
         info.put("release", result.releaseUrl);
         info.put("release_id", result.releaseId);
+        info.put("asset_id", result.assetId);
         info.put("dispatched", result.dispatched);
+        info.put("intake", "PENDING");
         all.put(path, info);
         if (!prefs.edit().putString("upload_receipts", all.toString()).commit())
             throw new IllegalStateException("本机上传回执保存失败，请暂勿删除 ZIP");
@@ -140,6 +142,52 @@ final class SecretStore {
     long lastReleaseId() {
         JSONObject info = selectedReceipt();
         return info == null ? 0 : info.optLong("release_id", 0);
+    }
+
+    long lastAssetId() {
+        JSONObject info = selectedReceipt();
+        return info == null ? 0 : info.optLong("asset_id", 0);
+    }
+
+    void markDispatchSucceeded() throws Exception {
+        String path = lastArchive();
+        JSONObject all = receipts();
+        JSONObject info = all.optJSONObject(path);
+        if (info == null || !repo().equals(info.optString("repo"))) {
+            throw new IllegalStateException("找不到当前采集包的 GitHub 回执");
+        }
+        info.put("dispatched", true);
+        all.put(path, info);
+        if (!prefs.edit().putString("upload_receipts", all.toString()).commit()) {
+            throw new IllegalStateException("无法保存 GitHub 工作流通知状态");
+        }
+    }
+
+    String intakeState() {
+        JSONObject info = selectedReceipt();
+        return info == null ? "PENDING" : info.optString("intake", "PENDING");
+    }
+
+    boolean intakeAccepted() {
+        String state = intakeState();
+        return "ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state);
+    }
+
+    void recordIntake(String state) throws Exception {
+        if (!("PENDING".equals(state) || "ACCEPTED".equals(state)
+                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state))) {
+            throw new IllegalArgumentException("未知 OTA 接收状态");
+        }
+        String path = lastArchive();
+        JSONObject all = receipts();
+        JSONObject info = all.optJSONObject(path);
+        if (info == null || !repo().equals(info.optString("repo", ""))) {
+            throw new SecurityException("无法找到当前 ZIP 对应的服务器上传回执");
+        }
+        info.put("intake", state);
+        all.put(path, info);
+        if (!prefs.edit().putString("upload_receipts", all.toString()).commit())
+            throw new IllegalStateException("无法保存 OTA 后端接收状态");
     }
 
     boolean dispatched() {

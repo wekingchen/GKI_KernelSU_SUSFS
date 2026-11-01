@@ -9,8 +9,11 @@ import java.util.Locale;
 
 /** Read-only capture delivery. A transport progress event is NOT server confirmation. */
 final class GitHubUploader {
-    static final long MAX_ASSET = 2L * 1024L * 1024L * 1024L;
+    static final long MAX_ASSET = 950L * 1024L * 1024L; // same limit as server OTA stock input
     private GitHubUploader() {}
+    /** Injectable only for offline Android integration tests; production always validates GitHub HTTPS hosts. */
+    interface ConnectionFactory { HttpURLConnection open(URL url) throws Exception; }
+    private static final ConnectionFactory PRODUCTION = url -> (HttpURLConnection) url.openConnection();
 
     interface Listener {
         void onStage(String stage);
@@ -34,6 +37,11 @@ final class GitHubUploader {
     }
 
     static Result upload(String repo, String token, File file, Listener listener) throws Exception {
+        return uploadWithTransport(repo, token, file, listener, PRODUCTION);
+    }
+
+    static Result uploadWithTransport(String repo, String token, File file,
+                                     Listener listener, ConnectionFactory transport) throws Exception {
         if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
             throw new IllegalArgumentException("仓库格式必须为 owner/repo");
         }
@@ -41,7 +49,7 @@ final class GitHubUploader {
             throw new IllegalArgumentException("请先配置 GitHub fine-grained PAT");
         }
         if (!file.isFile() || file.length() <= 0 || file.length() >= MAX_ASSET) {
-            throw new IllegalArgumentException("采集包不存在、为空或达到单附件 2 GiB 限制");
+            throw new IllegalArgumentException("采集包不存在、为空或达到 OTA 950 MiB 上限；请勿上传不受支持的大包");
         }
         listener.onStage("校验文件 SHA-256");
         String sha256 = sha256(file);
@@ -53,7 +61,7 @@ final class GitHubUploader {
         request.put("draft", true);
         request.put("prerelease", true);
         request.put("body", "Unverified read-only mobile snapshot. Do not publish or flash.");
-        JSONObject release = postJson(api + "/releases", token, request, 201);
+        JSONObject release = postJson(api + "/releases", token, request, 201, transport);
         String template = release.getString("upload_url");
         String uploadBase = template.split("\\{", 2)[0];
         if (!uploadBase.startsWith("https://uploads.github.com/")) {
@@ -63,7 +71,7 @@ final class GitHubUploader {
                 URLEncoder.encode(file.getName(), StandardCharsets.UTF_8.name());
         listener.onStage("正在发送采集包");
         listener.onProgress(0, file.length());
-        JSONObject asset = postBinary(uploadUrl, token, file, listener);
+        JSONObject asset = postBinary(uploadUrl, token, file, listener, transport);
         long acceptedSize = asset.optLong("size", -1);
         if (acceptedSize != file.length()) {
             throw new IOException("GitHub 接收文件大小不匹配；本地包已保留，请核查 Release");
@@ -81,7 +89,7 @@ final class GitHubUploader {
         event.put("client_payload", payload);
         boolean dispatched;
         try {
-            postJson(api + "/dispatches", token, event, 204);
+            postJson(api + "/dispatches", token, event, 204, transport);
             dispatched = true;
         } catch (Exception ignored) {
             // Sending an event is separate from the already-confirmed upload.
@@ -92,9 +100,98 @@ final class GitHubUploader {
                 releaseUrl, dispatched);
     }
 
+    /** Retry notification for an already-uploaded GitHub attachment, without uploading again. */
+    static void retryDispatch(String repo, String token, File file,
+                              long releaseId, long assetId, String expectedSha) throws Exception {
+        if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || token == null || token.isEmpty() || releaseId <= 0 || assetId <= 0
+                || !expectedSha.matches("[0-9a-f]{64}") || !file.isFile()
+                || file.length() <= 0 || file.length() >= MAX_ASSET) {
+            throw new SecurityException("通知重试所需上传回执或本地 ZIP 不合法");
+        }
+        if (!sha256(file).equals(expectedSha)) {
+            throw new SecurityException("ZIP SHA-256 与历史上传回执不一致，禁止重新通知");
+        }
+        JSONObject release = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        if (!release.optBoolean("draft") || !release.optString("tag_name")
+                .startsWith("pandora-ota-capture-")) {
+            throw new SecurityException("远端 Draft Release 来源不匹配");
+        }
+        boolean found = false;
+        org.json.JSONArray assets = release.optJSONArray("assets");
+        if (assets != null) for (int i = 0; i < assets.length(); i++) {
+            JSONObject asset = assets.optJSONObject(i);
+            if (asset != null && asset.optLong("id") == assetId
+                    && asset.optLong("size") == file.length()
+                    && file.getName().equals(asset.optString("name"))) found = true;
+        }
+        if (!found) throw new SecurityException("远端附件已变化，拒绝通知重试");
+        JSONObject payload = new JSONObject();
+        payload.put("schema", "pandora-ota-capture-v1");
+        payload.put("release_id", releaseId);
+        payload.put("asset_id", assetId);
+        payload.put("filename", file.getName());
+        payload.put("sha256", expectedSha);
+        payload.put("bytes", file.length());
+        JSONObject event = new JSONObject();
+        event.put("event_type", "pandora_ota_upload_v1");
+        event.put("client_payload", payload);
+        postJson("https://api.github.com/repos/" + repo + "/dispatches", token, event, 204);
+    }
+
+    /** Server-side ingestion result, not GKI boot/ABI verification. */
+    static String checkIntake(String repo, String token,
+                              long releaseId, long assetId, String sha) throws Exception {
+        if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || releaseId <= 0 || assetId <= 0 || !sha.matches("[0-9a-f]{64}")
+                || token == null || token.isEmpty()) {
+            throw new SecurityException("GitHub 接收状态查询缺少合法的回执");
+        }
+        JSONObject source = getJson("https://api.github.com/repos/" + repo
+                + "/releases/" + releaseId, token);
+        return parseIntakeReceipt(source, assetId, sha);
+    }
+
+    static String parseIntakeReceipt(JSONObject source, long assetId, String sha) throws Exception {
+        if (!source.optBoolean("draft") || !source.optString("tag_name")
+                .startsWith("pandora-ota-capture-")) {
+            throw new SecurityException("接收状态来源不是采集应用的 Draft Release");
+        }
+        String body = source.optString("body", "");
+        if (!body.contains("MOBILE_OTA_INTAKE=")) return "PENDING";
+        String id = "";
+        String digest = "";
+        String state = "";
+        for (String line : body.split("\\r?\\n")) {
+            if (line.startsWith("MOBILE_ASSET_ID=")) id = line.substring(16).trim();
+            if (line.startsWith("MOBILE_SOURCE_SHA256=")) digest = line.substring(21).trim();
+            if (line.startsWith("MOBILE_OTA_INTAKE=")) state = line.substring(18).trim();
+        }
+        if (!Long.toString(assetId).equals(id) || !sha.equals(digest)) {
+            throw new SecurityException("服务器状态对应不同附件，不能视为本次接收结果");
+        }
+        if ("ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state)
+                || "REJECTED".equals(state)) return state;
+        return "PENDING";
+    }
+
+    private static JSONObject getJson(String target, String token) throws Exception {
+        HttpURLConnection connection = connect(target, token);
+        try {
+            connection.setRequestMethod("GET");
+            int status = connection.getResponseCode();
+            String body = readResponse(connection, status);
+            if (status != 200) throw new IOException("读取 GitHub Release HTTP " + status);
+            return new JSONObject(body);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
     private static JSONObject postBinary(String url, String token, File file,
-                                         Listener listener) throws Exception {
-        HttpURLConnection conn = connect(url, token);
+                                         Listener listener, ConnectionFactory transport) throws Exception {
+        HttpURLConnection conn = connect(url, token, transport);
         try {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/zip");
@@ -125,7 +222,12 @@ final class GitHubUploader {
 
     private static JSONObject postJson(String url, String token, JSONObject request,
                                        int expectedStatus) throws Exception {
-        HttpURLConnection conn = connect(url, token);
+        return postJson(url, token, request, expectedStatus, PRODUCTION);
+    }
+
+    private static JSONObject postJson(String url, String token, JSONObject request,
+                                       int expectedStatus, ConnectionFactory transport) throws Exception {
+        HttpURLConnection conn = connect(url, token, transport);
         try {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -147,13 +249,18 @@ final class GitHubUploader {
     }
 
     private static HttpURLConnection connect(String url, String token) throws Exception {
+        return connect(url, token, PRODUCTION);
+    }
+
+    private static HttpURLConnection connect(String url, String token,
+                                             ConnectionFactory transport) throws Exception {
         URL target = new URL(url);
         String host = target.getHost().toLowerCase(Locale.ROOT);
         if (!"https".equals(target.getProtocol())
                 || (!"api.github.com".equals(host) && !"uploads.github.com".equals(host))) {
             throw new SecurityException("仅允许 GitHub HTTPS API 上传");
         }
-        HttpURLConnection conn = (HttpURLConnection) target.openConnection();
+        HttpURLConnection conn = transport.open(target);
         conn.setInstanceFollowRedirects(false);
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(120000);

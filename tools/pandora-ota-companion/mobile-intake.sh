@@ -23,6 +23,25 @@ ASSET="$(jq -e --argjson id "$STAGED_ASSET_ID" \
 ASSET_NAME="$(jq -r .name <<< "$ASSET")"
 [[ "$ASSET_NAME" =~ ^pandora-os4-capture-[0-9]{8}-[0-9]{6}(-[0-9]{3})?\.zip$ ]] || exit 3
 test "$(jq -r .size <<< "$ASSET")" = "$CLIENT_BYTES"
+
+# Machine-readable source Draft Release receipt. This is NOT GKI or LKG verification.
+RECEIPT_VALID=1
+publish_receipt() {
+  local state="$1"
+  local body
+  printf -v body 'MOBILE_OTA_INTAKE=%s\nMOBILE_ASSET_ID=%s\nMOBILE_SOURCE_SHA256=%s\nMOBILE_BUILD=%s\nMOBILE_INTAKE_RUN=%s\nSOURCE_PROVENANCE=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK\n' \
+    "$state" "$STAGED_ASSET_ID" "$CLIENT_SHA" "${BUILD:-UNKNOWN}" "$GITHUB_RUN_ID"
+  gh api -X PATCH "repos/$R/releases/$STAGED_RELEASE_ID" -f body="$body" >/dev/null
+}
+on_intake_exit() {
+  local code=$?
+  trap - EXIT
+  if [[ "$code" -ne 0 && "${RECEIPT_VALID:-0}" == "1" ]]; then
+    publish_receipt REJECTED || true
+  fi
+  exit "$code"
+}
+trap on_intake_exit EXIT
 # Draft Releases may not resolve by tag (GitHub gives untagged-* links).
 # Fetch the exact authenticated asset by ID; a SHA-256 and size match is mandatory.
 gh api -H "Accept: application/octet-stream" \
@@ -47,6 +66,7 @@ python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
 STATE="$(jq -r .status "$DIR/stock-audit.json")"
 if [[ "$STATE" == "SAME_PINNED_BUILD" ]]; then
   echo '当前固定输入已匹配，跳过重复 OTA 转换。' >> "$GITHUB_STEP_SUMMARY"
+  publish_receipt ALREADY_CURRENT
   exit 0
 fi
 [[ "$STATE" == "NEW_OTA_CANDIDATE" ]] || {
@@ -116,6 +136,7 @@ rc=$?
 set -e
 if [[ "$rc" -eq 80 ]]; then
   echo '与现有新 OTA 完全相同，禁止无意义替换资产 ID。' >> "$GITHUB_STEP_SUMMARY"
+  publish_receipt ALREADY_CURRENT
   exit 0
 fi
 [[ "$rc" -eq 0 ]] || { echo "::error::同版本完整 ZIP 漂移或损坏"; exit 8; }
@@ -153,3 +174,4 @@ if gh workflow run xiaomi-sm8850-os4-ota-auto-candidate.yml --repo "$R" --ref de
 else
   echo "::warning::固定输入成功切换，但即时工作流触发失败；每日定时补查仍可接管"
 fi
+publish_receipt ACCEPTED
