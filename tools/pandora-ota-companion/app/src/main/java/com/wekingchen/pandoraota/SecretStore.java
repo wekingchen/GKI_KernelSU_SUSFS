@@ -64,6 +64,16 @@ final class SecretStore {
         prefs.edit().remove("token_iv").remove("token_ciphertext").apply();
     }
 
+    String acknowledgedBuild() {
+        return prefs.getString("acknowledged_build", "");
+    }
+
+    void acknowledgeBuild(String identity) {
+        if (identity == null || identity.isEmpty()) return;
+        if (!prefs.edit().putString("acknowledged_build", identity).commit())
+            throw new IllegalStateException("无法保存系统版本提醒状态");
+    }
+
     String lastArchive() {
         return prefs.getString("last_archive", "");
     }

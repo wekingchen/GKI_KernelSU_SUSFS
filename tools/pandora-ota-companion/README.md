@@ -1,7 +1,17 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.10.5-dev（全链使用指南 + 系统身份展示）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.11.0-dev（采集前预检 + 前台自动跟踪）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
+
+## 0.11.0 新增功能
+
+- **真实采集目录空间**：按 `captures` 所在文件系统的可用字节预检；小于 1 GiB 禁止采集，1 GiB 至不足 2 GiB 提醒后可继续，达到 2 GiB 正常继续。真正读取分区前再次检查，空间变化不会绕过硬门禁。
+- **GitHub 实时权限**：设置页可单独验证；每次采集和上传前也重新验证。先读取目标仓库，再创建独有的空 Draft、读回核验并删除它，最后发送无人订阅的 `pandora_ota_preflight_v1` 通知探针。该探针不含采集数据、不执行 OTA 接收；不能以公开仓库可读或 `permissions.push=true` 代替 PAT 的实际写权限。清理失败会阻止继续并显示草稿 ID，供人工清理。
+- **新系统身份提醒**：首次使用及 OS build / fingerprint 变化时提醒离线保存同版本原始 `init_boot.img`；「已了解」只记录读过说明，不宣称文件已经备份。「稍后提醒」在下次打开时再次提醒。
+- **前台自动接收跟踪**：针对当前上传回执持续查询 `PENDING → ACCEPTED / ALREADY_CURRENT / REJECTED`；间隔从 5 秒退避到最多 60 秒。退出前台暂停、返回或重开恢复；网络失败保留回执和本地 ZIP，自动重试。切换仓库/采集包后丢弃旧查询结果，终态停止。通知失败时先重新通知，无需重传文件。
+- **固定签名为必过项**：APK 工作流缺少签名 Secrets 时直接失败，不再以只有 Debug APK 的结果冒充完整发布验证。
+
+既有真机验证属于 0.10.x 基线；0.11.0 新增逻辑须以对应 APK、固定签名和模拟器/契约运行记录为准，新 OTA 实物的完整接收链仍待实际 OTA。
 
 ## 操作流程
 
@@ -11,7 +21,7 @@
 4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
 5. **只要 ZIP 打包完成，手机立即清理分区镜像、OEM TAR 等所有中间采集物和 staging 目录，只留下最终 ZIP。采集或压缩出错则同时删除残缺 ZIP 并尝试清理 staging；上次意外终止遗留的 staging 在下次采集时自动回收（保留 30 分钟宽限以避开正在执行的采集）。**
 6. 到「记录」查看本地 ZIP 和 GitHub 回执：本地清理必须等到 **GitHub 已确认上传、工作流通知已成功发送，且后端状态进入 ACCEPTED / ALREADY_CURRENT / REJECTED 之一**；REJECTED 仍允许清理，但 PENDING 或通知失败时必须先保留 ZIP，以便重试和继续查询。删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
-7. 上传并不等于接收成功：发送 `repository_dispatch` 后可在 App 中查询后端接收结果；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。**无论是否通过 OTA 身份审计，只要远端完整附件得到再次确认，就允许用户主动手动清理本地 ZIP**。
+7. 上传并不等于接收成功：发送 `repository_dispatch` 后在 App 前台自动轮询后端接收结果，也可手动查询；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。**无论是否通过 OTA 身份审计，只要远端完整附件得到再次确认，就允许用户主动手动清理本地 ZIP**。
 8. 通知请求失败可直接核对远端附件并重新发送，不重复上传整个 ZIP。
 
 上传阶段请保持 App 前台及网络稳定，目前**不支持断点续传**，也不提供后台 Foreground Service。单个采集文件须小于 950 MiB。
@@ -27,9 +37,6 @@
 仍待后续补强、但不阻断现有主链的能力：
 
 - **后端进度可见性**：App 当前只显示手机 intake 的 PENDING / ACCEPTED / ALREADY_CURRENT / REJECTED，还不能继续显示 GKI 候选构建、ABI/KMI、待测 fastboot boot、真机验证状态。
-- **GitHub 实时连接预检**：目前只能确认 PAT 已配置，不能在采集前证明当前网络、仓库访问与写权限都正常；因此 UI 只显示「已配置」，不虚称「已连接」。
-- **采集空间预检**：当前空间不足会失败关闭并清理 staging/残缺 ZIP，但尚未在开始读取大分区前给出剩余空间预警。
-- **前台自动查询 intake**：当前后端结果由用户点击查询；可在保持前台、不增加后台常驻服务的前提下加入短时自动轮询。
 - **待测 boot 真机反馈辅助**：fastboot boot 仍必须由电脑人工执行；未来 App 可在启动回来后读取 build/uname/boot_completed，并辅助提交验证证据，但绝不能自行 fastboot/flash。
 - **远端 Draft 生命周期**：本地 ZIP 只有在通知成功且 intake 已到终态后才允许严格安全删除；远端采集 Draft 为保留证据暂不自动删，后续可在候选/验证证据已归档后提供人工清理。
 

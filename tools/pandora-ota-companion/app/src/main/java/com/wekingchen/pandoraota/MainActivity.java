@@ -12,6 +12,8 @@ import android.view.MotionEvent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.InputType;
 import android.view.View;
@@ -55,6 +57,17 @@ public final class MainActivity extends Activity {
     private final TextView[] navLabels = new TextView[3];
     private int activeTab;
     private boolean busy;
+    private boolean foreground;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ForegroundIntakeTracker tracker = new ForegroundIntakeTracker(
+            new ForegroundIntakeTracker.Scheduler() {
+                public void post(Runnable task, long delay) { handler.postDelayed(task, delay); }
+                public void cancel(Runnable task) { handler.removeCallbacks(task); }
+            }, worker);
+    private String githubStatus = "未验证";
+    private TextView preflightState;
+    private AlertDialog buildReminder;
+
     private volatile String liveOsVersion = "正在读取";
     private volatile String liveSlotLabel = "…";
 
@@ -222,11 +235,9 @@ public final class MainActivity extends Activity {
                 }
             });
         });
-        collectButton.setOnClickListener(v -> runTask("正在采集设备数据…", () -> {
-            File output = RootCollector.capture(getApplicationContext(), true);
-            store.saveArchive(output.getAbsolutePath());
-            return "采集完成 · " + output.getName() + " · " + size(output.length());
-        }));
+        collectButton.setOnClickListener(v -> startCapturePreflight());
+        preflightState = text("采集前将检查空间、GitHub 连接与写权限", 11, MUTED, false);
+        work.addView(preflightState, blockParams(dp(8)));
 
         LinearLayout recentHeader = new LinearLayout(this);
         recentHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -458,11 +469,15 @@ public final class MainActivity extends Activity {
 
         LinearLayout uploadPolicyRow = settingRow(R.drawable.ic_external_simple, "上传设置");
         TextView uploadPolicySub = (TextView) uploadPolicyRow.getChildAt(1);
-        renderSettingRow(uploadPolicySub, "上传设置", "GitHub Draft · 前台上传 · 后端审计");
+        renderSettingRow(uploadPolicySub, "上传设置", "GitHub Draft · 前台上传 · 自动跟踪接收");
         strategyCard.addView(uploadPolicyRow);
+        LinearLayout verifyRow = settingRow(R.drawable.ic_repo, "验证 GitHub 连接");
+        renderSettingRow((TextView) verifyRow.getChildAt(1), "验证 GitHub 连接", "实时验证仓库、草稿写权限和工作流通知权限");
+        strategyCard.addView(verifyRow);
+        verifyRow.setOnClickListener(v -> verifyGitHubConnection());
         uploadPolicyRow.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("上传设置")
-                .setMessage("采集包上传到 GitHub Draft Release；上传任务保持前台运行，随后由接收工作流执行身份与安全审计。")
+                .setMessage("采集包上传到 GitHub Draft Release；上传任务保持前台运行，随后由接收工作流执行身份与安全审计。应用在前台自动跟踪接收状态，退出前台暂停、返回后恢复；网络错误会自动重试，也可手动查询。")
                 .setPositiveButton("知道了", null)
                 .show());
 
@@ -577,6 +592,7 @@ public final class MainActivity extends Activity {
                 if (deviceStatus != null && RootCollector.isPandora()) {
                     deviceStatus.setText(osVersion);
                 }
+                showBuildReminder(osVersion);
                 if (capturePolicySub != null) {
                     renderSettingRow(capturePolicySub, "采集设置",
                             "活动 slot " + slotLabel + " · 只读完整采集");
@@ -762,6 +778,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showRepoEditor() {
+        if (busy) return;
         EditText input = field("owner/repo", store.repo(), false);
         input.setSelectAllOnFocus(true);
         new AlertDialog.Builder(this)
@@ -774,6 +791,7 @@ public final class MainActivity extends Activity {
                         if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
                             throw new IllegalArgumentException("仓库格式应为 owner/repo");
                         store.saveRepo(repo);
+                        githubStatus = "未验证";
                         repoField.setText(repo);
                         refresh();
                         notifyMessage("GitHub 仓库已更新");
@@ -784,6 +802,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showTokenEditor() {
+        if (busy) return;
         EditText input = field("粘贴新的 Fine-grained PAT", "", true);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("访问令牌")
@@ -798,6 +817,7 @@ public final class MainActivity extends Activity {
                     String token = input.getText().toString().trim();
                     if (token.isEmpty()) throw new IllegalArgumentException("请输入访问令牌");
                     store.saveToken(token);
+                    githubStatus = "未验证";
                     input.setText("");
                     refresh();
                     notifyMessage("访问令牌已安全保存");
@@ -808,12 +828,131 @@ public final class MainActivity extends Activity {
             });
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
                 store.clearToken();
+                githubStatus = "未验证";
                 refresh();
                 notifyMessage("本机 GitHub 令牌已删除");
                 dialog.dismiss();
             });
         });
         dialog.show();
+    }
+
+    private void showBuildReminder(String osVersion) {
+        if (!foreground || !RootCollector.isPandora() || isFinishing()) return;
+        String identity = CapturePreflight.buildIdentity(osVersion, Build.FINGERPRINT);
+        if (!CapturePreflight.buildChanged(store.acknowledgedBuild(), identity)
+                || (buildReminder != null && buildReminder.isShowing())) return;
+        buildReminder = new AlertDialog.Builder(this)
+                .setTitle(store.acknowledgedBuild().isEmpty() ? "首次使用 · 保存原始镜像" : "检测到系统 build 变化")
+                .setMessage("当前系统：" + osVersion
+                        + "\n\n请离线保存这个版本未经修改的原始 init_boot.img，再修改镜像获取 Root。已经取得 Root 时，请从同版本官方 OTA 保留原始文件。"
+                        + "\n\n应用采集的 init_boot 可能已被 Root 修改，仅供诊断，不能代替原始镜像。后续采集仍需 Root。")
+                .setPositiveButton("已了解", (dialog, which) -> {
+                    try { store.acknowledgeBuild(identity); }
+                    catch (Exception e) { notifyMessage(safeMessage(e)); }
+                })
+                .setNegativeButton("稍后提醒", null).show();
+    }
+
+    private void verifyGitHubConnection() {
+        if (busy) return;
+        String repo = store.repo();
+        githubStatus = "验证中";
+        runTask("正在验证 GitHub 实时连接与写权限…", () -> {
+            try {
+                GitHubUploader.verifyConnection(repo, store.loadToken());
+                runOnUiThread(() -> githubStatus = "已验证");
+                return "GitHub 实时连接、草稿创建/读取/删除与通知权限已验证。";
+            } catch (Exception e) {
+                runOnUiThread(() -> githubStatus = "验证失败");
+                throw e;
+            }
+        });
+    }
+
+    private void startCapturePreflight() {
+        if (busy) return;
+        String repo = store.repo();
+        beginBusy("采集前预检：空间与 GitHub 连接/写权限…");
+        worker.execute(() -> {
+            try {
+                final long bytes = CapturePreflight.requireSpace(getApplicationContext());
+                final String os = RootCollector.currentOsVersion();
+                GitHubUploader.verifyConnection(repo, store.loadToken());
+                runOnUiThread(() -> {
+                    githubStatus = "已验证";
+                    finishBusy();
+                    preflightState.setText("可用 " + String.format(Locale.US, "%.2f GiB", bytes / (double) CapturePreflight.GIB)
+                            + " · GitHub 写权限已验证");
+                    if (!foreground || isFinishing()) return;
+                    if (CapturePreflight.buildChanged(store.acknowledgedBuild(),
+                            CapturePreflight.buildIdentity(os, Build.FINGERPRINT))) {
+                        showBuildReminder(os);
+                        notifyMessage("请先阅读当前版本原始 init_boot.img 保存提醒，再开始采集。");
+                        return;
+                    }
+                    if (CapturePreflight.space(bytes) == CapturePreflight.Space.WARN) {
+                        new AlertDialog.Builder(this).setTitle("采集空间偏少")
+                                .setMessage("采集目录可用空间介于 1–2 GiB，采集及压缩可能耗尽空间。建议先清理旧文件。")
+                                .setPositiveButton("继续采集", (d, w) -> collectAfterPreflight())
+                                .setNegativeButton("先清理空间", null).show();
+                    } else collectAfterPreflight();
+                });
+            } catch (Exception e) {
+                String error = safeMessage(e);
+                runOnUiThread(() -> {
+                    githubStatus = "未通过";
+                    finishBusy();
+                    preflightState.setText("预检未通过 · " + error);
+                    notifyMessage("采集预检失败：" + error);
+                });
+            }
+        });
+    }
+
+    private void collectAfterPreflight() {
+        if (busy || !foreground) return;
+        runTask("正在采集设备数据…", () -> {
+            File output = RootCollector.capture(getApplicationContext(), true);
+            store.saveArchive(output.getAbsolutePath());
+            return "采集完成 · " + output.getName() + " · " + size(output.length());
+        });
+    }
+
+    private void updateIntakeTracking() {
+        File file = selectedFile();
+        if (!foreground || busy || file == null || !store.hasToken() || !store.dispatched()
+                || !store.isUploaded(new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
+                || ForegroundIntakeTracker.terminal(store.intakeState())) {
+            tracker.stop();
+            return;
+        }
+        final String path = file.getAbsolutePath();
+        final String repo = store.repo();
+        final long releaseId = store.lastReleaseId(), assetId = store.lastAssetId();
+        final String sha = store.uploadedSha256(new SecretStore.FileInfo(path, file.length()));
+        String key = repo + ":" + path + ":" + releaseId + ":" + assetId + ":" + sha;
+        tracker.start(key, () -> GitHubUploader.checkIntake(repo, store.loadToken(), releaseId, assetId, sha),
+                (state, error) -> {
+                    if (!path.equals(store.lastArchive()) || !repo.equals(store.repo())
+                            || releaseId != store.lastReleaseId() || assetId != store.lastAssetId()) {
+                        tracker.stop();
+                        return;
+                    }
+                    if (error != null) {
+                        intakeSummary.setText("自动查询暂未成功，将重试；也可手动查询。\n" + safeMessage(error));
+                        return;
+                    }
+                    try {
+                        store.recordIntake(state);
+                        refresh();
+                        if (ForegroundIntakeTracker.terminal(state))
+                            notifyMessage("GitHub 接收状态：" + intakeLabel(state));
+                    } catch (Exception e) {
+                        tracker.stop();
+                        notifyMessage("保存接收状态失败：" + safeMessage(e));
+                    }
+                });
     }
 
     private void saveConnection() {
@@ -825,6 +964,7 @@ public final class MainActivity extends Activity {
             store.saveRepo(repo);
             if (!token.isEmpty()) store.saveToken(token);
             tokenField.setText("");
+            githubStatus = "未验证";
             refresh();
             notifyMessage("连接设置已保存。令牌由 Android Keystore 加密。");
         } catch (Exception e) {
@@ -854,6 +994,7 @@ public final class MainActivity extends Activity {
             try {
                 RootCollector.requireCurrentCaptureIdentity(file);
                 String token = store.loadToken();
+                GitHubUploader.verifyConnection(repo, token);
                 final long started = SystemClock.elapsedRealtime();
                 GitHubUploader.Result result = GitHubUploader.upload(repo, token, file,
                         new GitHubUploader.Listener() {
@@ -888,7 +1029,9 @@ public final class MainActivity extends Activity {
                             + "\nSHA-256：" + result.sha256
                             + "\n工作流通知：" + (result.dispatched
                             ? "请求已发送（不代表工作流已执行）" : "发送失败，需另行处理"));
-                    notifyMessage("GitHub 已保存附件。请查询接收结果后，再决定是否清理本地 ZIP。");
+                    notifyMessage(result.dispatched
+                            ? "GitHub 已保存附件，正在前台自动跟踪接收结果。"
+                            : "GitHub 已保存附件，但通知失败；请点重新通知，附件无需重复上传。");
                 });
             } catch (Exception e) {
                 String error = safeMessage(e);
@@ -931,7 +1074,7 @@ public final class MainActivity extends Activity {
             case "ACCEPTED": return "新输入已接收（不是 ABI/KMI 或真机验证通过）";
             case "ALREADY_CURRENT": return "与固定输入一致，无须重复分析";
             case "REJECTED": return "OTA 身份门禁未通过，远端采集附件已保留";
-            default: return "尚无处理结果，可稍后点查询";
+            default: return "等待后端接收结果 · 前台自动跟踪";
         }
     }
 
@@ -1096,10 +1239,10 @@ public final class MainActivity extends Activity {
         }
         if (workUploadedMetric != null) workUploadedMetric.setText(String.valueOf(uploadedCount));
         if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
-        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已配置" : "未配置");
+        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? githubStatus : "未配置");
         if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
         if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
-        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已配置" : "未配置");
+        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? githubStatus : "未配置");
         if (localCount != null) localCount.setText(allArchives.length == 0
                 ? "0 条" : "最近 " + Math.min(allArchives.length, 12) + " 条");
         String captureIdentity = exists ? captureIdentityLabel(file) : "";
@@ -1172,6 +1315,7 @@ public final class MainActivity extends Activity {
             intakeSummary.setTextColor(MUTED);
         }
         refreshArchiveListing(file);
+        updateIntakeTracking();
     }
 
     private String captureIdentityLabel(File file) {
@@ -1564,7 +1708,28 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        foreground = true;
+        refresh();
+        worker.execute(() -> {
+            String os = RootCollector.currentOsVersion();
+            runOnUiThread(() -> showBuildReminder(os));
+        });
+    }
+
+    @Override
+    protected void onStop() {
+        foreground = false;
+        tracker.stop();
+        if (buildReminder != null) buildReminder.dismiss();
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
+        tracker.stop();
+        handler.removeCallbacksAndMessages(null);
         worker.shutdown();
         super.onDestroy();
     }
