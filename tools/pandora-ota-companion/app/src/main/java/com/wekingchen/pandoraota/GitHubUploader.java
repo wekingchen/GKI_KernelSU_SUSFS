@@ -100,6 +100,58 @@ final class GitHubUploader {
                 releaseUrl, dispatched);
     }
 
+    /** Live write proof: create/read/delete only our uniquely named empty draft, then probe dispatch. */
+    static void verifyConnection(String repo, String token) throws Exception {
+        verifyConnection(repo, token, PRODUCTION);
+    }
+
+    static void verifyConnection(String repo, String token, ConnectionFactory transport) throws Exception {
+        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                || token == null || token.trim().isEmpty())
+            throw new IllegalArgumentException("请先配置 GitHub 仓库和访问令牌");
+        String api = "https://api.github.com/repos/" + repo;
+        JSONObject metadata = getJson(api, token, transport);
+        if (!repo.equalsIgnoreCase(metadata.optString("full_name"))
+                || metadata.optBoolean("archived") || metadata.optBoolean("disabled"))
+            throw new IOException("GitHub 仓库不可写、已归档或身份不匹配");
+        String tag = "pandora-ota-preflight-" + java.util.UUID.randomUUID();
+        JSONObject request = new JSONObject();
+        request.put("tag_name", tag);
+        request.put("name", tag);
+        request.put("draft", true);
+        request.put("prerelease", true);
+        request.put("body", "Temporary OTA permission check; no capture data.");
+        JSONObject created = postJson(api + "/releases", token, request, 201, transport);
+        long id = created.optLong("id");
+        if (id <= 0) throw new IOException("GitHub 未返回权限验证草稿 ID，请检查草稿列表");
+        Exception failure = null;
+        try {
+            JSONObject draft = getJson(api + "/releases/" + id, token, transport);
+            if (draft.optLong("id") != id || !draft.optBoolean("draft")
+                    || !tag.equals(draft.optString("tag_name"))
+                    || !tag.equals(draft.optString("name"))
+                    || draft.optJSONArray("assets") == null || draft.getJSONArray("assets").length() != 0)
+                throw new IOException("GitHub 权限验证草稿身份不匹配");
+        } catch (Exception e) { failure = e; }
+        // ID comes only from this POST, never from a list/search or a stored capture receipt.
+        try {
+            HttpURLConnection connection = connect(api + "/releases/" + id, token, transport);
+            try {
+                connection.setRequestMethod("DELETE");
+                int status = connection.getResponseCode();
+                readResponse(connection, status);
+                if (status != 204) throw new IOException("HTTP " + status);
+            } finally { connection.disconnect(); }
+        } catch (Exception e) {
+            throw new IOException("权限验证草稿 #" + id + " 清理失败，请在 GitHub 删除该空草稿后重试", e);
+        }
+        if (failure != null) throw failure;
+        JSONObject event = new JSONObject();
+        // No intake workflow subscribes to this event; never dispatch a fake capture.
+        event.put("event_type", "pandora_ota_preflight_v1");
+        postJson(api + "/dispatches", token, event, 204, transport);
+    }
+
     /**
      * Confirm the exact remote archive still exists before optional local deletion.
      * Server OTA acceptance is deliberately NOT required: a custom boot may be
@@ -274,12 +326,16 @@ final class GitHubUploader {
     }
 
     private static JSONObject getJson(String target, String token) throws Exception {
-        HttpURLConnection connection = connect(target, token);
+        return getJson(target, token, PRODUCTION);
+    }
+
+    private static JSONObject getJson(String target, String token, ConnectionFactory transport) throws Exception {
+        HttpURLConnection connection = connect(target, token, transport);
         try {
             connection.setRequestMethod("GET");
             int status = connection.getResponseCode();
             String body = readResponse(connection, status);
-            if (status != 200) throw new IOException("读取 GitHub Release HTTP " + status);
+            if (status != 200) throw new IOException("读取 GitHub API HTTP " + status);
             return new JSONObject(body);
         } finally {
             connection.disconnect();
@@ -359,12 +415,14 @@ final class GitHubUploader {
         }
         HttpURLConnection conn = transport.open(target);
         conn.setInstanceFollowRedirects(false);
+        conn.setUseCaches(false);
+        conn.setRequestProperty("Cache-Control", "no-cache");
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(120000);
         conn.setRequestProperty("Authorization", "Bearer " + token);
         conn.setRequestProperty("Accept", "application/vnd.github+json");
         conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-        conn.setRequestProperty("User-Agent", "pandora-ota-companion/0.2");
+        conn.setRequestProperty("User-Agent", "pandora-ota-companion/0.11.0");
         return conn;
     }
 

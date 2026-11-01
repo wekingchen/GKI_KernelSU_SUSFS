@@ -27,6 +27,7 @@ jobs:
       startsWith(github.head_ref || github.ref_name, 'os4-') ||
       startsWith(github.head_ref || github.ref_name, 'xiaomi-') ||
       startsWith(github.head_ref || github.ref_name, 'pandora-') ||
+      startsWith(github.head_ref || github.ref_name, 'dev-ota-') ||
       startsWith(github.head_ref || github.ref_name, 'audit/os4-')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -42,6 +43,10 @@ jobs:
       - name: "确认 Xiaomi 改动不覆盖上游共用文件"
         shell: bash
         run: bash scripts/xiaomi-os4/check-upstream-isolation.sh origin/dev
+
+      - name: "全库通用自定义构建策略回归"
+        shell: bash
+        run: python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
 
       - name: "OTA 真机反馈与 fixture 字节级复现单测"
         if: hashFiles('scripts/xiaomi-os4/test_ota_baseline_feedback.py') != ''

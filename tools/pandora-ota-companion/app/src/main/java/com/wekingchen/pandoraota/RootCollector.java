@@ -170,10 +170,12 @@ final class RootCollector {
     static File capture(Context ctx, boolean includeBoot) throws Exception {
         if (!isPandora()) throw new IllegalStateException("仅支持小米17 Pro（pandora）");
         if (!includeBoot) throw new IllegalArgumentException("OTA 完整采集必须包括当前 slot 四个启动分区");
+        CapturePreflight.requireSpace(ctx); // fail before Root or partition reads
         checkRoot();
 
         File parent = captureDirectory(ctx);
         purgeStaleStaging(ctx); // recover previous interrupted operations before consuming disk again
+        CapturePreflight.requireSpace(ctx); // recheck immediately before staging
         String stamp = timestamp();
         File dir = new File(parent, "staging-" + stamp);
         if (!dir.mkdir()) throw new IllegalStateException("临时采集目录创建失败");

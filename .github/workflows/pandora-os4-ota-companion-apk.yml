@@ -1,4 +1,4 @@
-name: "小米17 Pro OS4 / OTA 采集助手 APK（独立实验）"
+name: "小米17 Pro OS4 / OTA 助手 APK 与固定签名校验"
 
 on:
   pull_request:
@@ -8,7 +8,6 @@ on:
       - ".github/workflows/pandora-os4-ota-companion-apk.yml"
   push:
     branches:
-      - pandora-os4-ota-companion
       - dev
     paths:
       - "tools/pandora-ota-companion/**"
@@ -78,7 +77,8 @@ jobs:
             echo "PANDORA_OTA_HAS_STABLE_SIGNING=true" >> "$GITHUB_ENV"
           else
             echo "PANDORA_OTA_HAS_STABLE_SIGNING=false" >> "$GITHUB_ENV"
-            echo "::notice::未配置正式签名四项 Secrets，只输出实验性 Debug APK；Debug 签名可能随 Runner 变化"
+            echo "::error::缺少固定签名 Secrets，禁止把仅 Debug 构建标为发布校验通过"
+            exit 1
           fi
       - name: 编译稳定签名 APK
         if: env.PANDORA_OTA_HAS_STABLE_SIGNING == 'true'

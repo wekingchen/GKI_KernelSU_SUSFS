@@ -227,7 +227,8 @@ def normalize(source: Path, output: Path) -> dict:
     if output.stat().st_size < 4096 or output.stat().st_size > MAX_CAPTURE:
         output.unlink(missing_ok=True)
         fail("normalized xm.zip size out of bounds")
-    digest = hashlib.file_digest(output.open("rb"), "sha256").hexdigest()
+    with output.open("rb") as source:
+        digest = hashlib.file_digest(source, "sha256").hexdigest()
     return dict(build=build, slot=slot, uname=uname, modules=count,
                 ignored_module_links=links_skipped,
                 sha256=digest, bytes=output.stat().st_size, filename=output.name,
