@@ -60,8 +60,10 @@ jobs:
             adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/workbench.png
 
-            WIDTH="$(adb shell wm size | sed -nE 's/.* ([0-9]+)x([0-9]+).*/\1/p' | tail -n1)"
-            HEIGHT="$(adb shell wm size | sed -nE 's/.* ([0-9]+)x([0-9]+).*/\2/p' | tail -n1)"
+            SIZE_LINE="$(adb shell wm size | tr -d '\r' | tail -n1)"
+            DIMENSIONS="$(printf '%s' "$SIZE_LINE" | cut -d: -f2 | tr -d ' ')"
+            WIDTH="$(printf '%s' "$DIMENSIONS" | cut -dx -f1)"
+            HEIGHT="$(printf '%s' "$DIMENSIONS" | cut -dx -f2)"
             test -n "$WIDTH" && test -n "$HEIGHT"
             NAV_Y=$((HEIGHT - 150))
 
