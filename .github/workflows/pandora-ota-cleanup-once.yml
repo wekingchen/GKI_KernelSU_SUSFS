@@ -1,0 +1,33 @@
+name: "一次性 / OTA 临时修复分支与自身清理"
+on:
+  push:
+    branches: [dev]
+    paths: [".github/workflows/pandora-ota-cleanup-once.yml"]
+permissions:
+  contents: write
+jobs:
+  prune:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "仅删除已合并 PR #49 的临时分支并移除自身"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          R="$GITHUB_REPOSITORY"
+          SELF=".github/workflows/pandora-ota-cleanup-once.yml"
+          cleanup() {
+            SHA="$(gh api "repos/$R/contents/$SELF?ref=dev" --jq .sha 2>/dev/null || true)"
+            if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              gh api -X DELETE "repos/$R/contents/$SELF" -f message="chore: remove one-time OTA branch prune" -f sha="$SHA" -f branch=dev >/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          MERGED="$(gh api "repos/$R/pulls/49" --jq .merged)"
+          HEAD="$(gh api "repos/$R/pulls/49" --jq .head.ref)"
+          [[ "$MERGED" == true && "$HEAD" == "fix/pandora-mobile-draft-assets" ]] || exit 2
+          gh api -X DELETE "repos/$R/git/refs/heads/fix/pandora-mobile-draft-assets"
+          echo "已删除合并后的修复临时分支，专用 OTA 开发分支保留。" >> "$GITHUB_STEP_SUMMARY"
