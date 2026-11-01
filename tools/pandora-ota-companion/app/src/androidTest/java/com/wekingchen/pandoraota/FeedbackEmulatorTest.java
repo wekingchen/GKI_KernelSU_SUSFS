@@ -147,6 +147,8 @@ public class FeedbackEmulatorTest {
             assertTrue(field(activity,"failRadio",RadioButton.class).isChecked());assertFalse(field(activity,"desktopConfirm",CheckBox.class).isChecked());
             assertFalse(field(activity,"modulesConfirm",CheckBox.class).isChecked());assertFalse(field(activity,"passRadio",RadioButton.class).isEnabled());
         }catch(Exception e){throw new AssertionError(e);}});
+            android.graphics.Bitmap preview=inst.getUiAutomation().takeScreenshot();
+            if(preview!=null){try(OutputStream out=new FileOutputStream(new File(ctx.getExternalFilesDir(null),"feedback-form.png"))){preview.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}preview.recycle();}
         }finally{inst.runOnMainSync(activity::finish);inst.waitForIdleSync();SharedPreferences.Editor e=prefs.edit().clear();for(Map.Entry<String,?> v:backup.entrySet())e.putString(v.getKey(),(String)v.getValue());e.commit();}
     }
 }

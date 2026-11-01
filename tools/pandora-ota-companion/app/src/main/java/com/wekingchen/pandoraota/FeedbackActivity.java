@@ -52,7 +52,7 @@ public final class FeedbackActivity extends Activity {
         runField=field("来源 Run ID",true);source.addView(runField,space(10));
         loadButton=button("读取候选信息",false);source.addView(loadButton,space(8));loadButton.setOnClickListener(v->loadCandidate());
         sourceInfo=text("尚未选择候选；旧候选没有手机元数据时，可手动填入 IMG 的 SHA-256。",12,MUTED,false);source.addView(sourceInfo,space(10));
-        shaField=field("实际测试 IMG 的 SHA-256（64 位）",false);shaField.setTextSize(12);shaField.setTypeface(Typeface.MONOSPACE);source.addView(shaField,space(10));
+        shaField=field("实际测试 IMG 的 SHA-256（64 位）",false);shaField.setTextSize(12);shaField.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);shaField.setMinLines(2);shaField.setTypeface(Typeface.MONOSPACE);source.addView(shaField,space(10));
         shaField.addTextChangedListener(new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int start,int count,int after){}
             public void onTextChanged(CharSequence s,int start,int before,int count){if(imageConfirm!=null)imageConfirm.setChecked(false);}
