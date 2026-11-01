@@ -558,7 +558,7 @@ public final class MainActivity extends Activity {
             final String slotLabel = RootCollector.currentSlotLabel();
             runOnUiThread(() -> {
                 if (deviceStatus != null && RootCollector.isPandora()) {
-                    deviceStatus.setText(osVersion + " · pandora");
+                    deviceStatus.setText(osVersion);
                 }
                 if (capturePolicySub != null) {
                     renderSettingRow(capturePolicySub, "采集设置",
