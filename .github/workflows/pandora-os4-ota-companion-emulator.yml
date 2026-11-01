@@ -45,7 +45,14 @@ jobs:
           emulator-boot-timeout: 600
           disable-animations: true
           working-directory: tools/pandora-ota-companion
-          script: gradle --no-daemon :app:connectedDebugAndroidTest
+          script: |
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            mkdir -p app/build/reports/androidTests/preview
+            adb shell am force-stop com.wekingchen.pandoraota
+            adb shell am start -n com.wekingchen.pandoraota/.MainActivity
+            sleep 2
+            adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
+            test -s app/build/reports/androidTests/preview/workbench.png
       - name: 保存模拟器测试报告（失败也收集）
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,5 +61,6 @@ jobs:
           path: |
             tools/pandora-ota-companion/app/build/reports/androidTests/connected/
             tools/pandora-ota-companion/app/build/outputs/androidTest-results/connected/
+            tools/pandora-ota-companion/app/build/reports/androidTests/preview/
           if-no-files-found: warn
           retention-days: 14
