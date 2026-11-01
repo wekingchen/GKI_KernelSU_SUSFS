@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "mode": "fork",
+  "upstream_repository": "zzh20188/GKI_KernelSU_SUSFS",
+  "upstream_build_blob": "11a5576fa6b848dd06c8be9200a96ee65e792cde",
+  "upstream_custom_blob": "05b4d6151892c842e04ed7559e039ac1092dc29a",
+  "validated_kernel_run_id": 41239924766
+}

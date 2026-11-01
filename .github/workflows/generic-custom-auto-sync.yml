@@ -9,6 +9,9 @@ on:
       - ".github/workflows/generic-custom-auto-sync.yml"
       - "scripts/generic-custom/run_auto_sync.sh"
       - "scripts/generic-custom/sync_fork_build.py"
+      - "scripts/generic-custom/try_native_upstream.sh"
+      - "scripts/generic-custom/native_upstream_policy.py"
+      - ".github/config/generic-custom-route.json"
       - ".github/config/generic-custom-upstream-sync.json"
 permissions:
   contents: write
@@ -28,10 +31,15 @@ jobs:
           ref: dev
           fetch-depth: 0
           persist-credentials: true
-      - name: "检查上游 -> 三方合并 -> 补丁重放 -> 全功能实际构建 -> 安全更新"
+      - name: "优先验证上游原版 → 原版通过即自动恢复；否则继续隔离补丁同步"
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bash scripts/generic-custom/run_auto_sync.sh
+          if bash scripts/generic-custom/try_native_upstream.sh; then
+            echo "上游原版已恢复或原版模式无新更新，无须执行隔离版同步。"
+          else
+            echo "原版尚未验证通过，保留旧稳定入口，继续安全跟进隔离补丁。"
+            bash scripts/generic-custom/run_auto_sync.sh
+          fi

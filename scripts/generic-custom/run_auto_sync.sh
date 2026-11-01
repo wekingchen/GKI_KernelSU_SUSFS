@@ -6,6 +6,12 @@ set -euo pipefail
 
 [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" ]] || exit 1
 [[ "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
+
+ROUTE=".github/config/generic-custom-route.json"
+if [[ "$(jq -er '.mode | select(.=="fork" or .=="upstream")' "$ROUTE")" == upstream ]]; then
+  echo "上游原版已通过实际编译并恢复为主入口；隔离修复版自动同步已停用。" >> "$GITHUB_STEP_SUMMARY"
+  exit 0
+fi
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 BASE_SHA="$(git rev-parse HEAD)"
