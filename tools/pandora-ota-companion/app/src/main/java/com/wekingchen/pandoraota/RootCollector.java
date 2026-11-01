@@ -54,7 +54,8 @@ final class RootCollector {
                 + "modules=''\n"
                 + "for d in vendor_dlkm/lib/modules system_dlkm/lib/modules vendor/lib/modules system/lib/modules; do "
                 + "if [ -d \"/$d\" ]; then modules=\"$modules $d\"; fi; done\n"
-                + "if [ -n \"$modules\" ]; then (cd / && tar -cf \"$OUT/oem-modules.tar\" $modules); fi\n"
+                + "if [ -z \"$modules\" ]; then echo 'OEM module paths missing' >&2; exit 21; fi\n"
+                + "(cd / && tar -cf \"$OUT/oem-modules.tar\" $modules)\n"
                 + (includeBoot
                     ? "slot=\"$(getprop ro.boot.slot_suffix)\"\n"
                     + "case \"$slot\" in _a|_b) ;; *) echo 'invalid slot' >&2; exit 12;; esac\n"
