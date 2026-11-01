@@ -98,6 +98,7 @@ final class SecretStore {
         info.put("sha256", result.sha256);
         info.put("release", result.releaseUrl);
         info.put("release_id", result.releaseId);
+        info.put("asset_id", result.assetId);
         info.put("dispatched", result.dispatched);
         all.put(path, info);
         if (!prefs.edit().putString("upload_receipts", all.toString()).commit())
@@ -140,6 +141,25 @@ final class SecretStore {
     long lastReleaseId() {
         JSONObject info = selectedReceipt();
         return info == null ? 0 : info.optLong("release_id", 0);
+    }
+
+    long lastAssetId() {
+        JSONObject info = selectedReceipt();
+        return info == null ? 0 : info.optLong("asset_id", 0);
+    }
+
+    void markDispatchSucceeded() throws Exception {
+        String path = lastArchive();
+        JSONObject all = receipts();
+        JSONObject info = all.optJSONObject(path);
+        if (info == null || !repo().equals(info.optString("repo"))) {
+            throw new IllegalStateException("找不到当前采集包的 GitHub 回执");
+        }
+        info.put("dispatched", true);
+        all.put(path, info);
+        if (!prefs.edit().putString("upload_receipts", all.toString()).commit()) {
+            throw new IllegalStateException("无法保存 GitHub 工作流通知状态");
+        }
     }
 
     boolean dispatched() {
