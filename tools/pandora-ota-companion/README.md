@@ -1,12 +1,12 @@
 # 小米 17 Pro OS4 OTA 采集助手（Android）
 
-状态：独立开发分支中的 **实验性 APK**，尚未通过真实设备/上传链路验证。不能取代现有 LKG 或 OTA 安全门禁。
+状态：独立开发分支中的 **实验性 APK（0.2.0-dev）**，尚未通过真实设备/上传链路验证。不能取代现有 LKG 或 OTA 安全门禁。
 
 ## 首版范围
 
 - 在 pandora 手机上申请 KernelSU/Root，**只读**采集系统版本、内核、OEM 模块及可选的当前 boot 分区。
 - 打包本地 ZIP，计算 SHA-256，不自动删除本地备份。
-- 在应用内配置接收仓库与有到期日的 GitHub fine-grained PAT；使用 Android Keystore AES-GCM 保存，不写入 APK、Git 历史或日志。
+- 在应用内配置接收仓库与 GitHub fine-grained PAT（支持按 GitHub 允许的有效期长期使用）；使用 Android Keystore AES-GCM 保存，不写入 APK、Git 历史或日志。
 - 上传为 **Draft Release** 附件，再发送 repository_dispatch: pandora_ota_upload_v1。服务器收到事件 **不等于已完成自动适配**，须由默认分支中的已审核工作流接入。
 - 本地包每个必须严格小于 GitHub Release 的 2 GiB 单文件限制；完整系统 OTA ZIP 的分片上传/断点续传属于后续开发。
 
@@ -17,7 +17,7 @@
 3. **当前 boot 不等于原厂 boot**。采集文件必须标明 ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK；OEM ABI/KMI 比对、GKI 临时包与 LKG 晋升继续由服务端安全门禁决定。
 4. 不采集 IMEI、序列号、账户、照片、应用数据、整个 getprop 或完整 kallsyms 地址。
 5. 建议专用的**私有接收仓库**或保持 Release 为 Draft；勿将模块与分区镜像发布为公开附件。
-6. 仅给**单一接收仓库**开 Contents: Read and write 的 fine-grained PAT、设置短有效期。令牌在 Root 设备上也并非绝对安全，推荐后续接入 GitHub App 短期令牌。
+6. 仅给**单一接收仓库**开 Contents: Read and write 的 fine-grained PAT；用户可选择 GitHub 允许的长期有效期，APK 本身不设置到期时间。有效期仍受 GitHub 策略、撤销和访问权限变化约束。令牌使用 Android Keystore AES-GCM 加密，Root 设备不保证绝对防提取。
 7. GitHub 上传失败后保留本地 ZIP；当前版本是整文件重试，不宣称支持断点续传。
 8. 此项目所有文件放在独立目录，除独立 APK 构建工作流外不修改上游共享配置。
 
@@ -28,6 +28,15 @@
     gradle :app:assembleDebug
 
 独立 Action：.github/workflows/pandora-os4-ota-companion-apk.yml
+
+## UI 操作顺序
+
+1. 在 01 设置接收仓库与长期有效 PAT（到期日期由 GitHub 创建页面决定），应用保存加密令牌。
+2. 在 02 检查 Root，选择是否额外备份当前启动分区，一键采集为本地 ZIP。
+3. 在 03 选择已有采集包并上传，观察实时字节进度/速率估算；只有 GitHub 服务端确认后才显示已完成。
+4. 在 04 可保留本地 ZIP，或在确认成功后手动删除。上传异常不会自动删除。
+
+**注意：** 当前上传的 `pandora-ota-capture-v1` 是设备活动状态快照，不是原厂完整 OTA `xm.zip`。服务端衔接和 OEM 来源鉴别未通过前，不可将其直接认定为官方 OTA 基线。
 
 ## 后续集成
 
