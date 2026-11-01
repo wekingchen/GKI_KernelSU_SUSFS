@@ -10,6 +10,8 @@ on:
       - ".github/workflows/build-fork-custom.yml"
       - ".github/workflows/kernel-custom-fork.yml"
       - ".github/workflows/generic-custom-fork-guard.yml"
+      - ".github/workflows/generic-custom-auto-sync.yml"
+      - ".github/config/generic-custom-upstream-sync.json"
       - "scripts/generic-custom/**"
       - "docs/generic-custom-build-fork.md"
 permissions:
@@ -34,6 +36,8 @@ jobs:
           set -euo pipefail
           ruby -ryaml -e 'ARGV.each { |p| YAML.parse_file(p) }' \
             .github/workflows/kernel-custom-fork.yml \
-            .github/workflows/build-fork-custom.yml
+            .github/workflows/build-fork-custom.yml \
+            .github/workflows/generic-custom-auto-sync.yml
           bash -n scripts/generic-custom/prepare-host-linker.sh
+          bash -n scripts/generic-custom/run_auto_sync.sh
           python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
