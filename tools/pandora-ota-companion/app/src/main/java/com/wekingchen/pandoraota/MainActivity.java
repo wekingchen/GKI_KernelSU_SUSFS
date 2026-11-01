@@ -42,12 +42,14 @@ public final class MainActivity extends Activity {
     private CheckBox bootOption;
     private Button saveButton, clearButton, rootButton, collectButton, uploadButton;
     private Button deleteButton, openReleaseButton, chooseArchiveButton, retryNoticeButton, checkIntakeButton;
-    private TextView tokenState, fileState, uploadStage, uploadNumbers, uploadSpeed;
+    private TextView tokenState, repoState, fileState, uploadStage, uploadNumbers, uploadSpeed;
     private TextView percent, receiptState, message, rootStatus;
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
     private LinearLayout archiveListing, statusBanner;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
+    private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
+    private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
     private final LinearLayout[] navItems = new LinearLayout[3];
     private final ImageView[] navIcons = new ImageView[3];
     private final TextView[] navLabels = new TextView[3];
@@ -66,7 +68,10 @@ public final class MainActivity extends Activity {
         // A native Android shell: persistent status, three actual destinations,
         // bottom navigation and a single focused action at a time.
         LinearLayout shell = vertical();
-        shell.setBackgroundColor(BACKGROUND);
+        GradientDrawable shellBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(249, 251, 255), Color.rgb(238, 244, 255), Color.rgb(249, 251, 255)});
+        shell.setBackground(shellBackground);
         shell.setClipChildren(false);
         shell.setClipToPadding(false);
         setContentView(shell);
@@ -124,58 +129,71 @@ public final class MainActivity extends Activity {
         LinearLayout records = pageContents(recordsScroll);
         LinearLayout settings = pageContents(settingsScroll);
 
-        // Workbench — minimal, state-driven UI. Technical detail stays in Records/Settings.
-        LinearLayout hero = vertical();
+        // Workbench — premium hero + current capture, aligned to the commercial visual system.
+        FrameLayout hero = new FrameLayout(this);
         GradientDrawable heroBackground = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.rgb(255, 255, 255), Color.rgb(239, 245, 255)});
-        heroBackground.setCornerRadius(dp(28));
+                new int[]{Color.WHITE, Color.rgb(235, 243, 255), Color.rgb(224, 237, 255)});
+        heroBackground.setCornerRadius(dp(30));
         hero.setBackground(heroBackground);
-        hero.setPadding(dp(24), dp(25), dp(24), dp(25));
-        hero.setElevation(dp(1));
-        work.addView(hero, blockParams(dp(7)));
+        hero.setElevation(dp(2));
+        work.addView(hero, new LinearLayout.LayoutParams(-1, dp(300)));
 
-        TextView eyebrow = text("OTA 采集", 12, TEAL, true);
-        hero.addView(eyebrow);
-        TextView heroTitle = text(RootCollector.isPandora() ? "准备新固件" : "设备不受支持",
-                30, INK, true);
-        hero.addView(heroTitle, blockParams(dp(8)));
+        LinearLayout heroCopy = vertical();
+        heroCopy.setPadding(dp(24), dp(28), dp(20), 0);
+        FrameLayout.LayoutParams heroCopyParams = new FrameLayout.LayoutParams(-1, -2);
+        heroCopyParams.rightMargin = dp(92);
+        hero.addView(heroCopy, heroCopyParams);
+
+        heroCopy.addView(text("准备新固件", 31, INK, true));
         deviceStatus = text(RootCollector.isPandora()
                         ? "Xiaomi 17 Pro · pandora"
-                        : "仅允许在 Xiaomi 17 Pro · pandora 上采集",
-                13, RootCollector.isPandora() ? MUTED : WARNING, false);
-        hero.addView(deviceStatus, blockParams(dp(7)));
+                        : "仅支持 Xiaomi 17 Pro · pandora",
+                14, RootCollector.isPandora() ? MUTED : WARNING, false);
+        heroCopy.addView(deviceStatus, blockParams(dp(8)));
 
         LinearLayout rootRow = new LinearLayout(this);
         rootRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        hero.addView(rootRow, blockParams(dp(24)));
+        heroCopy.addView(rootRow, blockParams(dp(20)));
         rootPill = text("Root 未检查", 12, MUTED, true);
         rootPill.setPadding(dp(12), dp(8), dp(12), dp(8));
-        rootPill.setBackground(round(FIELD, dp(16)));
+        rootPill.setBackground(round(FIELD, dp(18)));
         rootRow.addView(rootPill);
-        TextView readonly = text("只读采集", 12, MUTED, false);
-        LinearLayout.LayoutParams readOnlyParams = new LinearLayout.LayoutParams(0, -2, 1);
-        readOnlyParams.leftMargin = dp(10);
-        rootRow.addView(readonly, readOnlyParams);
-        rootButton = button("检查 Root", false);
+        rootButton = button("检查", false);
         rootButton.setMinHeight(0);
         rootButton.setMinimumHeight(0);
-        rootButton.setPadding(dp(14), 0, dp(14), 0);
-        rootRow.addView(rootButton, new LinearLayout.LayoutParams(-2, dp(40)));
+        rootButton.setPadding(dp(12), 0, dp(12), 0);
+        LinearLayout.LayoutParams rootActionParams = new LinearLayout.LayoutParams(-2, dp(38));
+        rootActionParams.leftMargin = dp(8);
+        rootRow.addView(rootButton, rootActionParams);
 
         rootStatus = text("尚未检测 Root；如不弹窗，请在 Root 管理器手动授权。",
-                12, MUTED, false);
+                11, MUTED, false);
         rootStatus.setTextIsSelectable(true);
         rootStatus.setVisibility(View.GONE);
-        hero.addView(rootStatus, blockParams(dp(10)));
+        heroCopy.addView(rootStatus, blockParams(dp(9)));
+
+        ImageView deviceArt = new ImageView(this);
+        deviceArt.setImageResource(R.drawable.ic_device_pandora);
+        deviceArt.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        FrameLayout.LayoutParams deviceArtParams = new FrameLayout.LayoutParams(dp(112), dp(138));
+        deviceArtParams.gravity = android.view.Gravity.TOP | android.view.Gravity.END;
+        deviceArtParams.topMargin = dp(28);
+        deviceArtParams.rightMargin = dp(10);
+        hero.addView(deviceArt, deviceArtParams);
 
         bootOption = new CheckBox(this);
         bootOption.setChecked(true);
         bootOption.setEnabled(false);
         bootOption.setVisibility(View.GONE);
 
-        collectButton = button("开始采集", true);
-        hero.addView(collectButton, blockParams(dp(22)));
+        collectButton = button("开始采集  →", true);
+        FrameLayout.LayoutParams captureParams = new FrameLayout.LayoutParams(-1, dp(58));
+        captureParams.gravity = android.view.Gravity.BOTTOM;
+        captureParams.leftMargin = dp(20);
+        captureParams.rightMargin = dp(20);
+        captureParams.bottomMargin = dp(20);
+        hero.addView(collectButton, captureParams);
 
         rootButton.setOnClickListener(v -> {
             rootStatus.setVisibility(View.VISIBLE);
@@ -185,9 +203,9 @@ public final class MainActivity extends Activity {
                 try {
                     String identityResult = RootCollector.checkRoot();
                     runOnUiThread(() -> {
-                        rootPill.setText("Root 已授权");
-                        rootPill.setTextColor(TEAL);
-                        rootPill.setBackground(round(LIGHT_TEAL, dp(16)));
+                        rootPill.setText("✓  Root 已授权");
+                        rootPill.setTextColor(Color.rgb(31, 117, 93));
+                        rootPill.setBackground(round(Color.rgb(229, 247, 240), dp(18)));
                         rootStatus.setText("授权成功 · " + identityResult);
                     });
                     return "Root 已授权，可以开始采集";
@@ -211,30 +229,41 @@ public final class MainActivity extends Activity {
         LinearLayout recentHeader = new LinearLayout(this);
         recentHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
         work.addView(recentHeader, blockParams(dp(28)));
-        TextView recentTitle = text("最近采集", 18, INK, true);
-        recentHeader.addView(recentTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        recentHeader.addView(text("最近采集", 22, INK, true),
+                new LinearLayout.LayoutParams(0, -2, 1));
         TextView detailsHint = text("查看全部", 12, TEAL, true);
         detailsHint.setClickable(true);
         detailsHint.setFocusable(true);
-        detailsHint.setPadding(dp(8), dp(4), dp(8), dp(4));
+        detailsHint.setPadding(dp(8), dp(5), dp(8), dp(5));
         detailsHint.setBackground(touchBackground(Color.TRANSPARENT, dp(12)));
         detailsHint.setOnClickListener(v -> selectTab(1));
         recentHeader.addView(detailsHint);
 
-        LinearLayout recent = vertical();
-        work.addView(recent, blockParams(dp(11)));
+        LinearLayout recentCard = vertical();
+        recentCard.setBackground(round(WHITE, dp(24)));
+        recentCard.setPadding(dp(18), dp(17), dp(18), dp(18));
+        recentCard.setElevation(dp(1));
+        work.addView(recentCard, blockParams(dp(11)));
 
-        fileState = text("", 13, INK, true);
+        LinearLayout fileRow = new LinearLayout(this);
+        fileRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        recentCard.addView(fileRow);
+        fileRow.addView(iconBox(R.drawable.ic_file_zip, dp(52), dp(18)));
+        fileState = text("", 14, INK, true);
         fileState.setTextIsSelectable(true);
-        recent.addView(fileState);
+        LinearLayout.LayoutParams currentFileParams = new LinearLayout.LayoutParams(0, -2, 1);
+        currentFileParams.leftMargin = dp(14);
+        fileRow.addView(fileState, currentFileParams);
 
-        uploadButton = button("上传到 GitHub", true);
-        recent.addView(uploadButton, blockParams(dp(15)));
+        uploadButton = button("上传到 GitHub", false);
+        uploadButton.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_external_simple, 0, 0, 0);
+        uploadButton.setCompoundDrawablePadding(dp(8));
+        recentCard.addView(uploadButton, blockParams(dp(15)));
         uploadButton.setOnClickListener(v -> startUpload());
 
         LinearLayout progressHeader = new LinearLayout(this);
         progressHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        recent.addView(progressHeader, blockParams(dp(16)));
+        recentCard.addView(progressHeader, blockParams(dp(14)));
         uploadStage = text("等待上传", 12, MUTED, true);
         progressHeader.addView(uploadStage, new LinearLayout.LayoutParams(0, -2, 1));
         percent = text("0%", 16, TEAL, true);
@@ -243,102 +272,204 @@ public final class MainActivity extends Activity {
         uploadBar.setMax(100);
         uploadBar.setProgressTintList(ColorStateList.valueOf(TEAL));
         uploadBar.setProgressBackgroundTintList(ColorStateList.valueOf(LIGHT_TEAL));
-        recent.addView(uploadBar, new LinearLayout.LayoutParams(-1, dp(5)));
+        recentCard.addView(uploadBar, new LinearLayout.LayoutParams(-1, dp(5)));
         uploadNumbers = text("0 B / 0 B", 11, MUTED, false);
-        recent.addView(uploadNumbers, blockParams(dp(8)));
+        recentCard.addView(uploadNumbers, blockParams(dp(8)));
         uploadSpeed = text("速率 --   ·   耗时 --", 11, MUTED, false);
-        recent.addView(uploadSpeed, blockParams(dp(3)));
+        recentCard.addView(uploadSpeed, blockParams(dp(3)));
         intakeSummary = text("", 12, MUTED, false);
-        recent.addView(intakeSummary, blockParams(dp(12)));
+        recentCard.addView(intakeSummary, blockParams(dp(10)));
         checkIntakeButton = button("查询处理结果", false);
-        recent.addView(checkIntakeButton, blockParams(dp(10)));
+        recentCard.addView(checkIntakeButton, blockParams(dp(9)));
         checkIntakeButton.setOnClickListener(v -> checkBackendIntake());
 
-        // Records — one compact surface; detailed server metadata only lives here.
-        records.addView(pageHeading("记录", "采集文件与 GitHub 状态"));
-        LinearLayout recordCard = vertical();
-        recordCard.setBackground(round(WHITE, dp(24)));
-        recordCard.setPadding(dp(20), dp(20), dp(20), dp(22));
-        recordCard.setElevation(dp(1));
-        records.addView(recordCard, blockParams(dp(12)));
+        LinearLayout workMetrics = new LinearLayout(this);
+        workMetrics.setOrientation(LinearLayout.HORIZONTAL);
+        work.addView(workMetrics, blockParams(dp(18)));
+        LinearLayout uploadedMetric = metricTile("已上传", R.drawable.ic_external_simple);
+        LinearLayout repoMetric = metricTile("仓库", R.drawable.ic_repo);
+        LinearLayout githubMetric = metricTile("GitHub", R.drawable.ic_key_simple);
+        workUploadedMetric = metricValue(uploadedMetric);
+        workRepoMetric = metricValue(repoMetric);
+        workGitHubMetric = metricValue(githubMetric);
+        LinearLayout.LayoutParams metricLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        LinearLayout.LayoutParams metricMidLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        metricMidLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams metricLastLp = new LinearLayout.LayoutParams(0, dp(92), 1);
+        metricLastLp.leftMargin = dp(8);
+        workMetrics.addView(uploadedMetric, metricLp);
+        workMetrics.addView(repoMetric, metricMidLp);
+        workMetrics.addView(githubMetric, metricLastLp);
 
-        recordCard.addView(text("当前文件", 13, MUTED, true));
-        recordFileState = text("", 14, INK, true);
+        // Records — status-led, concise and action-oriented.
+        records.addView(pageHeading("记录", "采集文件与 GitHub 记录"));
+
+        LinearLayout recordOverview = new LinearLayout(this);
+        recordOverview.setOrientation(LinearLayout.HORIZONTAL);
+        records.addView(recordOverview, blockParams(dp(18)));
+        LinearLayout collectedTile = metricTile("采集文件", R.drawable.ic_file_zip);
+        LinearLayout uploadedTile = metricTile("已上传", R.drawable.ic_external_simple);
+        LinearLayout githubTile = metricTile("GitHub", R.drawable.ic_repo);
+        recordCountMetric = metricValue(collectedTile);
+        recordUploadedMetric = metricValue(uploadedTile);
+        recordGitHubMetric = metricValue(githubTile);
+        LinearLayout.LayoutParams overviewLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        LinearLayout.LayoutParams overviewMidLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        overviewMidLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams overviewLastLp = new LinearLayout.LayoutParams(0, dp(100), 1);
+        overviewLastLp.leftMargin = dp(8);
+        recordOverview.addView(collectedTile, overviewLp);
+        recordOverview.addView(uploadedTile, overviewMidLp);
+        recordOverview.addView(githubTile, overviewLastLp);
+
+        LinearLayout recordCard = vertical();
+        recordCard.setBackground(round(WHITE, dp(28)));
+        recordCard.setPadding(dp(20), dp(20), dp(20), dp(21));
+        recordCard.setElevation(dp(1));
+        records.addView(recordCard, blockParams(dp(18)));
+
+        LinearLayout activeFileRow = new LinearLayout(this);
+        activeFileRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        recordCard.addView(activeFileRow);
+        activeFileRow.addView(iconBox(R.drawable.ic_file_zip, dp(58), dp(18)));
+        recordFileState = text("", 15, INK, true);
         recordFileState.setTextIsSelectable(true);
-        recordCard.addView(recordFileState, blockParams(dp(8)));
-        chooseArchiveButton = button("切换文件", false);
-        recordCard.addView(chooseArchiveButton, blockParams(dp(13)));
+        LinearLayout.LayoutParams recordTextParams = new LinearLayout.LayoutParams(0, -2, 1);
+        recordTextParams.leftMargin = dp(14);
+        activeFileRow.addView(recordFileState, recordTextParams);
+
+        chooseArchiveButton = button("切换", false);
+        chooseArchiveButton.setMinHeight(0);
+        chooseArchiveButton.setMinimumHeight(0);
+        activeFileRow.addView(chooseArchiveButton, new LinearLayout.LayoutParams(-2, dp(42)));
         chooseArchiveButton.setOnClickListener(v -> chooseArchive());
 
         View recordDivider = new View(this);
         recordDivider.setBackgroundColor(BORDER);
-        recordCard.addView(recordDivider, new LinearLayout.LayoutParams(-1, dp(1)));
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(-1, dp(1));
+        dividerParams.topMargin = dp(18);
+        recordCard.addView(recordDivider, dividerParams);
 
-        TextView receiptLabel = text("GitHub", 13, MUTED, true);
-        recordCard.addView(receiptLabel, blockParams(dp(18)));
-        receiptState = text("", 12, INK, false);
+        LinearLayout receiptRow = new LinearLayout(this);
+        receiptRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        recordCard.addView(receiptRow, blockParams(dp(16)));
+        ImageView receiptIcon = iconBox(R.drawable.ic_repo, dp(44), dp(15));
+        receiptRow.addView(receiptIcon);
+        LinearLayout receiptTexts = vertical();
+        LinearLayout.LayoutParams receiptTextParams = new LinearLayout.LayoutParams(0, -2, 1);
+        receiptTextParams.leftMargin = dp(12);
+        receiptRow.addView(receiptTexts, receiptTextParams);
+        receiptTexts.addView(text("GitHub 状态", 13, INK, true));
+        receiptState = text("", 12, MUTED, false);
         receiptState.setTextIsSelectable(true);
-        recordCard.addView(receiptState, blockParams(dp(8)));
-        openReleaseButton = button("查看 GitHub 草稿", false);
-        recordCard.addView(openReleaseButton, blockParams(dp(12)));
-        openReleaseButton.setOnClickListener(v -> openRelease());
-        retryNoticeButton = button("重新通知 GitHub", false);
-        recordCard.addView(retryNoticeButton, blockParams(dp(8)));
-        retryNoticeButton.setOnClickListener(v -> retryDispatch());
+        receiptTexts.addView(receiptState, blockParams(dp(4)));
 
-        TextView localLabel = text("本地文件", 13, MUTED, true);
-        records.addView(localLabel, blockParams(dp(24)));
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        recordCard.addView(actionRow, blockParams(dp(18)));
+
+        openReleaseButton = actionTile("查看草稿", R.drawable.ic_external_simple);
+        retryNoticeButton = actionTile("重新通知", R.drawable.ic_refresh_simple);
+        deleteButton = actionTile("核验后清理", R.drawable.ic_delete_simple);
+        LinearLayout.LayoutParams tile = new LinearLayout.LayoutParams(0, dp(86), 1);
+        LinearLayout.LayoutParams tileMiddle = new LinearLayout.LayoutParams(0, dp(86), 1);
+        tileMiddle.leftMargin = dp(8);
+        LinearLayout.LayoutParams tileLast = new LinearLayout.LayoutParams(0, dp(86), 1);
+        tileLast.leftMargin = dp(8);
+        actionRow.addView(openReleaseButton, tile);
+        actionRow.addView(retryNoticeButton, tileMiddle);
+        actionRow.addView(deleteButton, tileLast);
+        openReleaseButton.setOnClickListener(v -> openRelease());
+        retryNoticeButton.setOnClickListener(v -> retryDispatch());
+        deleteButton.setOnClickListener(v -> confirmDelete());
+
+        LinearLayout localHeader = new LinearLayout(this);
+        localHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        records.addView(localHeader, blockParams(dp(28)));
+        localHeader.addView(text("本地记录", 22, INK, true),
+                new LinearLayout.LayoutParams(0, -2, 1));
+        TextView localCount = text("最近 12 条", 11, MUTED, false);
+        localHeader.addView(localCount);
         archiveListing = vertical();
         records.addView(archiveListing, blockParams(dp(7)));
 
-        deleteButton = button("核验后清理本地 ZIP", false);
-        records.addView(deleteButton, blockParams(dp(16)));
-        deleteButton.setOnClickListener(v -> confirmDelete());
+        // Settings — list-style, matching the selected commercial concept.
+        settings.addView(pageHeading("设置", "关键配置简洁直观"));
 
-        // Settings — configuration first, technical notes second.
-        settings.addView(pageHeading("设置", "连接与安全"));
-        LinearLayout connect = vertical();
-        connect.setBackground(round(WHITE, dp(24)));
-        connect.setPadding(dp(20), dp(20), dp(20), dp(22));
-        connect.setElevation(dp(1));
-        settings.addView(connect, blockParams(dp(12)));
+        LinearLayout connectionCard = vertical();
+        connectionCard.setBackground(round(WHITE, dp(24)));
+        connectionCard.setPadding(dp(8), dp(7), dp(8), dp(7));
+        connectionCard.setElevation(dp(1));
+        settings.addView(connectionCard, blockParams(dp(18)));
 
-        connect.addView(text("GitHub 仓库", 13, MUTED, true));
+        LinearLayout repoRow = settingRow(R.drawable.ic_repo, "GitHub 仓库");
+        repoState = (TextView) repoRow.getChildAt(1);
+        connectionCard.addView(repoRow);
+        repoRow.setOnClickListener(v -> showRepoEditor());
+
+        View settingsDivider = new View(this);
+        settingsDivider.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams settingsDividerParams = new LinearLayout.LayoutParams(-1, dp(1));
+        settingsDividerParams.leftMargin = dp(66);
+        settingsDividerParams.rightMargin = dp(12);
+        connectionCard.addView(settingsDivider, settingsDividerParams);
+
+        LinearLayout tokenRow = settingRow(R.drawable.ic_key_simple, "访问令牌");
+        tokenState = (TextView) tokenRow.getChildAt(1);
+        connectionCard.addView(tokenRow);
+        tokenRow.setOnClickListener(v -> showTokenEditor());
+
+        TextView aboutTitle = text("关于", 22, INK, true);
+        settings.addView(aboutTitle, blockParams(dp(28)));
+
+        LinearLayout aboutCard = vertical();
+        aboutCard.setBackground(round(WHITE, dp(24)));
+        aboutCard.setPadding(dp(8), dp(7), dp(8), dp(7));
+        aboutCard.setElevation(dp(1));
+        settings.addView(aboutCard, blockParams(dp(10)));
+
+        LinearLayout securityRow = settingRow(R.drawable.ic_key_simple, "安全与隐私");
+        TextView securitySub = (TextView) securityRow.getChildAt(1);
+        renderSettingRow(securitySub, "安全与隐私", "Keystore 加密 · 只读采集");
+        aboutCard.addView(securityRow);
+        securityRow.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("安全与隐私")
+                .setMessage("访问令牌由 Android Keystore 加密保存。采集只读，不刷机、不修改活动分区，也不会自动晋升 LKG。")
+                .setPositiveButton("知道了", null)
+                .show());
+
+        View aboutDivider = new View(this);
+        aboutDivider.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams aboutDividerParams = new LinearLayout.LayoutParams(-1, dp(1));
+        aboutDividerParams.leftMargin = dp(66);
+        aboutDividerParams.rightMargin = dp(12);
+        aboutCard.addView(aboutDivider, aboutDividerParams);
+
+        LinearLayout aboutRow = settingRow(R.drawable.ic_pandora_ota, "关于 Pandora OTA");
+        TextView aboutSub = (TextView) aboutRow.getChildAt(1);
+        renderSettingRow(aboutSub, "关于 Pandora OTA",
+                "版本 " + getAppVersion() + " · Xiaomi 17 Pro");
+        aboutCard.addView(aboutRow);
+        aboutRow.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Pandora OTA")
+                .setMessage("版本 " + getAppVersion()
+                        + "\n\n仅适用于 Xiaomi 17 Pro · pandora。原始 init_boot.img 请从同版本 OTA 离线保存；应用内采集的是 Root 后快照。")
+                .setPositiveButton("关闭", null)
+                .show());
+
+        // Keep hidden native fields for credential state/tests; editing is done through dialogs.
         repoField = field("owner/repo", store.repo(), false);
-        connect.addView(repoField, blockParams(dp(8)));
-        connect.addView(text("访问令牌", 13, MUTED, true), blockParams(dp(17)));
-        tokenField = field("留空则保留已保存的令牌", "", true);
-        connect.addView(tokenField, blockParams(dp(8)));
-        tokenState = text("", 12, TEAL, true);
-        connect.addView(tokenState, blockParams(dp(10)));
+        repoField.setVisibility(View.GONE);
+        settings.addView(repoField, new LinearLayout.LayoutParams(1, 1));
+        tokenField = field("", "", true);
+        tokenField.setVisibility(View.GONE);
+        settings.addView(tokenField, new LinearLayout.LayoutParams(1, 1));
         saveButton = button("保存", true);
-        connect.addView(saveButton, blockParams(dp(15)));
-        clearButton = button("清除本机令牌", false);
-        connect.addView(clearButton, blockParams(dp(8)));
-        saveButton.setOnClickListener(v -> saveConnection());
-        clearButton.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("删除本机令牌？")
-                .setMessage("仅删除应用内加密凭据。要使令牌立即失效，请前往 GitHub 撤销。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("删除", (dialog, which) -> {
-                    store.clearToken();
-                    tokenField.setText("");
-                    refresh();
-                    notifyMessage("本机 GitHub 令牌已删除");
-                }).show());
-
-        TextView aboutTitle = text("关于", 13, MUTED, true);
-        settings.addView(aboutTitle, blockParams(dp(24)));
-        LinearLayout about = vertical();
-        about.setBackground(round(WHITE, dp(22)));
-        about.setPadding(dp(18), dp(17), dp(18), dp(18));
-        about.setElevation(dp(1));
-        settings.addView(about, blockParams(dp(8)));
-        about.addView(text("Pandora OTA  ·  " + getAppVersion(), 14, INK, true));
-        about.addView(text("仅用于 Xiaomi 17 Pro · pandora 的只读 OTA 采集。",
-                12, MUTED, false), blockParams(dp(7)));
-        about.addView(text("原始 init_boot.img 请从同版本 OTA 离线保存；应用内采集的是 Root 后快照。",
-                11, MUTED, false), blockParams(dp(9)));
+        saveButton.setVisibility(View.GONE);
+        settings.addView(saveButton, new LinearLayout.LayoutParams(1, 1));
+        clearButton = button("清除", false);
+        clearButton.setVisibility(View.GONE);
+        settings.addView(clearButton, new LinearLayout.LayoutParams(1, 1));
 
         // Material-like native bottom destination bar, always visible.
         LinearLayout bottom = new LinearLayout(this);
@@ -360,7 +491,8 @@ public final class MainActivity extends Activity {
             icon.setImageResource(glyphs[i]);
             icon.setImageTintList(ColorStateList.valueOf(MUTED));
             icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            item.addView(icon, new LinearLayout.LayoutParams(dp(23), dp(23)));
+            icon.setPadding(dp(6), dp(6), dp(6), dp(6));
+            item.addView(icon, new LinearLayout.LayoutParams(dp(35), dp(35)));
             TextView label = text(labels[i], 11, MUTED, true);
             label.setGravity(android.view.Gravity.CENTER);
             item.addView(label, blockParams(dp(2)));
@@ -384,6 +516,91 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> notifyMessage("历史临时文件清理未完成：" + detail));
             }
         });
+    }
+
+    private LinearLayout settingRow(int drawable, String title) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(13), dp(10), dp(13));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setBackground(touchBackground(Color.TRANSPARENT, dp(18)));
+
+        ImageView icon = iconBox(drawable, dp(48), dp(15));
+        row.addView(icon);
+
+        TextView copy = text("", 12, MUTED, false);
+        copy.setTag(title);
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1);
+        copyParams.leftMargin = dp(12);
+        row.addView(copy, copyParams);
+
+        TextView chevron = text("›", 27, MUTED, false);
+        row.addView(chevron);
+        return row;
+    }
+
+    private void renderSettingRow(TextView view, String title, String subtitle) {
+        view.setText(title + "\n" + subtitle);
+        view.setTextColor(INK);
+        view.setTextSize(14);
+        view.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+        view.setLineSpacing(0, 1.08f);
+    }
+
+    private void showRepoEditor() {
+        EditText input = field("owner/repo", store.repo(), false);
+        input.setSelectAllOnFocus(true);
+        new AlertDialog.Builder(this)
+                .setTitle("GitHub 仓库")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    try {
+                        String repo = input.getText().toString().trim();
+                        if (!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
+                            throw new IllegalArgumentException("仓库格式应为 owner/repo");
+                        store.saveRepo(repo);
+                        repoField.setText(repo);
+                        refresh();
+                        notifyMessage("GitHub 仓库已更新");
+                    } catch (Exception e) {
+                        notifyMessage("保存失败：" + safeMessage(e));
+                    }
+                }).show();
+    }
+
+    private void showTokenEditor() {
+        EditText input = field("粘贴新的 Fine-grained PAT", "", true);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("访问令牌")
+                .setView(input)
+                .setNegativeButton("取消", null)
+                .setNeutralButton("清除本机令牌", null)
+                .setPositiveButton("保存", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                try {
+                    String token = input.getText().toString().trim();
+                    if (token.isEmpty()) throw new IllegalArgumentException("请输入访问令牌");
+                    store.saveToken(token);
+                    input.setText("");
+                    refresh();
+                    notifyMessage("访问令牌已安全保存");
+                    dialog.dismiss();
+                } catch (Exception e) {
+                    notifyMessage("保存失败：" + safeMessage(e));
+                }
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                store.clearToken();
+                refresh();
+                notifyMessage("本机 GitHub 令牌已删除");
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
     }
 
     private void saveConnection() {
@@ -636,21 +853,36 @@ public final class MainActivity extends Activity {
 
     private void refresh() {
         boolean credentials = store.hasToken();
-        tokenState.setText(credentials
-                ? "● 凭据已加密保存 · Android Keystore"
-                : "○ 尚未配置访问令牌");
+        tokenState.setText(credentials ? "✓ 已配置 · 安全存储" : "未配置");
+        if (repoState != null) renderSettingRow(repoState, "GitHub 仓库",
+                store.repo().isEmpty() ? "未配置" : store.repo());
+        if (tokenState != null) renderSettingRow(tokenState, "访问令牌",
+                credentials ? "✓ 已配置 · Android Keystore" : "未配置");
         File file = selectedFile();
         boolean exists = file != null;
         boolean uploaded = exists && store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()));
         String state = uploaded ? store.intakeState() : "PENDING";
+        File[] allArchives = store.archives();
+        int uploadedCount = 0;
+        for (File archive : allArchives) {
+            if (store.isUploaded(new SecretStore.FileInfo(
+                    archive.getAbsolutePath(), archive.length()))) uploadedCount++;
+        }
+        if (workUploadedMetric != null) workUploadedMetric.setText(uploadedCount > 0
+                ? String.valueOf(uploadedCount) : "—");
+        if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
+        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
+        if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
+        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
         fileState.setText(exists
                 ? file.getName() + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
                 : "暂无采集记录");
         recordFileState.setText(exists
-                ? file.getName() + "\n" + size(file.length()) + "\n"
-                    + (uploaded ? "已上传 GitHub · " + intakeLabel(state) : "仅保存在手机中")
+                ? file.getName() + "\n" + size(file.length())
+                    + " · " + (uploaded ? "已上传" : "仅本地")
                 : "尚无采集记录");
         saveButton.setEnabled(!busy);
         clearButton.setEnabled(!busy && credentials);
@@ -819,8 +1051,8 @@ public final class MainActivity extends Activity {
 
     private LinearLayout pageHeading(String heading, String subheading) {
         LinearLayout block = vertical();
-        block.addView(text(heading, 27, INK, true));
-        block.addView(text(subheading, 12, MUTED, false), blockParams(dp(7)));
+        block.addView(text(heading, 31, INK, true));
+        block.addView(text(subheading, 13, MUTED, false), blockParams(dp(7)));
         return block;
     }
 
@@ -846,7 +1078,8 @@ public final class MainActivity extends Activity {
             boolean active = i == index;
             navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
-            navItems[i].setBackground(touchBackground(Color.TRANSPARENT, dp(16)));
+            navItems[i].setBackground(touchBackground(Color.TRANSPARENT, dp(18)));
+            navIcons[i].setBackground(round(active ? LIGHT_TEAL : Color.TRANSPARENT, dp(18)));
             navItems[i].setSelected(active);
         }
     }
@@ -863,16 +1096,25 @@ public final class MainActivity extends Activity {
             File entry = archives[i];
             boolean active = selected != null
                     && entry.getAbsolutePath().equals(selected.getAbsolutePath());
-            TextView item = text((active ? "●  " : "○  ") + entry.getName()
-                    + "\n" + size(entry.length())
-                    + "   ·   " + (store.isUploaded(
-                    new SecretStore.FileInfo(entry.getAbsolutePath(), entry.length()))
-                    ? "GitHub 已上传" : "仅本地"), 12, active ? TEAL : INK, active);
-            item.setPadding(dp(12), dp(12), dp(12), dp(12));
+            LinearLayout item = new LinearLayout(this);
+            item.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            item.setPadding(dp(14), dp(13), dp(14), dp(13));
             item.setClickable(true);
             item.setFocusable(true);
-            item.setBackground(touchBackground(active ? LIGHT_TEAL : FIELD, dp(12)));
-            archiveListing.addView(item, blockParams(dp(8)));
+            item.setBackground(touchBackground(active ? LIGHT_TEAL : WHITE, dp(20)));
+            item.setElevation(dp(1));
+            item.addView(iconBox(R.drawable.ic_file_zip, dp(46), dp(14)));
+            TextView itemText = text(entry.getName()
+                    + "\n" + size(entry.length())
+                    + " · " + (store.isUploaded(
+                    new SecretStore.FileInfo(entry.getAbsolutePath(), entry.length()))
+                    ? "已上传" : "仅本地"), 12, active ? TEAL : INK, active);
+            LinearLayout.LayoutParams itemTextParams = new LinearLayout.LayoutParams(0, -2, 1);
+            itemTextParams.leftMargin = dp(12);
+            item.addView(itemText, itemTextParams);
+            TextView chevron = text("›", 26, MUTED, false);
+            item.addView(chevron);
+            archiveListing.addView(item, blockParams(dp(9)));
             item.setOnClickListener(v -> {
                 if (busy) return;
                 v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
@@ -886,6 +1128,57 @@ public final class MainActivity extends Activity {
                     + " 个文件可通过「切换本地采集包」选择。", 11, MUTED, false),
                     blockParams(dp(8)));
         }
+    }
+
+    private ImageView iconBox(int drawable, int size, int padding) {
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawable);
+        icon.setImageTintList(ColorStateList.valueOf(TEAL));
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setPadding(padding, padding, padding, padding);
+        icon.setBackground(round(LIGHT_TEAL, dp(17)));
+        icon.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+        return icon;
+    }
+
+    private LinearLayout metricTile(String label, int drawable) {
+        LinearLayout tile = vertical();
+        tile.setGravity(android.view.Gravity.CENTER);
+        tile.setBackground(round(WHITE, dp(20)));
+        tile.setElevation(dp(1));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawable);
+        icon.setImageTintList(ColorStateList.valueOf(TEAL));
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        tile.addView(icon, new LinearLayout.LayoutParams(dp(25), dp(25)));
+        TextView caption = text(label, 11, MUTED, false);
+        caption.setGravity(android.view.Gravity.CENTER);
+        tile.addView(caption, blockParams(dp(5)));
+        TextView value = text("—", 13, INK, true);
+        value.setGravity(android.view.Gravity.CENTER);
+        value.setTag("metric-value");
+        tile.addView(value, blockParams(dp(3)));
+        return tile;
+    }
+
+    private TextView metricValue(LinearLayout tile) {
+        for (int i = 0; i < tile.getChildCount(); i++) {
+            View child = tile.getChildAt(i);
+            if (child instanceof TextView && "metric-value".equals(child.getTag())) {
+                return (TextView) child;
+            }
+        }
+        throw new IllegalStateException("metric value missing");
+    }
+
+    private Button actionTile(String caption, int drawable) {
+        Button control = button(caption, false);
+        control.setTextSize(11);
+        control.setCompoundDrawablesWithIntrinsicBounds(0, drawable, 0, 0);
+        control.setCompoundDrawablePadding(dp(7));
+        control.setPadding(dp(5), dp(9), dp(5), dp(8));
+        control.setGravity(android.view.Gravity.CENTER);
+        return control;
     }
 
     private String getAppVersion() {

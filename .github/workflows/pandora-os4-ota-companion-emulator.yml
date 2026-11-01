@@ -59,6 +59,18 @@ jobs:
             sleep 4
             adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/workbench.png
+
+            # pixel_7_pro / API 35 profile is fixed at 1440x3120 in this workflow.
+            # Use stable navigation coordinates instead of parsing wm size across shells.
+            adb shell input tap 720 2960
+            sleep 2
+            adb exec-out screencap -p > app/build/reports/androidTests/preview/records.png
+            test -s app/build/reports/androidTests/preview/records.png
+
+            adb shell input tap 1200 2960
+            sleep 2
+            adb exec-out screencap -p > app/build/reports/androidTests/preview/settings.png
+            test -s app/build/reports/androidTests/preview/settings.png
       - name: 保存模拟器测试报告（失败也收集）
         if: always()
         uses: actions/upload-artifact@v4
