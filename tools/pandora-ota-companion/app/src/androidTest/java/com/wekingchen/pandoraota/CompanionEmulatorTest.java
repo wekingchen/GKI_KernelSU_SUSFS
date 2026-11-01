@@ -140,7 +140,9 @@ public class CompanionEmulatorTest {
                     Button delete = field(activity, "deleteButton", Button.class);
                     assertFalse(collect.isEnabled());
                     // Root diagnosis must be clickable even when capture is locked on non-pandora.
-                    assertTrue(root.isEnabled());\n                    TextView rootState = field(activity, "rootStatus", TextView.class);\n                    assertTrue(rootState.getText().toString().contains("尚未检测"));
+                    assertTrue(root.isEnabled());
+                    TextView rootState = field(activity, "rootStatus", TextView.class);
+                    assertTrue(rootState.getText().toString().contains("尚未检测"));
                     assertFalse(upload.isEnabled());
                     assertFalse(delete.isEnabled());
                     assertTrue(field(activity, "tokenState", TextView.class).getText().length() > 0);
