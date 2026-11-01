@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.*;
+import android.graphics.drawable.Drawable;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -49,7 +50,7 @@ public final class MainActivity extends Activity {
     private LinearLayout archiveListing;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
     private final LinearLayout[] navItems = new LinearLayout[3];
-    private final TextView[] navIcons = new TextView[3];
+    private final ImageView[] navIcons = new ImageView[3];
     private final TextView[] navLabels = new TextView[3];
     private int activeTab;
     private boolean busy;
@@ -81,9 +82,10 @@ public final class MainActivity extends Activity {
         topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         topBar.setPadding(dp(22), dp(11), dp(20), dp(11));
         shell.addView(topBar, new LinearLayout.LayoutParams(-1, dp(70)));
-        TextView brand = text("↻", 27, WHITE, true);
-        brand.setGravity(android.view.Gravity.CENTER);
-        brand.setBackground(round(TEAL, dp(16)));
+        ImageView brand = new ImageView(this);
+        brand.setImageResource(R.drawable.ic_pandora_ota);
+        brand.setContentDescription("Pandora OTA");
+        brand.setScaleType(ImageView.ScaleType.FIT_CENTER);
         topBar.addView(brand, new LinearLayout.LayoutParams(dp(44), dp(44)));
         LinearLayout brandTitle = vertical();
         LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(0, -2, 1);
@@ -133,8 +135,10 @@ public final class MainActivity extends Activity {
         identity.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
         info.addView(text("设备概览", 25, INK, true));
         info.addView(text("检查状态，准备下一次 OTA 采集", 13, MUTED, false), blockParams(dp(5)));
-        TextView deviceGlyph = text("◈", 25, TEAL, true);
-        deviceGlyph.setGravity(android.view.Gravity.CENTER);
+        ImageView deviceGlyph = new ImageView(this);
+        deviceGlyph.setImageResource(android.R.drawable.ic_menu_info_details);
+        deviceGlyph.setImageTintList(ColorStateList.valueOf(TEAL));
+        deviceGlyph.setPadding(dp(15), dp(15), dp(15), dp(15));
         deviceGlyph.setBackground(round(LIGHT_TEAL, dp(17)));
         identity.addView(deviceGlyph, new LinearLayout.LayoutParams(dp(55), dp(55)));
         deviceStatus = text(RootCollector.isPandora() ? "●  已识别 Xiaomi 17 Pro · pandora"
@@ -316,7 +320,7 @@ public final class MainActivity extends Activity {
         bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
         bottom.setBackground(topStroke(WHITE, BORDER));
         shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
-        String[] glyphs = {"⌂", "▤", "⚙"};
+        int[] glyphs = {android.R.drawable.ic_menu_view, android.R.drawable.ic_menu_recent_history, android.R.drawable.ic_menu_preferences};
         String[] labels = {"工作台", "记录", "设置"};
         for (int i = 0; i < 3; i++) {
             final int destination = i;
@@ -325,9 +329,11 @@ public final class MainActivity extends Activity {
             item.setClickable(true);
             item.setFocusable(true);
             item.setBackground(touchBackground(Color.TRANSPARENT, dp(15)));
-            TextView icon = text(glyphs[i], 21, MUTED, true);
-            icon.setGravity(android.view.Gravity.CENTER);
-            item.addView(icon);
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(glyphs[i]);
+            icon.setImageTintList(ColorStateList.valueOf(MUTED));
+            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            item.addView(icon, new LinearLayout.LayoutParams(dp(23), dp(23)));
             TextView label = text(labels[i], 11, MUTED, true);
             label.setGravity(android.view.Gravity.CENTER);
             item.addView(label, blockParams(dp(2)));
@@ -803,7 +809,7 @@ public final class MainActivity extends Activity {
         settingsScroll.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         for (int i = 0; i < navItems.length; i++) {
             boolean active = i == index;
-            navIcons[i].setTextColor(active ? TEAL : MUTED);
+            navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
             navItems[i].setBackground(touchBackground(
                     active ? LIGHT_TEAL : Color.TRANSPARENT, dp(16)));
