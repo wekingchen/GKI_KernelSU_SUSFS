@@ -30,6 +30,7 @@ final class RootCollector {
     static File capture(Context ctx, boolean includeBoot) throws Exception {
         if (!isPandora()) throw new IllegalStateException("仅支持小米17 Pro（pandora）");
         checkRoot();
+        if (!includeBoot) throw new IllegalArgumentException("OTA 完整采集必须包括当前 slot 四个启动分区");
         File parent = new File(ctx.getExternalFilesDir(null), "captures");
         if (!parent.isDirectory() && !parent.mkdirs()) {
             throw new IllegalStateException("无法建立采集目录");
@@ -52,17 +53,20 @@ final class RootCollector {
                 + "(cat /sys/kernel/security/lsm || true) > \"$OUT/lsm.txt\"\n"
                 + "(cat /proc/cgroups || true) > \"$OUT/cgroups.txt\"\n"
                 + "modules=''\n"
-                + "for d in vendor_dlkm/lib/modules system_dlkm/lib/modules vendor/lib/modules system/lib/modules; do "
+                + "for d in vendor_dlkm/lib/modules vendor/lib/modules odm_dlkm/lib/modules system_dlkm/lib/modules; do "
                 + "if [ -d \"/$d\" ]; then modules=\"$modules $d\"; fi; done\n"
                 + "if [ -z \"$modules\" ]; then echo 'OEM module paths missing' >&2; exit 21; fi\n"
-                + "(cd / && tar -cf \"$OUT/oem-modules.tar\" $modules)\n"
-                + (includeBoot
-                    ? "slot=\"$(getprop ro.boot.slot_suffix)\"\n"
-                    + "case \"$slot\" in _a|_b) ;; *) echo 'invalid slot' >&2; exit 12;; esac\n"
-                    + "for part in boot init_boot vendor_boot dtbo; do "
-                    + "dev=\"/dev/block/by-name/$part$slot\"; "
-                    + "if [ -e \"$dev\" ]; then dd if=\"$dev\" of=\"$OUT/$part$slot.img\" bs=1048576 2>/dev/null; fi; done\n"
-                    : "")
+                + "(cd / && tar -chf \"$OUT/oem-modules.tar\" $modules)\n"
+                + "slot=\"$(getprop ro.boot.slot_suffix)\"\n"
+                + "case \"$slot\" in _a|_b) ;; *) echo 'invalid slot' >&2; exit 12;; esac\n"
+                + "for part in boot init_boot vendor_boot dtbo; do "
+                + "dev=\"/dev/block/by-name/$part$slot\"; "
+                + "test -r \"$dev\" || { echo \"missing $dev\" >&2; exit 13; }; "
+                + "dd if=\"$dev\" of=\"$OUT/$part$slot.img\" bs=1048576 2>/dev/null; "
+                + "test \"$(wc -c < \"$OUT/$part$slot.img\")\" -ge 4096 || exit 14; "
+                + "done\n"
+                + "echo \"slot=$slot\" >> \"$OUT/manifest.txt\"\n"
+                + "printf 'uname=' >> \"$OUT/manifest.txt\"; uname -r >> \"$OUT/manifest.txt\"\n"
                 + "chmod 644 \"$OUT\"/*\n";
         Process p = new ProcessBuilder("su", "-c", sh).redirectErrorStream(true).start();
         String shellLog = readLimited(p.getInputStream(), 8192);
