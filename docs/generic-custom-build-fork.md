@@ -33,3 +33,20 @@
 `generic-custom-fork-guard.yml` 会持续检查 YAML、Shell、host linker 的缺失/坏链接/可执行权限，以及新旧 workflow 选择项一致性，并拒绝改动上游共用路径。它**不是真实完整内核编译**。
 
 **关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。在这之前，状态只能标为「已打补丁、尚未实编验证」。
+
+## 自动跟进上游，不需要手工同步
+
+已新增 [`红米 K50 Pro / 上游 build.yml 无人值守同步`](../.github/workflows/generic-custom-auto-sync.yml)，在仓库默认分支 `dev` 上**每天自动检查一次**（UTC 03:17；北京时间 11:17），也支持手动检查，但常规操作不需要人工启动。上游未变更时立即结束，不会浪费约 40 分钟重新编译。
+
+具体机制：
+
+1. 从 `zzh20188/GKI_KernelSU_SUSFS` 的 `dev` 抓取最新 `.github/workflows/build.yml`，与上次记录的**精确 Git blob SHA** 对比，获取上次原文件作为三方合并基线。
+2. 从当前 `build-fork-custom.yml` **可逆还原**本仓之前的定制基线，对上游差异进行真正的三方合并，然后按固定规则重放 BBG host `ld`、JOBS、swap、超时等已验证补丁，不简单覆盖、不删除本仓既有定制。
+3. 对生成版本执行 YAML、shell、补丁可逆性、上游隔离和恶意/冲突数据自动测试。遇到冲突、失去补丁锚点、版本来源不一致或安全门禁被移除，立即失败，**继续使用旧的稳定 `dev`**。
+4. 只在候选临时分支发起与 [成功 Run #41239924766](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/41239924766) **相同功能组合**的 Android 12 / 5.10.209 / BakaSU 完整内核构建（包括 SUSFS、BBG、NoMount、Re-Kernel、DroidSpaces、网络增强、CVE）。
+5. GitHub 实际构建结果为 `success`，且目标构建 Job 与 AnyKernel3 Artifact 均成功后，再次验证 `dev` 和上游 SHA 未在运行期间变动。只有全部通过才把**生成的隔离版**与 SHA 元数据快速推进到 `dev`，不改上游共用 `build.yml`、`kernel-custom.yml` 或其它共享路径。
+6. 任务结束自动核验并清理临时候选分支。失败只保留 GitHub Actions 日志与失败结果，以备追查；下一轮可自动重新尝试，无须你手动合并 PR。
+
+**边界：**这套机制可以对安全可合并且能通过实际构建的上游更新实现无人值守自动跟进；**不能**安全地承诺无论上游怎样不兼容都自动修好并刷机。冲突、新版本编译失败、GitHub Runner 故障、GitHub 仓库策略阻止写入、或未来上游彻底改写工作流时，系统会拒绝发布有问题的版本，保留旧版稳定构建入口并输出失败原因。它永远不会自动把编译产物刷入红米 K50 Pro，真机长期可靠性仍需与编译成功区分。
+
+版本来源与本仓私有基线的 Git blob SHA 记录在 `.github/config/generic-custom-upstream-sync.json`，同步脚本和回归测试在 `scripts/generic-custom/`，不会成为上游仓库的同名脚本。私有构建工作流更新后仍保留你现在使用的单独入口 `kernel-custom-fork.yml`。
