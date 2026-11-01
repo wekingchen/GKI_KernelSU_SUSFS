@@ -80,6 +80,11 @@ def main() -> None:
             "stock_boot_sha256": boot_hash, "ota_source_id": sha(args.zip.read_bytes()),
             "github_asset_id": args.github_asset_id, "may_build_gki_candidate": False,
             "source_provenance": "LEGACY_PINNED_BOOT_SHA256_ONLY",
+            "boot_oem_original_verified": False,
+            "boot_role": "GKI_KERNEL_ANALYSIS_INPUT",
+            "init_boot_oem_original_verified": False,
+            "init_boot_role": "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+            "init_boot_source": "LEGACY_UNKNOWN_MAY_BE_ROOT_PATCHED",
             "safe_to_flash": False, "fixture_promoted": False, "lkg_unchanged": True,
             "next_gate": "NOOP_CURRENT_BUILD",
         }
@@ -99,6 +104,23 @@ def main() -> None:
         fields[k] = v
     if fields.get("device") != "pandora":
         abort("device must be pandora")
+    # For rooted mobile collections these labels are mandatory when present.
+    # Old v1 mobile ZIPs had no per-partition labels: they remain readable,
+    # but their provenance is NEVER silently elevated to OEM original.
+    expected_snapshot = {
+        "boot_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+        "boot_oem_original_verified": "NO",
+        "boot_role": "GKI_KERNEL_ANALYSIS_INPUT",
+        "init_boot_source": "ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED",
+        "init_boot_oem_original_verified": "NO",
+        "init_boot_role": "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+        "vendor_boot_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+        "dtbo_source": "ACTIVE_SLOT_UNVERIFIED_OEM",
+    }
+    if fields.get("collected_from_live_device") == "YES":
+        for key, expected in expected_snapshot.items():
+            if key in fields and fields[key] != expected:
+                abort("invalid or falsely verified OEM image provenance: " + key)
     build = fields.get("build", "")
     if not BUILD_RE.fullmatch(build):
         abort("invalid HyperOS build")
@@ -143,7 +165,18 @@ def main() -> None:
         "ramdisk_size": ramdisk_size, "signature_size": signature_size,
         "ota_source_id": sha(args.zip.read_bytes()), "github_asset_id": args.github_asset_id,
         "may_build_gki_candidate": can_build,
+        # An embedded kernel marker verifies version consistency, NOT OEM
+        # image originality. The rooted init_boot is never flashable stock.
         "source_provenance": "STOCK_INPUT_UNVERIFIED_OEM" if not embedded else "BOOT_KERNEL_MARKER_AND_README_AGREE",
+        "boot_oem_original_verified": False,
+        "boot_source": fields.get("boot_source", "UNVERIFIED_INPUT"),
+        "boot_role": "GKI_KERNEL_ANALYSIS_INPUT",
+        "init_boot_oem_original_verified": False,
+        "init_boot_source": fields.get("init_boot_source", "UNVERIFIED_INPUT_MAY_BE_ROOT_PATCHED"),
+        "init_boot_role": "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE",
+        "init_boot_may_be_root_patched": True,
+        "vendor_boot_oem_original_verified": False,
+        "dtbo_oem_original_verified": False,
         "safe_to_flash": False, "fixture_promoted": False, "lkg_unchanged": True,
         "next_gate": ("NOOP_CURRENT_BUILD" if state == "SAME_PINNED_BUILD" else
                       "HUMAN_REVIEW_STOCK_BOOT_DRIFT" if state == "SAME_BUILD_BOOT_DRIFT_REVIEW" else
