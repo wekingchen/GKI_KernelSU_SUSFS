@@ -572,53 +572,71 @@ public final class MainActivity extends Activity {
     }
 
     private void refresh() {
-        tokenState.setText(store.hasToken()
-                ? "● 已加密保存凭据（有效期由 GitHub 管理）"
-                : "○ 尚未保存 GitHub 凭据");
+        boolean credentials = store.hasToken();
+        tokenState.setText(credentials
+                ? "● 凭据已加密保存 · Android Keystore"
+                : "○ 尚未配置访问令牌");
         File file = selectedFile();
         boolean exists = file != null;
         boolean uploaded = exists && store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()));
+        String state = uploaded ? store.intakeState() : "PENDING";
         fileState.setText(exists
-                ? file.getName() + "\n" + size(file.length())
-                        + "   ·   " + (uploaded ? "已获上传确认" : "待上传")
-                : "暂无采集包。请先在上方完成只读采集。");
+                ? "●  " + file.getName() + "\n" + size(file.length())
+                    + "   ·   " + (uploaded ? "GitHub 已保存" : "等待上传")
+                : "暂无本地采集包\n请先使用上方的「采集并生成 ZIP」");
+        recordFileState.setText(exists
+                ? file.getName() + "\n" + size(file.length()) + "\n"
+                    + (uploaded ? "已上传 GitHub · " + intakeLabel(state) : "仅保存在手机中")
+                : "尚无采集记录");
         saveButton.setEnabled(!busy);
-        clearButton.setEnabled(!busy && store.hasToken());
+        clearButton.setEnabled(!busy && credentials);
         repoField.setEnabled(!busy);
         tokenField.setEnabled(!busy);
         bootOption.setEnabled(false);
         rootButton.setEnabled(!busy);
         collectButton.setEnabled(!busy && RootCollector.isPandora());
-        uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
+        uploadButton.setEnabled(!busy && exists && !uploaded && credentials);
+        uploadButton.setText(uploaded ? "已上传到 GitHub" : "上传当前采集包");
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
         deleteButton.setEnabled(!busy && uploaded && store.intakeAccepted());
-        checkIntakeButton.setVisibility(uploaded && store.dispatched() ? View.VISIBLE : View.GONE);
-        checkIntakeButton.setEnabled(!busy && store.hasToken());
-        retryNoticeButton.setVisibility(uploaded && !store.dispatched() && store.lastAssetId() > 0
+        checkIntakeButton.setVisibility(uploaded && store.dispatched()
                 ? View.VISIBLE : View.GONE);
-        retryNoticeButton.setEnabled(!busy && store.hasToken());
+        checkIntakeButton.setEnabled(!busy && credentials);
+        retryNoticeButton.setVisibility(uploaded && !store.dispatched()
+                && store.lastAssetId() > 0 ? View.VISIBLE : View.GONE);
+        retryNoticeButton.setEnabled(!busy && credentials);
         openReleaseButton.setVisibility(uploaded
                 && store.lastReleaseUrl().startsWith("https://github.com/")
                 ? View.VISIBLE : View.GONE);
+        taskSpinner.setVisibility(busy ? View.VISIBLE : View.GONE);
         if (!busy && uploaded) {
-            uploadStage.setText(store.intakeAccepted() ? "GitHub 接收已确认" : "GitHub 附件已上传");
+            uploadStage.setText(store.intakeAccepted() ? "已接收 · 校验完成"
+                    : "REJECTED".equals(state) ? "已上传 · 后端安全拒收"
+                    : "已上传 · 等待后端审计");
             uploadBar.setProgress(100);
             percent.setText("100%");
             uploadNumbers.setText(size(file.length()) + " / " + size(file.length()));
-            uploadSpeed.setText("历史上传完成记录");
-            receiptState.setText("GitHub 附件已确认 · Release #" + store.lastReleaseId()
-                    + "\n工作流通知：" + (store.dispatched() ? "已发送请求" : "未成功")
-                    + "\n接收结果：" + intakeLabel(store.intakeState()));
-        }
-        if (!busy && !uploaded) {
-            uploadStage.setText("等待上传");
+            uploadSpeed.setText("GitHub 附件已保存");
+            intakeSummary.setText("后端状态  ·  " + intakeLabel(state));
+            intakeSummary.setTextColor("REJECTED".equals(state) ? WARNING : TEAL);
+            receiptState.setText("Release #" + store.lastReleaseId()
+                    + " · 附件 #" + store.lastAssetId()
+                    + "\nSHA-256：" + store.uploadedSha256(
+                        new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
+                    + "\n工作流通知：" + (store.dispatched() ? "已发送" : "未成功")
+                    + "\n接收结果：" + intakeLabel(state));
+        } else if (!busy) {
+            uploadStage.setText(exists ? "等待上传" : "尚无采集文件");
             uploadBar.setProgress(0);
             percent.setText("0%");
             uploadNumbers.setText(exists ? "0 B / " + size(file.length()) : "0 B / 0 B");
             uploadSpeed.setText("速率 --   ·   耗时 --");
-            receiptState.setText("尚未获得 GitHub 上传确认");
+            receiptState.setText("尚无 GitHub 附件上传回执");
+            intakeSummary.setText("尚未收到后端审计结果");
+            intakeSummary.setTextColor(MUTED);
         }
+        refreshArchiveListing(file);
     }
 
     private File selectedFile() {
@@ -680,6 +698,137 @@ public final class MainActivity extends Activity {
             return String.format(Locale.CHINA, "%.2f MiB", bytes / (1024.0 * 1024));
         return String.format(Locale.CHINA, "%.2f GiB",
                 bytes / (1024.0 * 1024 * 1024));
+    }
+
+    private ScrollView page(FrameLayout host) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setClipToPadding(false);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(false);
+        host.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        return scroll;
+    }
+
+    private LinearLayout pageContents(ScrollView scroll) {
+        LinearLayout contents = vertical();
+        contents.setPadding(dp(19), dp(10), dp(19), dp(34));
+        scroll.addView(contents);
+        return contents;
+    }
+
+    private LinearLayout surfaceCard(LinearLayout parent, int top, int inset) {
+        LinearLayout card = vertical();
+        GradientDrawable bg = round(WHITE, dp(21));
+        bg.setStroke(dp(1), BORDER);
+        card.setBackground(bg);
+        card.setPadding(inset, dp(19), inset, dp(20));
+        parent.addView(card, blockParams(top));
+        return card;
+    }
+
+    private LinearLayout sectionHeading(String number, String heading, String detail) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView sequence = text(number, 12, TEAL, true);
+        sequence.setGravity(android.view.Gravity.CENTER);
+        sequence.setBackground(round(LIGHT_TEAL, dp(12)));
+        row.addView(sequence, new LinearLayout.LayoutParams(dp(37), dp(37)));
+        LinearLayout labels = vertical();
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+        lp.leftMargin = dp(11);
+        row.addView(labels, lp);
+        labels.addView(text(heading, 17, INK, true));
+        labels.addView(text(detail, 11, MUTED, false), blockParams(dp(4)));
+        return row;
+    }
+
+    private LinearLayout pageHeading(String heading, String subheading) {
+        LinearLayout block = vertical();
+        block.addView(text(heading, 27, INK, true));
+        block.addView(text(subheading, 12, MUTED, false), blockParams(dp(7)));
+        return block;
+    }
+
+    private GradientDrawable topStroke(int color, int border) {
+        GradientDrawable bg = round(color, 0);
+        bg.setStroke(dp(1), border);
+        return bg;
+    }
+
+    private RippleDrawable touchBackground(int base, int radius) {
+        return new RippleDrawable(ColorStateList.valueOf(Color.argb(38, 20, 84, 77)),
+                round(base, radius), round(WHITE, radius));
+    }
+
+    private void selectTab(int index) {
+        if (index < 0 || index > 2) return;
+        activeTab = index;
+        if (workScroll == null || recordsScroll == null || settingsScroll == null) return;
+        workScroll.setVisibility(index == 0 ? View.VISIBLE : View.GONE);
+        recordsScroll.setVisibility(index == 1 ? View.VISIBLE : View.GONE);
+        settingsScroll.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
+        for (int i = 0; i < navItems.length; i++) {
+            boolean active = i == index;
+            navIcons[i].setTextColor(active ? TEAL : MUTED);
+            navLabels[i].setTextColor(active ? TEAL : MUTED);
+            navItems[i].setBackground(touchBackground(
+                    active ? LIGHT_TEAL : Color.TRANSPARENT, dp(16)));
+            navItems[i].setSelected(active);
+        }
+    }
+
+    private void refreshArchiveListing(File selected) {
+        if (archiveListing == null) return;
+        archiveListing.removeAllViews();
+        File[] archives = store.archives();
+        if (archives.length == 0) {
+            archiveListing.addView(text("暂无本地 ZIP", 12, MUTED, false));
+            return;
+        }
+        for (int i = 0; i < Math.min(archives.length, 12); i++) {
+            File entry = archives[i];
+            boolean active = selected != null
+                    && entry.getAbsolutePath().equals(selected.getAbsolutePath());
+            TextView item = text((active ? "●  " : "○  ") + entry.getName()
+                    + "\n" + size(entry.length())
+                    + "   ·   " + (store.isUploaded(
+                    new SecretStore.FileInfo(entry.getAbsolutePath(), entry.length()))
+                    ? "GitHub 已上传" : "仅本地"), 12, active ? TEAL : INK, active);
+            item.setPadding(dp(12), dp(12), dp(12), dp(12));
+            item.setClickable(true);
+            item.setFocusable(true);
+            item.setBackground(touchBackground(active ? LIGHT_TEAL : FIELD, dp(12)));
+            archiveListing.addView(item, blockParams(dp(8)));
+            item.setOnClickListener(v -> {
+                if (busy) return;
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                store.saveArchive(entry.getAbsolutePath());
+                refresh();
+                notifyMessage("已切换到：" + entry.getName());
+            });
+        }
+        if (archives.length > 12) {
+            archiveListing.addView(text("其余 " + (archives.length - 12)
+                    + " 个文件可通过「切换本地采集包」选择。", 11, MUTED, false),
+                    blockParams(dp(8)));
+        }
+    }
+
+    private String getAppVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "未知版本";
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (activeTab != 0) {
+            selectTab(0);
+        } else {
+            super.onBackPressed();
+        }
     }
 
     private LinearLayout card(LinearLayout parent, String step, String title, String sub) {
