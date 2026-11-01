@@ -120,14 +120,15 @@ public final class MainActivity extends Activity {
         });
 
         LinearLayout capture = card(content, "02", "采集设备数据", "申请 Root 后读取 OEM 模块和内核状态");
-        capture.addView(text("仅允许 pandora 设备，默认不读取启动分区。",
+        capture.addView(text("仅允许 pandora 设备；四个分区均为只读备份，不会修改系统。",
                 12, MUTED, false), blockParams(dp(13)));
         bootOption = new CheckBox(this);
-        bootOption.setText("同时备份当前启动分区（可能不是原厂）");
+        bootOption.setText("包含当前 slot 的四个启动分区（OTA 适配必需）");
         bootOption.setTextColor(INK);
         bootOption.setTextSize(13);
         bootOption.setButtonTintList(ColorStateList.valueOf(TEAL));
-        bootOption.setChecked(false);
+        bootOption.setChecked(true);
+        bootOption.setEnabled(false);
         capture.addView(bootOption, blockParams(dp(6)));
         rootButton = button("检查 Root 授权", false);
         capture.addView(rootButton, blockParams(dp(11)));
@@ -378,7 +379,7 @@ public final class MainActivity extends Activity {
         clearButton.setEnabled(!busy && store.hasToken());
         repoField.setEnabled(!busy);
         tokenField.setEnabled(!busy);
-        bootOption.setEnabled(!busy);
+        bootOption.setEnabled(false);
         rootButton.setEnabled(!busy && RootCollector.isPandora());
         collectButton.setEnabled(!busy && RootCollector.isPandora());
         uploadButton.setEnabled(!busy && exists && !uploaded && store.hasToken());
