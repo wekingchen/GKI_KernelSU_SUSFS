@@ -46,7 +46,7 @@ public final class MainActivity extends Activity {
     private TextView percent, receiptState, message, rootStatus;
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
-    private LinearLayout archiveListing;
+    private LinearLayout archiveListing, statusBanner;
     private TextView deviceStatus, rootPill, intakeSummary, recordFileState;
     private final LinearLayout[] navItems = new LinearLayout[3];
     private final ImageView[] navIcons = new ImageView[3];
@@ -79,42 +79,41 @@ public final class MainActivity extends Activity {
         }
         LinearLayout topBar = new LinearLayout(this);
         topBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(22), dp(11), dp(20), dp(11));
-        shell.addView(topBar, new LinearLayout.LayoutParams(-1, dp(70)));
+        topBar.setPadding(dp(20), dp(9), dp(20), dp(9));
+        shell.addView(topBar, new LinearLayout.LayoutParams(-1, dp(62)));
         ImageView brand = new ImageView(this);
         brand.setImageResource(R.drawable.ic_pandora_ota);
         brand.setContentDescription("Pandora OTA");
         brand.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        topBar.addView(brand, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        LinearLayout brandTitle = vertical();
+        topBar.addView(brand, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        TextView brandTitle = text("Pandora OTA", 20, INK, true);
         LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(0, -2, 1);
-        brandParams.leftMargin = dp(12);
+        brandParams.leftMargin = dp(11);
         topBar.addView(brandTitle, brandParams);
-        brandTitle.addView(text("Pandora OTA", 21, INK, true));
-        brandTitle.addView(text("安全采集 · 内核适配", 11, MUTED, false), blockParams(dp(2)));
-        TextView readonly = text("只读模式", 11, TEAL, true);
-        readonly.setGravity(android.view.Gravity.CENTER);
-        readonly.setBackground(round(LIGHT_TEAL, dp(18)));
-        readonly.setPadding(dp(12), dp(7), dp(12), dp(7));
-        topBar.addView(readonly);
+        TextView platform = text("OS4", 11, TEAL, true);
+        platform.setGravity(android.view.Gravity.CENTER);
+        platform.setBackground(round(LIGHT_TEAL, dp(15)));
+        platform.setPadding(dp(11), dp(6), dp(11), dp(6));
+        topBar.addView(platform);
 
-        LinearLayout notice = new LinearLayout(this);
-        notice.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        notice.setBackground(round(NOTICE, dp(15)));
-        notice.setPadding(dp(14), dp(12), dp(14), dp(12));
+        statusBanner = new LinearLayout(this);
+        statusBanner.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        statusBanner.setBackground(round(NOTICE, dp(14)));
+        statusBanner.setPadding(dp(13), dp(10), dp(13), dp(10));
         LinearLayout.LayoutParams noticeParams = new LinearLayout.LayoutParams(-1, -2);
-        noticeParams.setMargins(dp(20), dp(4), dp(20), dp(6));
-        shell.addView(notice, noticeParams);
+        noticeParams.setMargins(dp(20), 0, dp(20), dp(6));
+        shell.addView(statusBanner, noticeParams);
         taskSpinner = new ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
         taskSpinner.setIndeterminateTintList(ColorStateList.valueOf(TEAL));
-        notice.addView(taskSpinner, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        message = text("准备就绪", 12, INK, false);
-        message.setMaxLines(4);
+        statusBanner.addView(taskSpinner, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        message = text("", 12, INK, false);
+        message.setMaxLines(3);
         message.setTextIsSelectable(true);
         LinearLayout.LayoutParams msgParams = new LinearLayout.LayoutParams(0, -2, 1);
         msgParams.leftMargin = dp(9);
-        notice.addView(message, msgParams);
+        statusBanner.addView(message, msgParams);
         taskSpinner.setVisibility(View.GONE);
+        statusBanner.setVisibility(View.GONE);
 
         FrameLayout destinations = new FrameLayout(this);
         shell.addView(destinations, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -125,172 +124,197 @@ public final class MainActivity extends Activity {
         LinearLayout records = pageContents(recordsScroll);
         LinearLayout settings = pageContents(settingsScroll);
 
-        // Workbench — the entire Root → capture → upload journey stays together.
-        LinearLayout overview = surfaceCard(work, dp(5), dp(20));
-        LinearLayout identity = new LinearLayout(this);
-        identity.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        overview.addView(identity);
-        LinearLayout info = vertical();
-        identity.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
-        info.addView(text("设备概览", 25, INK, true));
-        info.addView(text("检查状态，准备下一次 OTA 采集", 13, MUTED, false), blockParams(dp(5)));
-        ImageView deviceGlyph = new ImageView(this);
-        deviceGlyph.setImageResource(android.R.drawable.ic_menu_info_details);
-        deviceGlyph.setImageTintList(ColorStateList.valueOf(TEAL));
-        deviceGlyph.setPadding(dp(15), dp(15), dp(15), dp(15));
-        deviceGlyph.setBackground(round(LIGHT_TEAL, dp(17)));
-        identity.addView(deviceGlyph, new LinearLayout.LayoutParams(dp(55), dp(55)));
-        deviceStatus = text(RootCollector.isPandora() ? "Xiaomi 17 Pro · pandora"
-                        : "当前设备不是 pandora · 已暂停采集",
-                12, RootCollector.isPandora() ? TEAL : WARNING, true);
-        overview.addView(deviceStatus, blockParams(dp(17)));
-        overview.addView(text("Android " + Build.VERSION.RELEASE
-                + "   ·   Build.DEVICE: " + Build.DEVICE, 12, MUTED, false),
-                blockParams(dp(5)));
+        // Workbench — minimal, state-driven UI. Technical detail stays in Records/Settings.
+        LinearLayout hero = vertical();
+        GradientDrawable heroBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(255, 255, 255), Color.rgb(239, 245, 255)});
+        heroBackground.setCornerRadius(dp(28));
+        hero.setBackground(heroBackground);
+        hero.setPadding(dp(24), dp(25), dp(24), dp(25));
+        hero.setElevation(dp(1));
+        work.addView(hero, blockParams(dp(7)));
 
-        LinearLayout capture = surfaceCard(work, dp(14), dp(20));
-        capture.addView(sectionHeading("01", "采集设备数据", "仅从当前活动分区读取，不写入系统"));
-        LinearLayout safetyRow = new LinearLayout(this);
-        safetyRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        capture.addView(safetyRow, blockParams(dp(17)));
-        rootPill = text("ROOT 待检测", 11, MUTED, true);
-        rootPill.setPadding(dp(10), dp(7), dp(10), dp(7));
-        rootPill.setBackground(round(FIELD, dp(15)));
-        safetyRow.addView(rootPill);
-        TextView protectedTag = text("不修改启动分区", 11, MUTED, false);
-        LinearLayout.LayoutParams pt = new LinearLayout.LayoutParams(0, -2, 1);
-        pt.leftMargin = dp(10);
-        safetyRow.addView(protectedTag, pt);
-        rootButton = button("检查 Root 权限", false);
-        capture.addView(rootButton, blockParams(dp(15)));
-        rootStatus = text("尚未检测 Root；如不弹窗，请在 Root 管理器手动授权。", 12, MUTED, false);
+        TextView eyebrow = text("OTA 采集", 12, TEAL, true);
+        hero.addView(eyebrow);
+        TextView heroTitle = text(RootCollector.isPandora() ? "准备新固件" : "设备不受支持",
+                30, INK, true);
+        hero.addView(heroTitle, blockParams(dp(8)));
+        deviceStatus = text(RootCollector.isPandora()
+                        ? "Xiaomi 17 Pro · pandora"
+                        : "仅允许在 Xiaomi 17 Pro · pandora 上采集",
+                13, RootCollector.isPandora() ? MUTED : WARNING, false);
+        hero.addView(deviceStatus, blockParams(dp(7)));
+
+        LinearLayout rootRow = new LinearLayout(this);
+        rootRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        hero.addView(rootRow, blockParams(dp(24)));
+        rootPill = text("Root 未检查", 12, MUTED, true);
+        rootPill.setPadding(dp(12), dp(8), dp(12), dp(8));
+        rootPill.setBackground(round(FIELD, dp(16)));
+        rootRow.addView(rootPill);
+        TextView readonly = text("只读采集", 12, MUTED, false);
+        LinearLayout.LayoutParams readOnlyParams = new LinearLayout.LayoutParams(0, -2, 1);
+        readOnlyParams.leftMargin = dp(10);
+        rootRow.addView(readonly, readOnlyParams);
+        rootButton = button("检查 Root", false);
+        rootButton.setMinHeight(0);
+        rootButton.setMinimumHeight(0);
+        rootButton.setPadding(dp(14), 0, dp(14), 0);
+        rootRow.addView(rootButton, new LinearLayout.LayoutParams(-2, dp(40)));
+
+        rootStatus = text("尚未检测 Root；如不弹窗，请在 Root 管理器手动授权。",
+                12, MUTED, false);
         rootStatus.setTextIsSelectable(true);
-        capture.addView(rootStatus, blockParams(dp(10)));
+        rootStatus.setVisibility(View.GONE);
+        hero.addView(rootStatus, blockParams(dp(10)));
+
         bootOption = new CheckBox(this);
         bootOption.setChecked(true);
         bootOption.setEnabled(false);
         bootOption.setVisibility(View.GONE);
-        capture.addView(text("采集内容  ·  Boot / Init Boot（Root 后快照） / Vendor Boot / DTBO / OEM 模块",
-                12, MUTED, false), blockParams(dp(21)));
-        capture.addView(text("原始 init_boot.img 请按新 OTA 流程离线保存；应用不会把当前活动 init_boot 认定为原厂镜像。",
-                11, MUTED, false), blockParams(dp(7)));
-        collectButton = button("采集并生成 ZIP", true);
-        capture.addView(collectButton, blockParams(dp(10)));
-        capture.addView(text("采集期间请保持应用处于前台；完成后仅保留最终 ZIP。",
-                11, MUTED, false), blockParams(dp(10)));
+
+        collectButton = button("开始采集", true);
+        hero.addView(collectButton, blockParams(dp(22)));
+
         rootButton.setOnClickListener(v -> {
-            rootStatus.setText("正在请求 Root 授权（最长 45 秒）…");
-            rootPill.setText("ROOT 检查中");
-            runTask("正在向 Root 管理器请求授权…", () -> {
+            rootStatus.setVisibility(View.VISIBLE);
+            rootStatus.setText("正在请求 Root 授权…");
+            rootPill.setText("Root 检查中");
+            runTask("正在请求 Root 授权…", () -> {
                 try {
                     String identityResult = RootCollector.checkRoot();
                     runOnUiThread(() -> {
-                        rootPill.setText("ROOT 已授权");
+                        rootPill.setText("Root 已授权");
                         rootPill.setTextColor(TEAL);
-                        rootPill.setBackground(round(LIGHT_TEAL, dp(15)));
-                        rootStatus.setText("授权成功：" + identityResult);
+                        rootPill.setBackground(round(LIGHT_TEAL, dp(16)));
+                        rootStatus.setText("授权成功 · " + identityResult);
                     });
-                    return "Root 已授权，可安全进行只读采集。";
+                    return "Root 已授权，可以开始采集";
                 } catch (Exception e) {
                     String explanation = safeMessage(e);
                     runOnUiThread(() -> {
-                        rootPill.setText("ROOT 未授权");
+                        rootPill.setText("Root 未授权");
                         rootPill.setTextColor(WARNING);
-                        rootStatus.setText("授权失败：" + explanation
-                                + "\n请在 Root 管理器的超级用户列表中授权此应用。");
+                        rootStatus.setText("授权失败 · " + explanation);
                     });
                     throw e;
                 }
             });
         });
-        collectButton.setOnClickListener(v -> runTask("正在读取分区并生成 ZIP…", () -> {
+        collectButton.setOnClickListener(v -> runTask("正在采集设备数据…", () -> {
             File output = RootCollector.capture(getApplicationContext(), true);
             store.saveArchive(output.getAbsolutePath());
-            return "采集完成：" + output.getName() + "（" + size(output.length()) + "）"
-                    + "\n临时分区镜像及模块归档已清理。";
+            return "采集完成 · " + output.getName() + " · " + size(output.length());
         }));
 
-        LinearLayout transfer = surfaceCard(work, dp(14), dp(20));
-        transfer.addView(sectionHeading("02", "安全上传", "上传完成后还需等待服务端审计"));
-        fileState = text("", 12, INK, true);
+        LinearLayout recentHeader = new LinearLayout(this);
+        recentHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        work.addView(recentHeader, blockParams(dp(28)));
+        TextView recentTitle = text("最近采集", 18, INK, true);
+        recentHeader.addView(recentTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView detailsHint = text("查看全部", 12, TEAL, true);
+        detailsHint.setClickable(true);
+        detailsHint.setFocusable(true);
+        detailsHint.setPadding(dp(8), dp(4), dp(8), dp(4));
+        detailsHint.setBackground(touchBackground(Color.TRANSPARENT, dp(12)));
+        detailsHint.setOnClickListener(v -> selectTab(1));
+        recentHeader.addView(detailsHint);
+
+        LinearLayout recent = vertical();
+        work.addView(recent, blockParams(dp(11)));
+
+        fileState = text("", 13, INK, true);
         fileState.setTextIsSelectable(true);
-        transfer.addView(fileState, blockParams(dp(17)));
-        uploadButton = button("上传当前采集包", true);
-        transfer.addView(uploadButton, blockParams(dp(13)));
+        recent.addView(fileState);
+
+        uploadButton = button("上传到 GitHub", true);
+        recent.addView(uploadButton, blockParams(dp(15)));
         uploadButton.setOnClickListener(v -> startUpload());
+
         LinearLayout progressHeader = new LinearLayout(this);
         progressHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        transfer.addView(progressHeader, blockParams(dp(19)));
+        recent.addView(progressHeader, blockParams(dp(16)));
         uploadStage = text("等待上传", 12, MUTED, true);
         progressHeader.addView(uploadStage, new LinearLayout.LayoutParams(0, -2, 1));
-        percent = text("0%", 17, TEAL, true);
+        percent = text("0%", 16, TEAL, true);
         progressHeader.addView(percent);
         uploadBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         uploadBar.setMax(100);
         uploadBar.setProgressTintList(ColorStateList.valueOf(TEAL));
         uploadBar.setProgressBackgroundTintList(ColorStateList.valueOf(LIGHT_TEAL));
-        transfer.addView(uploadBar, new LinearLayout.LayoutParams(-1, dp(6)));
-        uploadNumbers = text("0 B / 0 B", 12, MUTED, false);
-        transfer.addView(uploadNumbers, blockParams(dp(11)));
+        recent.addView(uploadBar, new LinearLayout.LayoutParams(-1, dp(5)));
+        uploadNumbers = text("0 B / 0 B", 11, MUTED, false);
+        recent.addView(uploadNumbers, blockParams(dp(8)));
         uploadSpeed = text("速率 --   ·   耗时 --", 11, MUTED, false);
-        transfer.addView(uploadSpeed, blockParams(dp(3)));
-        intakeSummary = text("尚无后端接收结果", 12, MUTED, false);
-        transfer.addView(intakeSummary, blockParams(dp(16)));
-        checkIntakeButton = button("查询后端处理结果", false);
-        transfer.addView(checkIntakeButton, blockParams(dp(10)));
+        recent.addView(uploadSpeed, blockParams(dp(3)));
+        intakeSummary = text("", 12, MUTED, false);
+        recent.addView(intakeSummary, blockParams(dp(12)));
+        checkIntakeButton = button("查询处理结果", false);
+        recent.addView(checkIntakeButton, blockParams(dp(10)));
         checkIntakeButton.setOnClickListener(v -> checkBackendIntake());
-        transfer.addView(text("同版本 Boot 不一致会被安全拒收，不会替换固定固件或 LKG。",
-                11, MUTED, false), blockParams(dp(14)));
 
-        // Records — detail, history, diagnostic receipt and destructive actions.
-        records.addView(pageHeading("采集记录", "本地文件与 GitHub 接收状态分开记录"));
-        LinearLayout latest = surfaceCard(records, dp(12), dp(19));
-        latest.addView(text("当前采集包", 15, INK, true));
-        recordFileState = text("", 13, MUTED, false);
+        // Records — one compact surface; detailed server metadata only lives here.
+        records.addView(pageHeading("记录", "采集文件与 GitHub 状态"));
+        LinearLayout recordCard = vertical();
+        recordCard.setBackground(round(WHITE, dp(24)));
+        recordCard.setPadding(dp(20), dp(20), dp(20), dp(22));
+        recordCard.setElevation(dp(1));
+        records.addView(recordCard, blockParams(dp(12)));
+
+        recordCard.addView(text("当前文件", 13, MUTED, true));
+        recordFileState = text("", 14, INK, true);
         recordFileState.setTextIsSelectable(true);
-        latest.addView(recordFileState, blockParams(dp(12)));
-        chooseArchiveButton = button("切换本地采集包", false);
-        latest.addView(chooseArchiveButton, blockParams(dp(12)));
+        recordCard.addView(recordFileState, blockParams(dp(8)));
+        chooseArchiveButton = button("切换文件", false);
+        recordCard.addView(chooseArchiveButton, blockParams(dp(13)));
         chooseArchiveButton.setOnClickListener(v -> chooseArchive());
 
-        LinearLayout details = surfaceCard(records, dp(14), dp(19));
-        details.addView(text("服务器回执", 15, INK, true));
-        receiptState = text("", 12, MUTED, false);
+        View recordDivider = new View(this);
+        recordDivider.setBackgroundColor(BORDER);
+        recordCard.addView(recordDivider, new LinearLayout.LayoutParams(-1, dp(1)));
+
+        TextView receiptLabel = text("GitHub", 13, MUTED, true);
+        recordCard.addView(receiptLabel, blockParams(dp(18)));
+        receiptState = text("", 12, INK, false);
         receiptState.setTextIsSelectable(true);
-        details.addView(receiptState, blockParams(dp(12)));
-        openReleaseButton = button("在 GitHub 查看草稿附件", false);
-        details.addView(openReleaseButton, blockParams(dp(11)));
+        recordCard.addView(receiptState, blockParams(dp(8)));
+        openReleaseButton = button("查看 GitHub 草稿", false);
+        recordCard.addView(openReleaseButton, blockParams(dp(12)));
         openReleaseButton.setOnClickListener(v -> openRelease());
-        retryNoticeButton = button("重新通知 GitHub（不重复上传）", false);
-        details.addView(retryNoticeButton, blockParams(dp(9)));
+        retryNoticeButton = button("重新通知 GitHub", false);
+        recordCard.addView(retryNoticeButton, blockParams(dp(8)));
         retryNoticeButton.setOnClickListener(v -> retryDispatch());
-        LinearLayout listing = surfaceCard(records, dp(14), dp(19));
-        listing.addView(text("本地文件", 15, INK, true));
+
+        TextView localLabel = text("本地文件", 13, MUTED, true);
+        records.addView(localLabel, blockParams(dp(24)));
         archiveListing = vertical();
-        listing.addView(archiveListing, blockParams(dp(9)));
-        LinearLayout cleanup = surfaceCard(records, dp(14), dp(19));
-        cleanup.addView(text("存储空间", 15, INK, true));
-        cleanup.addView(text("已上传的 ZIP 可手动清理；无论 OTA 审计是否通过，都必须核验远端附件和本地 SHA-256。",
-                12, MUTED, false), blockParams(dp(9)));
-        deleteButton = button("核验并清理本地 ZIP", false);
-        cleanup.addView(deleteButton, blockParams(dp(12)));
+        records.addView(archiveListing, blockParams(dp(7)));
+
+        deleteButton = button("核验后清理本地 ZIP", false);
+        records.addView(deleteButton, blockParams(dp(16)));
         deleteButton.setOnClickListener(v -> confirmDelete());
 
-        // Settings — credentials are intentionally off the workbench.
-        settings.addView(pageHeading("连接与安全", "仅配置一次，正常使用时无需进入"));
-        LinearLayout connect = surfaceCard(settings, dp(12), dp(19));
-        connect.addView(text("GitHub 仓库", 13, INK, true));
+        // Settings — configuration first, technical notes second.
+        settings.addView(pageHeading("设置", "连接与安全"));
+        LinearLayout connect = vertical();
+        connect.setBackground(round(WHITE, dp(24)));
+        connect.setPadding(dp(20), dp(20), dp(20), dp(22));
+        connect.setElevation(dp(1));
+        settings.addView(connect, blockParams(dp(12)));
+
+        connect.addView(text("GitHub 仓库", 13, MUTED, true));
         repoField = field("owner/repo", store.repo(), false);
         connect.addView(repoField, blockParams(dp(8)));
-        connect.addView(text("Fine-grained PAT", 13, INK, true), blockParams(dp(17)));
+        connect.addView(text("访问令牌", 13, MUTED, true), blockParams(dp(17)));
         tokenField = field("留空则保留已保存的令牌", "", true);
         connect.addView(tokenField, blockParams(dp(8)));
         tokenState = text("", 12, TEAL, true);
-        connect.addView(tokenState, blockParams(dp(12)));
-        saveButton = button("保存连接设置", true);
+        connect.addView(tokenState, blockParams(dp(10)));
+        saveButton = button("保存", true);
         connect.addView(saveButton, blockParams(dp(15)));
         clearButton = button("清除本机令牌", false);
-        connect.addView(clearButton, blockParams(dp(9)));
+        connect.addView(clearButton, blockParams(dp(8)));
         saveButton.setOnClickListener(v -> saveConnection());
         clearButton.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("删除本机令牌？")
@@ -302,25 +326,27 @@ public final class MainActivity extends Activity {
                     refresh();
                     notifyMessage("本机 GitHub 令牌已删除");
                 }).show());
-        LinearLayout security = surfaceCard(settings, dp(14), dp(19));
-        security.addView(text("安全边界", 15, INK, true));
-        security.addView(text("设备：" + Build.DEVICE + " / " + Build.PRODUCT,
-                12, MUTED, false), blockParams(dp(13)));
-        security.addView(text("· 不刷机、不修改活动分区、不自动晋升 LKG\n"
-                        + "· 只读采集必须为 pandora\n"
-                        + "· 仅 GitHub 接收成功后允许核验远端并清理本地 ZIP\n"
-                        + "· 前台运行上传任务，不承诺后台断点续传",
-                12, MUTED, false), blockParams(dp(12)));
-        security.addView(text("版本  ·  " + getAppVersion(), 11, MUTED, false),
-                blockParams(dp(13)));
+
+        TextView aboutTitle = text("关于", 13, MUTED, true);
+        settings.addView(aboutTitle, blockParams(dp(24)));
+        LinearLayout about = vertical();
+        about.setBackground(round(WHITE, dp(22)));
+        about.setPadding(dp(18), dp(17), dp(18), dp(18));
+        about.setElevation(dp(1));
+        settings.addView(about, blockParams(dp(8)));
+        about.addView(text("Pandora OTA  ·  " + getAppVersion(), 14, INK, true));
+        about.addView(text("仅用于 Xiaomi 17 Pro · pandora 的只读 OTA 采集。",
+                12, MUTED, false), blockParams(dp(7)));
+        about.addView(text("原始 init_boot.img 请从同版本 OTA 离线保存；应用内采集的是 Root 后快照。",
+                11, MUTED, false), blockParams(dp(9)));
 
         // Material-like native bottom destination bar, always visible.
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(android.view.Gravity.CENTER_VERTICAL);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
-        bottom.setPadding(dp(14), dp(7), dp(14), dp(8));
-        bottom.setBackground(topStroke(WHITE, BORDER));
-        shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(68)));
+        bottom.setPadding(dp(18), dp(6), dp(18), dp(7));
+        bottom.setBackground(topStroke(Color.rgb(252, 253, 255), BORDER));
+        shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(64)));
         int[] glyphs = {R.drawable.ic_nav_workbench, R.drawable.ic_nav_records, R.drawable.ic_nav_settings};
         String[] labels = {"工作台", "记录", "设置"};
         for (int i = 0; i < 3; i++) {
@@ -619,9 +645,9 @@ public final class MainActivity extends Activity {
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()));
         String state = uploaded ? store.intakeState() : "PENDING";
         fileState.setText(exists
-                ? "●  " + file.getName() + "\n" + size(file.length())
-                    + "   ·   " + (uploaded ? "GitHub 已保存" : "等待上传")
-                : "暂无本地采集包\n请先使用上方的「采集并生成 ZIP」");
+                ? file.getName() + "\n" + size(file.length())
+                    + " · " + (uploaded ? "已上传" : "待上传")
+                : "暂无采集记录");
         recordFileState.setText(exists
                 ? file.getName() + "\n" + size(file.length()) + "\n"
                     + (uploaded ? "已上传 GitHub · " + intakeLabel(state) : "仅保存在手机中")
@@ -634,7 +660,15 @@ public final class MainActivity extends Activity {
         rootButton.setEnabled(!busy);
         collectButton.setEnabled(!busy && RootCollector.isPandora());
         uploadButton.setEnabled(!busy && exists && !uploaded && credentials);
-        uploadButton.setText(uploaded ? "已上传到 GitHub" : "上传当前采集包");
+        uploadButton.setText("上传到 GitHub");
+        uploadButton.setVisibility(exists && !uploaded ? View.VISIBLE : View.GONE);
+        boolean showProgress = exists && (busy || uploaded);
+        uploadStage.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        percent.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        uploadBar.setVisibility(showProgress ? View.VISIBLE : View.GONE);
+        uploadNumbers.setVisibility(busy ? View.VISIBLE : View.GONE);
+        uploadSpeed.setVisibility(busy ? View.VISIBLE : View.GONE);
+        intakeSummary.setVisibility(uploaded ? View.VISIBLE : View.GONE);
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
         deleteButton.setEnabled(!busy && uploaded && store.hasToken() && store.lastAssetId() > 0);
         checkIntakeButton.setVisibility(uploaded && store.dispatched()
@@ -720,6 +754,7 @@ public final class MainActivity extends Activity {
     }
 
     private void notifyMessage(String value) {
+        if (statusBanner != null) statusBanner.setVisibility(View.VISIBLE);
         message.setText(value);
         boolean error = value.contains("失败") || value.contains("拒收")
                 || value.contains("无法") || value.contains("错误");
@@ -752,7 +787,7 @@ public final class MainActivity extends Activity {
 
     private LinearLayout pageContents(ScrollView scroll) {
         LinearLayout contents = vertical();
-        contents.setPadding(dp(19), dp(10), dp(19), dp(34));
+        contents.setPadding(dp(20), dp(8), dp(20), dp(36));
         scroll.addView(contents);
         return contents;
     }
@@ -811,8 +846,7 @@ public final class MainActivity extends Activity {
             boolean active = i == index;
             navIcons[i].setImageTintList(ColorStateList.valueOf(active ? TEAL : MUTED));
             navLabels[i].setTextColor(active ? TEAL : MUTED);
-            navItems[i].setBackground(touchBackground(
-                    active ? LIGHT_TEAL : Color.TRANSPARENT, dp(16)));
+            navItems[i].setBackground(touchBackground(Color.TRANSPARENT, dp(16)));
             navItems[i].setSelected(active);
         }
     }
