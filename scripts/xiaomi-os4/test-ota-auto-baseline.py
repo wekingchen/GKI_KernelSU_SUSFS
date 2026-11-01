@@ -75,6 +75,16 @@ class AutoOTAGuards(unittest.TestCase):
         x = json.loads(self.report.read_text())
         self.assertEqual(x["status"], "SAME_BUILD_BOOT_DRIFT_REVIEW")
 
+    def test_older_build_is_rejected_before_stock_input_replacement(self):
+        result = self.run_inspect(self.make_zip(build="OS4.0.4.0.XBLCNXM"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("older/non-forward HyperOS build", result.stderr + result.stdout)
+
+    def test_cross_channel_build_requires_manual_review(self):
+        result = self.run_inspect(self.make_zip(build="OS4.0.6.0.XBLMIXM"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("build channel changed", result.stderr + result.stdout)
+
     def test_unidentified_new_ota_cannot_use_old_legacy_format(self):
         result = self.run_inspect(self.make_zip(manifest=False))
         self.assertNotEqual(result.returncode, 0)

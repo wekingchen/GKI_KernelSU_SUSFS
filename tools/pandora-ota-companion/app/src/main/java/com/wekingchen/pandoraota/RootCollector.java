@@ -23,6 +23,125 @@ final class RootCollector {
                 || "pandora".equalsIgnoreCase(Build.PRODUCT);
     }
 
+    /** Read-only public system identity; does not require Root. */
+    static String currentOsVersion() {
+        String value = readProperty("ro.mi.os.version.incremental");
+        if (value.isEmpty()) value = Build.VERSION.INCREMENTAL == null ? "" : Build.VERSION.INCREMENTAL.trim();
+        return value.isEmpty() ? "未知版本" : value;
+    }
+
+    /** Human-facing active A/B slot label; collection still re-validates _a/_b under Root. */
+    static String currentSlotLabel() {
+        String value = readProperty("ro.boot.slot_suffix");
+        if (value.isEmpty()) value = readProperty("ro.boot.slot");
+        return normalizeSlotLabel(value);
+    }
+
+    static String normalizeSlotLabel(String value) {
+        if (value == null) return "未知";
+        String slot = value.trim().toLowerCase(Locale.US);
+        if ("_a".equals(slot) || "a".equals(slot)) return "A";
+        if ("_b".equals(slot) || "b".equals(slot)) return "B";
+        return "未知";
+    }
+
+    private static String readProperty(String key) {
+        Process p = null;
+        try {
+            p = new ProcessBuilder("getprop", key).redirectErrorStream(true).start();
+            if (!p.waitFor(2, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                p.waitFor();
+                return "";
+            }
+            if (p.exitValue() != 0) return "";
+            return readLimited(p.getInputStream(), 512).trim();
+        } catch (Exception ignored) {
+            return "";
+        } finally {
+            if (p != null) p.destroy();
+        }
+    }
+
+    static final class CaptureIdentity {
+        final String build;
+        final String slotSuffix;
+        final String slotLabel;
+        final String uname;
+
+        CaptureIdentity(String build, String slotSuffix, String uname) {
+            this.build = build;
+            this.slotSuffix = slotSuffix;
+            this.slotLabel = normalizeSlotLabel(slotSuffix);
+            this.uname = uname;
+        }
+    }
+
+    /** Read only the tiny manifest from a local app-created capture ZIP. */
+    static CaptureIdentity inspectCaptureIdentity(File zip) throws Exception {
+        if (zip == null || !zip.isFile() || zip.length() < 4096) {
+            throw new IOException("采集包不存在或异常小");
+        }
+        try (ZipFile archive = new ZipFile(zip)) {
+            ZipEntry manifest = archive.getEntry("manifest.txt");
+            if (manifest == null || manifest.isDirectory()
+                    || manifest.getSize() < 48 || manifest.getSize() > 8192) {
+                throw new IOException("采集包 manifest 缺失或异常");
+            }
+            String content;
+            try (InputStream in = archive.getInputStream(manifest)) {
+                content = readLimited(in, 8192);
+            }
+            Map<String, String> fields = new HashMap<>();
+            for (String line : content.split("\\r?\\n")) {
+                if (line.trim().isEmpty()) continue;
+                int cut = line.indexOf('=');
+                if (cut <= 0) throw new IOException("采集包 manifest 格式异常");
+                String key = line.substring(0, cut);
+                String value = line.substring(cut + 1).trim();
+                if (fields.put(key, value) != null) {
+                    throw new IOException("采集包 manifest 字段重复：" + key);
+                }
+            }
+            if (!"pandora-ota-capture-v1".equals(fields.get("schema"))
+                    || !"pandora".equals(fields.get("device"))
+                    || !"pandora".equals(fields.get("ro.product.device"))) {
+                throw new SecurityException("采集包设备身份不匹配");
+            }
+            String build = fields.getOrDefault("ro.mi.os.version.incremental", "");
+            String slot = fields.getOrDefault("slot", "");
+            String propSlot = fields.getOrDefault("ro.boot.slot_suffix", "");
+            String uname = fields.getOrDefault("uname", "");
+            if (!build.matches("OS[0-9]+\\.[0-9.]+[A-Z0-9]+")) {
+                throw new SecurityException("采集包 HyperOS 版本无效");
+            }
+            if (!("_a".equals(slot) || "_b".equals(slot)) || !slot.equals(propSlot)) {
+                throw new SecurityException("采集包活动 slot 信息不一致");
+            }
+            if (uname.isEmpty()) throw new SecurityException("采集包内核版本缺失");
+            return new CaptureIdentity(build, slot, uname);
+        }
+    }
+
+    /** Prevent accidentally uploading a stale local ZIP from another OTA/slot. */
+    static CaptureIdentity requireCurrentCaptureIdentity(File zip) throws Exception {
+        CaptureIdentity identity = inspectCaptureIdentity(zip);
+        String currentBuild = currentOsVersion();
+        String currentSlot = currentSlotLabel();
+        if ("未知版本".equals(currentBuild) || "未知".equals(currentSlot)) {
+            throw new IllegalStateException("无法读取当前系统版本或活动 slot，暂不允许上传");
+        }
+        if (!identity.build.equals(currentBuild)) {
+            throw new SecurityException("已选采集包属于 " + identity.build
+                    + "，当前系统为 " + currentBuild + "；为避免误提交旧 OTA，已阻止上传");
+        }
+        if (!identity.slotLabel.equals(currentSlot)) {
+            throw new SecurityException("已选采集包来自 slot " + identity.slotLabel
+                    + "，当前活动 slot 为 " + currentSlot + "；请重新采集当前系统");
+        }
+        return identity;
+    }
+
     static String checkRoot() throws Exception {
         // Root Manager might show an interactive prompt or reject this app's UID.
         // Always bound the wait: a hung su must not lock the UI worker indefinitely.

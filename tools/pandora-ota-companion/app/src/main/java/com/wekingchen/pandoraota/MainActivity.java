@@ -47,7 +47,7 @@ public final class MainActivity extends Activity {
     private ProgressBar uploadBar, taskSpinner;
     private ScrollView workScroll, recordsScroll, settingsScroll;
     private LinearLayout archiveListing, statusBanner, appBar, recordCard, recordActionRow;
-    private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount;
+    private TextView deviceStatus, rootPill, intakeSummary, recordFileState, localCount, capturePolicySub;
     private TextView workUploadedMetric, workRepoMetric, workGitHubMetric;
     private TextView recordCountMetric, recordUploadedMetric, recordGitHubMetric;
     private final LinearLayout[] navItems = new LinearLayout[3];
@@ -146,7 +146,7 @@ public final class MainActivity extends Activity {
 
         heroCopy.addView(text("Xiaomi 17 Pro", 24, INK, true));
         deviceStatus = text(RootCollector.isPandora()
-                        ? "pandora · OS4 · Android 16"
+                        ? "正在读取系统版本…"
                         : "pandora · 当前设备不受支持",
                 11, RootCollector.isPandora() ? MUTED : WARNING, false);
         deviceStatus.setSingleLine(true);
@@ -438,8 +438,8 @@ public final class MainActivity extends Activity {
         settings.addView(strategyCard, blockParams(dp(9)));
 
         LinearLayout capturePolicyRow = settingRow(R.drawable.ic_file_zip, "采集设置");
-        TextView capturePolicySub = (TextView) capturePolicyRow.getChildAt(1);
-        renderSettingRow(capturePolicySub, "采集设置", "活动 slot · 只读完整采集");
+        capturePolicySub = (TextView) capturePolicyRow.getChildAt(1);
+        renderSettingRow(capturePolicySub, "采集设置", "活动 slot … · 只读完整采集");
         strategyCard.addView(capturePolicyRow);
         capturePolicyRow.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle("采集设置")
@@ -554,6 +554,17 @@ public final class MainActivity extends Activity {
         selectTab(0);
         refresh();
         worker.execute(() -> {
+            final String osVersion = RootCollector.currentOsVersion();
+            final String slotLabel = RootCollector.currentSlotLabel();
+            runOnUiThread(() -> {
+                if (deviceStatus != null && RootCollector.isPandora()) {
+                    deviceStatus.setText(osVersion);
+                }
+                if (capturePolicySub != null) {
+                    renderSettingRow(capturePolicySub, "采集设置",
+                            "活动 slot " + slotLabel + " · 只读完整采集");
+                }
+            });
             try {
                 RootCollector.purgeStaleStaging(getApplicationContext());
             } catch (Exception e) {
@@ -693,6 +704,7 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         worker.execute(() -> {
             try {
+                RootCollector.requireCurrentCaptureIdentity(file);
                 String token = store.loadToken();
                 final long started = SystemClock.elapsedRealtime();
                 GitHubUploader.Result result = GitHubUploader.upload(repo, token, file,
@@ -832,15 +844,26 @@ public final class MainActivity extends Activity {
 
     private void confirmDelete() {
         File file = selectedFile();
+        String intake = store.intakeState();
+        boolean intakeTerminal = "ACCEPTED".equals(intake)
+                || "ALREADY_CURRENT".equals(intake) || "REJECTED".equals(intake);
         if (file == null || !store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
                 || !store.hasToken() || store.lastAssetId() <= 0) {
             notifyMessage("未取得 GitHub 附件上传回执，请先确认上传成功");
             return;
         }
+        if (!store.dispatched()) {
+            notifyMessage("工作流通知尚未成功发送，请先重新通知 GitHub");
+            return;
+        }
+        if (!intakeTerminal) {
+            notifyMessage("后端接收结果尚未完成，请先查询到 ACCEPTED / ALREADY_CURRENT / REJECTED");
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("确认删除本地文件？")
-                .setMessage(file.getName() + "\n\n即使 OTA 审计拒收，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
+                .setMessage(file.getName() + "\n\n后端接收已得到终态；即使 OTA 审计为 REJECTED，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
                         + "本地删除后无法在应用内恢复。")
                 .setNegativeButton("保留文件", null)
                 .setPositiveButton("删除本地 ZIP", (dialog, which) ->
@@ -925,18 +948,19 @@ public final class MainActivity extends Activity {
         }
         if (workUploadedMetric != null) workUploadedMetric.setText(String.valueOf(uploadedCount));
         if (workRepoMetric != null) workRepoMetric.setText(store.repo().isEmpty() ? "未配置" : "已配置");
-        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (workGitHubMetric != null) workGitHubMetric.setText(credentials ? "已配置" : "未配置");
         if (recordCountMetric != null) recordCountMetric.setText(String.valueOf(allArchives.length));
         if (recordUploadedMetric != null) recordUploadedMetric.setText(String.valueOf(uploadedCount));
-        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
+        if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已配置" : "未配置");
         if (localCount != null) localCount.setText(allArchives.length == 0
                 ? "0 条" : "最近 " + Math.min(allArchives.length, 12) + " 条");
+        String captureIdentity = exists ? captureIdentityLabel(file) : "";
         fileState.setText(exists
-                ? file.getName() + "\n" + size(file.length())
+                ? file.getName() + "\n" + captureIdentity + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
                 : "暂无采集记录");
         recordFileState.setText(exists
-                ? file.getName() + "\n" + size(file.length())
+                ? file.getName() + "\n" + captureIdentity + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "仅本地")
                 : "尚无采集记录");
         if (recordCard != null) recordCard.setVisibility(exists ? View.VISIBLE : View.GONE);
@@ -958,7 +982,10 @@ public final class MainActivity extends Activity {
         uploadSpeed.setVisibility(busy ? View.VISIBLE : View.GONE);
         intakeSummary.setVisibility(uploaded ? View.VISIBLE : View.GONE);
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
-        deleteButton.setEnabled(!busy && uploaded && store.hasToken() && store.lastAssetId() > 0);
+        boolean intakeTerminal = "ACCEPTED".equals(state)
+                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state);
+        deleteButton.setEnabled(!busy && uploaded && store.hasToken()
+                && store.lastAssetId() > 0 && store.dispatched() && intakeTerminal);
         checkIntakeButton.setVisibility(uploaded && store.dispatched()
                 ? View.VISIBLE : View.GONE);
         checkIntakeButton.setEnabled(!busy && credentials);
@@ -997,6 +1024,15 @@ public final class MainActivity extends Activity {
             intakeSummary.setTextColor(MUTED);
         }
         refreshArchiveListing(file);
+    }
+
+    private String captureIdentityLabel(File file) {
+        try {
+            RootCollector.CaptureIdentity identity = RootCollector.inspectCaptureIdentity(file);
+            return identity.build + " · slot " + identity.slotLabel;
+        } catch (Exception e) {
+            return "采集身份待核验";
+        }
     }
 
     private File selectedFile() {
@@ -1174,6 +1210,7 @@ public final class MainActivity extends Activity {
             item.setElevation(dp(1));
             item.addView(iconBox(R.drawable.ic_file_zip, dp(46), dp(14)));
             TextView itemText = text(entry.getName()
+                    + "\n" + captureIdentityLabel(entry)
                     + "\n" + size(entry.length())
                     + " · " + (store.isUploaded(
                     new SecretStore.FileInfo(entry.getAbsolutePath(), entry.length()))

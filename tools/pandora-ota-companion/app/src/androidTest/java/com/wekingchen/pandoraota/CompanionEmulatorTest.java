@@ -18,6 +18,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import static org.junit.Assert.*;
 
 /** Real Android Emulator integration checks; cannot emulate Xiaomi OEM partitions or KSU. */
@@ -31,6 +33,34 @@ public class CompanionEmulatorTest {
         try (FileOutputStream output = new FileOutputStream(file)) {
             output.write(text.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    private File syntheticCapture(String build, String slot) throws Exception {
+        File file = new File(RootCollector.captureDirectory(app()),
+                "pandora-os4-capture-20261101-151500-123.zip");
+        try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(file))) {
+            zip.putNextEntry(new ZipEntry("manifest.txt"));
+            String manifest = "schema=pandora-ota-capture-v1\n"
+                    + "source=ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK\n"
+                    + "device=pandora\n"
+                    + "ro.product.device=pandora\n"
+                    + "ro.mi.os.version.incremental=" + build + "\n"
+                    + "ro.boot.slot_suffix=" + slot + "\n"
+                    + "slot=" + slot + "\n"
+                    + "uname=6.12.69-android16-6-synthetic-ci-4k\n";
+            zip.write(manifest.getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("padding.bin"));
+            byte[] padding = new byte[16384];
+            int state = 0x13579bdf;
+            for (int i = 0; i < padding.length; i++) {
+                state = state * 1103515245 + 12345;
+                padding[i] = (byte) (state >>> 16);
+            }
+            zip.write(padding);
+            zip.closeEntry();
+        }
+        return file;
     }
 
     private static <T> T field(Object object, String name, Class<T> type) throws Exception {
@@ -126,6 +156,32 @@ public class CompanionEmulatorTest {
             assertTrue(outsider.exists());
         } finally {
             outsider.delete();
+        }
+    }
+
+    @Test
+    public void systemIdentityHelpersExposeBuildAndNormalizeSlotsWithoutRoot() {
+        assertNotNull(RootCollector.currentOsVersion());
+        assertFalse(RootCollector.currentOsVersion().trim().isEmpty());
+        assertEquals("A", RootCollector.normalizeSlotLabel("_a"));
+        assertEquals("A", RootCollector.normalizeSlotLabel("a"));
+        assertEquals("B", RootCollector.normalizeSlotLabel("_b"));
+        assertEquals("B", RootCollector.normalizeSlotLabel("B"));
+        assertEquals("未知", RootCollector.normalizeSlotLabel(""));
+        assertTrue(Arrays.asList("A", "B", "未知").contains(RootCollector.currentSlotLabel()));
+    }
+
+    @Test
+    public void localCaptureIdentityExposesBuildAndSlot() throws Exception {
+        File file = syntheticCapture("OS4.0.5.0.XBLCNXM", "_b");
+        try {
+            RootCollector.CaptureIdentity identity = RootCollector.inspectCaptureIdentity(file);
+            assertEquals("OS4.0.5.0.XBLCNXM", identity.build);
+            assertEquals("_b", identity.slotSuffix);
+            assertEquals("B", identity.slotLabel);
+            assertEquals("6.12.69-android16-6-synthetic-ci-4k", identity.uname);
+        } finally {
+            assertTrue(file.delete());
         }
     }
 

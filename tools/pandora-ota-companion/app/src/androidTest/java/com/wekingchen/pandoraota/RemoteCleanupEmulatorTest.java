@@ -117,7 +117,7 @@ public class RemoteCleanupEmulatorTest {
             fail("non draft must fail");
         } catch (SecurityException expected) { }
     }
-    @Test public void manualCleanupButtonUnlockedForRejectedButNotUnuploaded() throws Exception {
+    @Test public void cleanupRequiresDispatchAndTerminalIntakeButAllowsRejected() throws Exception {
         Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
         SecretStore store = new SecretStore(ctx);
         String oldRepo = store.repo();
@@ -132,10 +132,37 @@ public class RemoteCleanupEmulatorTest {
             store.saveArchive(file.getAbsolutePath());
             GitHubUploader.Result result = new GitHubUploader.Result(
                 430401431L, 697520792L, GitHubUploader.sha256(file),
-                "https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/test", true);
+                "https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/test", false);
             store.confirmedUpload(file.getAbsolutePath(), file.length(), result);
-            store.recordIntake("REJECTED");
             store.saveToken("synthetic_emulator_secret_not_a_real_pat");
+
+            try (ActivityScenario<MainActivity> scenario =
+                         ActivityScenario.launch(MainActivity.class)) {
+                scenario.onActivity(activity -> {
+                    try {
+                        java.lang.reflect.Field property = MainActivity.class
+                            .getDeclaredField("deleteButton");
+                        property.setAccessible(true);
+                        assertFalse(((Button) property.get(activity)).isEnabled());
+                    } catch (Exception e) { throw new AssertionError(e); }
+                });
+            }
+
+            store.markDispatchSucceeded();
+            try (ActivityScenario<MainActivity> scenario =
+                         ActivityScenario.launch(MainActivity.class)) {
+                scenario.onActivity(activity -> {
+                    try {
+                        java.lang.reflect.Field property = MainActivity.class
+                            .getDeclaredField("deleteButton");
+                        property.setAccessible(true);
+                        assertFalse("PENDING must keep local ZIP for status query",
+                                ((Button) property.get(activity)).isEnabled());
+                    } catch (Exception e) { throw new AssertionError(e); }
+                });
+            }
+
+            store.recordIntake("REJECTED");
             try (ActivityScenario<MainActivity> scenario =
                          ActivityScenario.launch(MainActivity.class)) {
                 scenario.onActivity(activity -> {

@@ -15,12 +15,20 @@ MAX_ZIP_SIZE = 950 * 1024 * 1024
 MAX_MEMBER_SIZE = 650 * 1024 * 1024
 MAX_UNCOMPRESSED = 1900 * 1024 * 1024
 BUILD_RE = re.compile(r"^OS[0-9]+\.[0-9.]+[A-Z0-9]+$")
+BUILD_ORDER_RE = re.compile(r"^OS([0-9]+(?:\.[0-9]+)+)\.([A-Z0-9]+)$")
 RELEASE_RE = re.compile(rb"Linux version ([0-9]+\.[0-9]+\.[0-9]+-android[0-9]+-[0-9]+-[^\x00\r\n ]+)")
 UNAME_RE = re.compile(r"^([0-9]+\.[0-9]+\.[0-9]+)-android([0-9]+)-([0-9]+)-[A-Za-z0-9_.-]+$")
 
 
 def abort(message: str) -> None:
     raise SystemExit("ERROR: " + message)
+
+
+def build_order(value: str) -> tuple[tuple[int, ...], str]:
+    match = BUILD_ORDER_RE.fullmatch(value)
+    if not match:
+        abort("unrecognized HyperOS build ordering: " + value)
+    return tuple(int(part) for part in match.group(1).split(".")), match.group(2)
 
 
 def sha(data: bytes) -> str:
@@ -152,6 +160,12 @@ def main() -> None:
     if build == pinned:
         state = "SAME_PINNED_BUILD" if boot_hash == expected_boot else "SAME_BUILD_BOOT_DRIFT_REVIEW"
     else:
+        incoming_order, incoming_channel = build_order(build)
+        pinned_order, pinned_channel = build_order(pinned)
+        if incoming_channel != pinned_channel:
+            abort("HyperOS build channel changed; require manual stock-input review")
+        if incoming_order <= pinned_order:
+            abort("older/non-forward HyperOS build; refuse automated stock-input replacement")
         state = "NEW_OTA_CANDIDATE"
     kmi = f"android{android}-{kmi_generation}"
     can_build = state == "NEW_OTA_CANDIDATE" and android == "16" and kmi_generation == "6" and patch.startswith("6.12.")

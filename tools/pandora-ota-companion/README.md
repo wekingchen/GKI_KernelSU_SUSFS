@@ -1,6 +1,6 @@
 # 小米 17 Pro / HyperOS 4 — 手机 OTA 采集助手
 
-> Android APK 0.10.3-dev（真机视觉微调 + Root 后镜像来源标注）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
+> Android APK 0.10.4-dev（系统身份展示 + 全链功能审计）｜代码整合进 `dev` 后长期维护｜不刷机、不自动晋升 LKG。
 > **已在 pandora OS4 真机验证 Root、采集、GitHub 上传和服务端身份审计；**同版本自定义 Boot 被安全拦截。新 OTA 成功切换仍待实物。
 
 ## 操作流程
@@ -10,11 +10,30 @@
 3. 回到「工作台」，点击「检查 Root 权限」，随后「开始采集」：强制读取设备代码、OS build、uname、活动 slot、OEM 内核模块以及 `boot/init_boot/vendor_boot/dtbo`，所有读取均只读。**当前分区不等于可信厂商原版**，Root/LKM/自定义内核也可能改变内容。
 4. 上传：APK 将包送到仅管理员可见的 **Draft Release**，显示写入进度、大小、速度和时间。只有 GitHub 返回 **HTTP 201 且附件大小一致** 才记成功并留有回执。
 5. **只要 ZIP 打包完成，手机立即清理分区镜像、OEM TAR 等所有中间采集物和 staging 目录，只留下最终 ZIP。采集或压缩出错则同时删除残缺 ZIP 并尝试清理 staging；上次意外终止遗留的 staging 在下次采集时自动回收（保留 30 分钟宽限以避开正在执行的采集）。**
-6. 到「记录」查看本地 ZIP 和 GitHub 回执：只要 GitHub **已确认上传并仍保留完整附件**，就可以手动删除本地 ZIP，即便 OTA 身份审计返回 REJECTED；删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
+6. 到「记录」查看本地 ZIP 和 GitHub 回执：本地清理必须等到 **GitHub 已确认上传、工作流通知已成功发送，且后端状态进入 ACCEPTED / ALREADY_CURRENT / REJECTED 之一**；REJECTED 仍允许清理，但 PENDING 或通知失败时必须先保留 ZIP，以便重试和继续查询。删除前重新在线验证 Draft Release、附件 ID/大小/远端 SHA-256，再核验本地 SHA-256。多个历史 ZIP 可切换，上传失败和安全拒收绝不自动删除；远端附件不得因本地清理被删除。
 7. 上传并不等于接收成功：发送 `repository_dispatch` 后可在 App 中查询后端接收结果；服务端以 Asset ID 与 SHA-256 绑定的 Draft Release 回执区分 ACCEPTED / ALREADY_CURRENT / REJECTED / PENDING。**无论是否通过 OTA 身份审计，只要远端完整附件得到再次确认，就允许用户主动手动清理本地 ZIP**。
 8. 通知请求失败可直接核对远端附件并重新发送，不重复上传整个 ZIP。
 
 上传阶段请保持 App 前台及网络稳定，目前**不支持断点续传**，也不提供后台 Foreground Service。单个采集文件须小于 950 MiB。
+
+## 全链功能审计结论（0.10.4-dev）
+
+当前主链已经闭环到：**新 OTA → 同版本 init_boot 获取 Root → App 只读采集 → 本地 ZIP → GitHub Draft → 手机接收入库 → 固定 stock-input → GKI 候选 → OEM ABI/KMI → 条件生成 fastboot boot → 人工真机验证 → verified fixture → 自定义功能适配 → 人工晋升 LKG → 长期归档**。
+
+本轮已补齐两项采集前身份可见性：工作台直接显示当前 HyperOS 完整 build；设置页「采集设置」直接显示当前活动 slot A/B。历史采集包也显示自身 build/slot，上传前必须与当前手机一致。
+
+本轮审计额外发现并修复了一个安全缺口：旧逻辑只要 `build != pinned` 就可能进入 `NEW_OTA_CANDIDATE`。现在客户端先阻止旧 build/旧 slot ZIP，服务端再拒绝比固定版本更旧或非向前的 HyperOS build；固件渠道后缀变化必须转人工审核。
+
+仍待后续补强、但不阻断现有主链的能力：
+
+- **后端进度可见性**：App 当前只显示手机 intake 的 PENDING / ACCEPTED / ALREADY_CURRENT / REJECTED，还不能继续显示 GKI 候选构建、ABI/KMI、待测 fastboot boot、真机验证状态。
+- **GitHub 实时连接预检**：目前只能确认 PAT 已配置，不能在采集前证明当前网络、仓库访问与写权限都正常；因此 UI 只显示「已配置」，不虚称「已连接」。
+- **采集空间预检**：当前空间不足会失败关闭并清理 staging/残缺 ZIP，但尚未在开始读取大分区前给出剩余空间预警。
+- **前台自动查询 intake**：当前后端结果由用户点击查询；可在保持前台、不增加后台常驻服务的前提下加入短时自动轮询。
+- **待测 boot 真机反馈辅助**：fastboot boot 仍必须由电脑人工执行；未来 App 可在启动回来后读取 build/uname/boot_completed，并辅助提交验证证据，但绝不能自行 fastboot/flash。
+- **远端 Draft 生命周期**：本地 ZIP 只有在通知成功且 intake 已到终态后才允许严格安全删除；远端采集 Draft 为保留证据暂不自动删，后续可在候选/验证证据已归档后提供人工清理。
+
+明确属于安全边界、**不是缺失功能**：App 不刷机、不切 slot、不自动晋升 LKG、不把 Root 后 init_boot 冒充 OEM 原版、不因后端 ACCEPTED/REJECTED 自动删除本地证据，也不承诺后台断点续传。
 
 ## OTA 后恢复 Root 的固定操作顺序（用户真机操作决策）
 
@@ -33,6 +52,7 @@
 - APP 上传的 `pandora-ota-capture-v1` 包含活动 slot 的分区快照、`oem-modules.tar` 及身份清单。
 - `normalize_mobile_capture.py` 严格校验清单、slot、uname、目录、大小和内核模块数量，转换成当前 Windows `collect-pandora-stock-input.cmd` 的同款 **八文件 `*xm.zip`**，并加上 `boot_oem_original_verified=NO`、`init_boot_oem_original_verified=NO` 和 `init_boot_role=DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE` 等明确来源标签；不会因内核版本标记匹配便认定镜像出厂原版。
 - `mobile-intake.sh` 仅接受对应 Draft Release 的特定 Asset ID、实际文件长度与 SHA-256 一致的输入；转换后还执行原 `inspect-ota-stock-input.py` 身份审计。旧固定 Release 不会因为无效上传被覆盖。
+- App 上传前会重新读取本地采集包 manifest，并强制其 OS build / 活动 slot 与当前手机一致；服务端进一步拒绝比当前固定版本更旧或非向前的 build，固件渠道发生变化则转人工审核，避免历史 ZIP 被误认为新 OTA。
 - 验证通过的新 OTA 先上传到固定 Release 的非 `*xm.zip` 暂存名并从 GitHub 下载回检，再更名、替换旧单一 `xm.zip`，最后触发原 `xiaomi-sm8850-os4-ota-auto-candidate.yml`。
 - **`repository_dispatch` 从仓库默认分支执行。** 目前接收工作流及转换脚本已在默认 `dev` 上部署；真机采集包已成功触发并执行审计，但因同版本自定义 Boot 与固定基线不同而安全拒收。
 - 原 GKI/KMI/OEM ABI 门禁、临时 `fastboot boot` 真机确认、LKG 人工晋升不变。不直接产生可刷内核或跳过风控。
@@ -64,12 +84,12 @@ gradle --no-daemon :app:assembleDebug
 
 设置后分支工作流自动额外输出 `pandora-os4-ota-companion-STABLE-SIGNED` 的正式签名 Release APK。**私钥/密码不要上传仓库、日志、Release、Artifact。** 预先保管签名私钥和密码的离线备份；签名不同的 Debug APK 不能直接覆盖稳定版。
 
-## 界面 UI 2.0（0.7.3-dev）
+## 当前原生 UI 与功能状态（0.10.4-dev）
 
 - 原生 Android Activity 顶部信息区、固定状态条与底部三目的地导航：**工作台 / 记录 / 设置**。不采用 WebView 或 HTML。
-- 工作台只保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
+- 工作台显示当前 HyperOS 完整版本号，并保留设备身份、Root 检测、只读采集、GitHub 上传与真实传输进度。
 - 记录页集中管理本地 ZIP 列表、历史回执、接收状态查询、通知重试和安全删除。
-- 设置页保管 GitHub 仓库与加密 PAT；升级保持相同包名与固定签名，不清除应用数据。
+- 设置页保管 GitHub 仓库与加密 PAT；「采集设置」直接显示当前活动 slot A/B；升级保持相同包名与固定签名，不清除应用数据。
 - 触控按钮具有 Android Ripple、短缩放与触控震动；长操作在顶部显示即时任务状态，上传使用实际字节进度，不伪造采集百分比。
 - UI 重构不改动 RootCollector、GitHubUploader 接收协议、ZIP 内容、SHA-256、原厂 Boot 比对或 LKG 门禁。
 
@@ -79,7 +99,7 @@ gradle --no-daemon :app:assembleDebug
 - ✅ GitHub Draft Release #430401431、附件 #697520792 上传成功；Run #41280701707 第三次重跑通过 ZIP SHA-256、OEM 模块格式转换及原 OTA 身份审计。
 - ✅ 同版本自定义内核 `6.12.69-android16-6-os4r62-custom-4k` 与固定 Boot 不一致，被 `SAME_BUILD_BOOT_DRIFT_REVIEW` 安全拒收，固定 `xm.zip` 和 LKG 保持不变。
 - ✅ 修复的 OEM TAR 链接处理、Draft 重试机制在 Python/CI 回归中通过。
-- ✅ 原生 UI 2.0 Android 15 模拟器 14 项测试、正式固定签名 APK 构建通过；视觉和触感仍需要用户真机确认。
+- ✅ 原生三页 UI 已在 Xiaomi 17 Pro 真机完成定版；Android 15 模拟器设备端回归、正式固定签名 APK 与签名指纹校验持续作为 PR/`dev` 门禁。
 - ⏳ **真正新 OTA** 的自动成功入库、候选 GKI 构建与 OEM ABI/KMI 全链路尚需实际新固件验证。
 - ✅ **本地 ZIP 手动安全删除、GitHub 草稿附件查看**均已由用户真机确认；通过远端 ID/大小/SHA-256 和本地 SHA-256 校验后删除本地文件，不影响云端附件。
 - ⚠️ Root 设备抓取的 boot 属于活动快照，不保证厂商原始完整性；Root 后 `init_boot` 明确标记非原厂可信输入。
