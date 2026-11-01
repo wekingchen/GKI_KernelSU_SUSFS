@@ -39,6 +39,7 @@
 - 全库本地 `.github/workflows/*.yml` 引用完整；唯一不存在的 `unknown.yml` 是 `test_native_upstream_policy.py` 的故意负向夹具，保留。
 - APK 和模拟器 workflow 去除已不存在的 `pandora-os4-ota-companion` 分支触发引用，继续由 dev push / PR 和手动入口运行。
 - APK 工作流去除“独立实验”名称，签名缺失直接失败；不再允许只有 Debug 产物却整体校验成功。
+- 上游隔离门禁补入 `dev-ota-*` 分支：此前这些 OTA PR 的检查会被跳过，现纳入真实执行。
 - 未复用废弃帮助分支的未完成预检代码；0.11.0 从干净 dev 重新实现。
 - 修正采集规范化脚本计算 SHA-256 时未关闭输入文件的问题，已有格式/字节契约保持一致。
 

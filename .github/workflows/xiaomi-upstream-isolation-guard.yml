@@ -7,6 +7,7 @@ on:
       - "os4-*"
       - "xiaomi-*"
       - "pandora-*"
+      - "dev-ota-*"
       - "audit/os4-*"
   pull_request:
     branches:
@@ -27,6 +28,7 @@ jobs:
       startsWith(github.head_ref || github.ref_name, 'os4-') ||
       startsWith(github.head_ref || github.ref_name, 'xiaomi-') ||
       startsWith(github.head_ref || github.ref_name, 'pandora-') ||
+      startsWith(github.head_ref || github.ref_name, 'dev-ota-') ||
       startsWith(github.head_ref || github.ref_name, 'audit/os4-')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
