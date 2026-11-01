@@ -704,6 +704,7 @@ public final class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         worker.execute(() -> {
             try {
+                RootCollector.requireCurrentCaptureIdentity(file);
                 String token = store.loadToken();
                 final long started = SystemClock.elapsedRealtime();
                 GitHubUploader.Result result = GitHubUploader.upload(repo, token, file,
@@ -942,12 +943,13 @@ public final class MainActivity extends Activity {
         if (recordGitHubMetric != null) recordGitHubMetric.setText(credentials ? "已连接" : "未连接");
         if (localCount != null) localCount.setText(allArchives.length == 0
                 ? "0 条" : "最近 " + Math.min(allArchives.length, 12) + " 条");
+        String captureIdentity = exists ? captureIdentityLabel(file) : "";
         fileState.setText(exists
-                ? file.getName() + "\n" + size(file.length())
+                ? file.getName() + "\n" + captureIdentity + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "待上传")
                 : "暂无采集记录");
         recordFileState.setText(exists
-                ? file.getName() + "\n" + size(file.length())
+                ? file.getName() + "\n" + captureIdentity + "\n" + size(file.length())
                     + " · " + (uploaded ? "已上传" : "仅本地")
                 : "尚无采集记录");
         if (recordCard != null) recordCard.setVisibility(exists ? View.VISIBLE : View.GONE);
@@ -1008,6 +1010,15 @@ public final class MainActivity extends Activity {
             intakeSummary.setTextColor(MUTED);
         }
         refreshArchiveListing(file);
+    }
+
+    private String captureIdentityLabel(File file) {
+        try {
+            RootCollector.CaptureIdentity identity = RootCollector.inspectCaptureIdentity(file);
+            return identity.build + " · slot " + identity.slotLabel;
+        } catch (Exception e) {
+            return "采集身份待核验";
+        }
     }
 
     private File selectedFile() {
@@ -1185,6 +1196,7 @@ public final class MainActivity extends Activity {
             item.setElevation(dp(1));
             item.addView(iconBox(R.drawable.ic_file_zip, dp(46), dp(14)));
             TextView itemText = text(entry.getName()
+                    + "\n" + captureIdentityLabel(entry)
                     + "\n" + size(entry.length())
                     + " · " + (store.isUploaded(
                     new SecretStore.FileInfo(entry.getAbsolutePath(), entry.length()))
