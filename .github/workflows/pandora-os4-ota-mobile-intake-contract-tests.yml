@@ -1,0 +1,32 @@
+name: "小米17 Pro OS4 / 手机 OTA 接收契约回归"
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "tools/pandora-ota-companion/normalize_mobile_capture.py"
+      - "tools/pandora-ota-companion/test_*.py"
+      - "tools/pandora-ota-companion/mobile-intake.sh"
+      - ".github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml"
+  push:
+    branches: [dev]
+    paths:
+      - "tools/pandora-ota-companion/normalize_mobile_capture.py"
+      - "tools/pandora-ota-companion/test_*.py"
+      - "tools/pandora-ota-companion/mobile-intake.sh"
+      - ".github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Python 手机采集包正反向转换与原 OTA 审计"
+        run: python3 -m unittest discover -s tools/pandora-ota-companion -p 'test_*.py' -v
+      - name: "GitHub 接收器 Bash 语法校验"
+        run: bash -n tools/pandora-ota-companion/mobile-intake.sh
