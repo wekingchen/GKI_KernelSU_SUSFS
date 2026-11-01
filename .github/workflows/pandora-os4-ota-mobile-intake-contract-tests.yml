@@ -8,6 +8,8 @@ on:
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"
       - "scripts/xiaomi-os4/inspect-ota-stock-input.py"
+      - "scripts/xiaomi-os4/guard-current-stock-input.py"
+      - "scripts/xiaomi-os4/test_current_stock_input_guard.py"
       - "scripts/xiaomi-os4/collect-pandora-stock-input.cmd"
       - ".github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml"
   push:
@@ -17,6 +19,8 @@ on:
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"
       - "scripts/xiaomi-os4/inspect-ota-stock-input.py"
+      - "scripts/xiaomi-os4/guard-current-stock-input.py"
+      - "scripts/xiaomi-os4/test_current_stock_input_guard.py"
       - "scripts/xiaomi-os4/collect-pandora-stock-input.cmd"
       - ".github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml"
   workflow_dispatch:
@@ -35,6 +39,7 @@ jobs:
       - name: "Windows 备用采集与 OEM Boot 审计边界回归"
         run: |
           python3 scripts/xiaomi-os4/test-ota-auto-baseline.py
+          python3 scripts/xiaomi-os4/test_current_stock_input_guard.py
           python3 scripts/xiaomi-os4/test_os4_stock_collector_integrity.py
       - name: "GitHub 接收器 Bash 语法校验"
         run: bash -n tools/pandora-ota-companion/mobile-intake.sh
