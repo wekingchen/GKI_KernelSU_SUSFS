@@ -678,8 +678,8 @@ public final class MainActivity extends Activity {
 
         guide.addView(text("这款 App 做什么", 17, INK, true), blockParams(dp(20)));
         guide.addView(text(
-                "系统更新到新的 HyperOS OTA 后，读取当前活动 slot 的只读快照，"
-                + "交给 GitHub 建立同版本内核适配基线。App 不刷机，也不会自动晋升 LKG。",
+                "系统更新到新的 HyperOS OTA 后，预检并读取当前活动 slot 的只读快照，"
+                + "交给 GitHub 建立同版本内核适配基线；电脑临时启动后，还能在手机读取信息、填表提交测试结果。App 不刷机，也不会自动晋升 LKG。",
                 12, MUTED, false), blockParams(dp(7)));
 
         LinearLayout steps = vertical();
@@ -687,20 +687,26 @@ public final class MainActivity extends Activity {
         steps.setPadding(dp(15), dp(8), dp(15), dp(8));
         steps.setElevation(dp(1));
         guide.addView(steps, blockParams(dp(16)));
-        steps.addView(guideStep("1", R.drawable.ic_refresh_simple, "更新后准备",
-                "升级到新 OTA；离线保留同版本原始 init_boot.img，再恢复 Root。"));
+        steps.addView(guideStep("1", R.drawable.ic_refresh_simple, "新 OTA 与原始镜像",
+                "先离线保存同版本原始 init_boot.img，再修补恢复 Root。新 build 提醒的「已了解」只代表读过说明，不代表已经备份。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("2", R.drawable.ic_file_zip, "采集当前系统",
-                "读取 boot / init_boot / vendor_boot / dtbo 与 OEM 模块；只读，不改活动分区。"));
+        steps.addView(guideStep("2", R.drawable.ic_key_simple, "配置与预检",
+                "设置仓库和 PAT：采集/上传需 Contents 读写，手机反馈另需 Actions 读写。设置可实时验证 GitHub；采集目录不足 1 GiB 阻止，1 GiB 至不足 2 GiB 警告。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("3", R.drawable.ic_external_simple, "上传并审计",
-                "上传到 GitHub Draft；校验 build、slot、SHA。历史 OTA 或旧 slot 会被阻止。"));
+        steps.addView(guideStep("3", R.drawable.ic_file_zip, "只读采集并上传",
+                "为本 App 单独授权 Root；读取活动 slot 四个启动分区及 OEM 模块。上传到 Draft，保持前台；打包后清理中间文件，只留最终 ZIP。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("4", R.drawable.ic_repo, "生成待测候选",
-                "GitHub 构建 GKI 并检查 OEM ABI/KMI；静态门禁全绿后才生成临时启动 boot。"));
+        steps.addView(guideStep("4", R.drawable.ic_external_simple, "自动跟踪接收",
+                "前台自动查询 PENDING → ACCEPTED / ALREADY_CURRENT / REJECTED，后台暂停、返回恢复。通知失败点重新通知，不重传整个 ZIP；接收成功不等于 ABI 或开机通过。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("5", R.drawable.ic_shield_simple, "真机确认与 LKG",
-                "电脑只用 fastboot boot 临时启动。手机测试完成后，在工作台「真机测试反馈」读取本机信息、填写并提交；稳定版再由你确认晋升 LKG。"));
+        steps.addView(guideStep("5", R.drawable.ic_repo, "电脑临时启动，手机反馈",
+                "候选和 OEM ABI 全绿后，由电脑 fastboot boot。手机测试后在工作台「真机测试反馈」选择候选，自动读取设备、build、启动状态、uname 和模块，人工确认功能并提交原工作流。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("6", R.drawable.ic_shield_simple, "失败、恢复与重试",
+                "未能进入待测系统、恢复后才打开 App，选择恢复后失败，不能提交恢复环境冒充待测证据。响应未知先查原运行；两分钟仍未建立记录可重发同一反馈，服务器阻止重复处理。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("7", R.drawable.ic_guide_simple, "开发基线与稳定 LKG",
+                "反馈通过只建立同版本开发基线。自定义功能编译成功就提供待测 IMG 和实验性 AnyKernel3；真正持久安装、稳定使用后，再由你在唯一 LKG 晋升入口确认。"));
 
         guide.addView(text("为什么要分这么多步", 17, INK, true), blockParams(dp(20)));
         LinearLayout reason = vertical();
@@ -725,6 +731,15 @@ public final class MainActivity extends Activity {
                 blockParams(dp(5)));
         caution.addView(text("• 待测 boot 只能 fastboot boot，不要 fastboot flash。", 12, INK, false),
                 blockParams(dp(5)));
+
+        guide.addView(text("常见问题与下一步", 17, INK, true), blockParams(dp(20)));
+        guide.addView(text(
+                "• 五项本机读取成功不会自动勾选测试通过。模块读不到会明确提示；纯 GKI 临时会话不一定有 Root。\n"
+                + "• 新候选预填 IMG SHA-256；旧候选需手填。build / uname / 启动完成不能证明电脑实际用了指定镜像，仍需你核对。\n"
+                + "• 本地清理要等上传确认、通知成功和接收终态，再在线核验远端与本地 SHA。REJECTED 不等于上传失败，符合条件后也可主动清理；远端附件不删除。\n"
+                + "• 真机反馈的模块全文留在本机草稿供查看，原工作流提交的是实际读数和人工确认；最近反馈历史保留 20 条。\n"
+                + "• 上传和查询请保持前台；目前没有后台断点续传，也没有 GKI/ABI/功能编译的全阶段实时进度面板。",
+                12, MUTED, false), blockParams(dp(7)));
 
         guide.addView(text("完成 App 内步骤之后", 17, INK, true), blockParams(dp(20)));
         guide.addView(text(
