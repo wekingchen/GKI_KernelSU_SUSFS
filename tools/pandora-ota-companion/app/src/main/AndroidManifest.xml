@@ -5,8 +5,8 @@
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:label="Pandora OTA"
-        android:icon="@drawable/ic_pandora_ota"
-        android:roundIcon="@drawable/ic_pandora_ota"
+        android:icon="@mipmap/ic_pandora_ota"
+        android:roundIcon="@mipmap/ic_pandora_ota"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
             android:name=".MainActivity"
