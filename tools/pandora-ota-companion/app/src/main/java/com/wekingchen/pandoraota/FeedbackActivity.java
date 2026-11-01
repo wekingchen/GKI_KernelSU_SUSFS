@@ -64,6 +64,7 @@ public final class FeedbackActivity extends Activity {
         readButton=button("读取本机验证信息",false);device.addView(readButton,space(12));readButton.setOnClickListener(v->readEvidence());
         evidenceInfo=text("尚未读取",12,MUTED,false);evidenceInfo.setTextIsSelectable(true);device.addView(evidenceInfo,space(12));
         modulesButton=button("展开模块明细",false);device.addView(modulesButton,space(10));modulesButton.setOnClickListener(v->showModules());
+        device.addView(text("纯 GKI 临时测试的 Root 未必可用；无法读取模块会明确提示，不会自动判定通过。",11,MUTED,false),space(8));
         LinearLayout result=card(body,"03  测试结果","自动读数不代替你实际测试基础功能");
         RadioGroup choices=new RadioGroup(this);choices.setOrientation(RadioGroup.HORIZONTAL);
         passRadio=new RadioButton(this);passRadio.setId(View.generateViewId());passRadio.setText("测试通过");

@@ -700,7 +700,7 @@ public final class MainActivity extends Activity {
                 "GitHub 构建 GKI 并检查 OEM ABI/KMI；静态门禁全绿后才生成临时启动 boot。"));
         steps.addView(guideDivider());
         steps.addView(guideStep("5", R.drawable.ic_shield_simple, "真机确认与 LKG",
-                "只用 fastboot boot 临时启动。确认系统、模块与功能正常后提交结果；稳定版再由你确认晋升 LKG。"));
+                "电脑只用 fastboot boot 临时启动。手机测试完成后，在工作台「真机测试反馈」读取本机信息、填写并提交；稳定版再由你确认晋升 LKG。"));
 
         guide.addView(text("为什么要分这么多步", 17, INK, true), blockParams(dp(20)));
         LinearLayout reason = vertical();
@@ -729,7 +729,7 @@ public final class MainActivity extends Activity {
         guide.addView(text("完成 App 内步骤之后", 17, INK, true), blockParams(dp(20)));
         guide.addView(text(
                 "你只需要等待 GitHub 的接收与 ABI/KMI 结果。若生成待测 boot，"
-                + "再进行一次真机临时启动验证；通过后系统会建立该 OTA 的已验证开发基线，"
+                + "由电脑临时启动，在手机测试后回到「真机测试反馈」提交；原工作流核验通过后建立该 OTA 的开发基线，"
                 + "后续自定义内核稳定后再进入 LKG 晋升与长期归档。",
                 12, MUTED, false), blockParams(dp(7)));
 
