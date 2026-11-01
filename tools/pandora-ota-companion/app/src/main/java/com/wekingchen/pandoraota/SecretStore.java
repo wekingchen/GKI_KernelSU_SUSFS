@@ -76,7 +76,7 @@ final class SecretStore {
     File[] archives() {
         File base = new File(context.getExternalFilesDir(null), "captures");
         File[] files = base.listFiles(f ->
-                f.isFile() && f.getName().matches("pandora-os4-capture-\\d{8}-\\d{6}\\.zip"));
+                f.isFile() && f.getName().matches("pandora-os4-capture-\\d{8}-\\d{6}(?:-\\d{3})?\\.zip"));
         if (files == null) return new File[0];
         Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
         return files;
