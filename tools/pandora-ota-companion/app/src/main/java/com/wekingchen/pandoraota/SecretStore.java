@@ -5,20 +5,26 @@ import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import org.json.JSONObject;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.Arrays;
+import java.util.Comparator;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Fine-grained PAT encrypted by the Android Keystore AES-GCM key. */
+/** Scoped GitHub PAT stored with Android Keystore; upload receipts tracked per archive. */
 final class SecretStore {
     private static final String ALIAS = "pandora_ota_github_token_v1";
     private final SharedPreferences prefs;
+    private final Context context;
 
     SecretStore(Context ctx) {
-        prefs = ctx.getSharedPreferences("private_config", Context.MODE_PRIVATE);
+        context = ctx.getApplicationContext();
+        prefs = context.getSharedPreferences("private_config", Context.MODE_PRIVATE);
     }
 
     String repo() {
@@ -27,6 +33,10 @@ final class SecretStore {
 
     void saveRepo(String repo) {
         prefs.edit().putString("repo", repo).apply();
+    }
+
+    boolean hasToken() {
+        return prefs.contains("token_ciphertext") && prefs.contains("token_iv");
     }
 
     void saveToken(String token) throws Exception {
@@ -59,29 +69,46 @@ final class SecretStore {
     }
 
     void saveArchive(String path) {
-        // A new capture invalidates the previous upload receipt.
-        prefs.edit().putString("last_archive", path)
-                .remove("uploaded_path").remove("uploaded_sha256")
-                .remove("uploaded_size").remove("uploaded_release")
-                .remove("uploaded_release_id").remove("uploaded_dispatch")
-                .apply();
+        // Select new capture, but keep receipts for earlier archives.
+        prefs.edit().putString("last_archive", path).apply();
     }
 
-    void confirmedUpload(String path, long bytes, GitHubUploader.Result result) {
-        prefs.edit()
-                .putString("uploaded_path", path)
-                .putString("uploaded_sha256", result.sha256)
-                .putLong("uploaded_size", bytes)
-                .putString("uploaded_release", result.releaseUrl)
-                .putLong("uploaded_release_id", result.releaseId)
-                .putBoolean("uploaded_dispatch", result.dispatched)
-                .apply();
+    File[] archives() {
+        File base = new File(context.getExternalFilesDir(null), "captures");
+        File[] files = base.listFiles(f ->
+                f.isFile() && f.getName().matches("pandora-os4-capture-\\d{8}-\\d{6}\\.zip"));
+        if (files == null) return new File[0];
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+        return files;
+    }
+
+    private JSONObject receipts() {
+        try {
+            return new JSONObject(prefs.getString("upload_receipts", "{}"));
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    void confirmedUpload(String path, long bytes, GitHubUploader.Result result) throws Exception {
+        JSONObject all = receipts();
+        JSONObject info = new JSONObject();
+        info.put("bytes", bytes);
+        info.put("sha256", result.sha256);
+        info.put("release", result.releaseUrl);
+        info.put("release_id", result.releaseId);
+        info.put("dispatched", result.dispatched);
+        all.put(path, info);
+        if (!prefs.edit().putString("upload_receipts", all.toString()).commit())
+            throw new IllegalStateException("本机上传回执保存失败，请暂勿删除 ZIP");
     }
 
     boolean isUploaded(FileInfo file) {
-        return file != null && file.path.equals(prefs.getString("uploaded_path", ""))
-                && file.size > 0 && file.size == prefs.getLong("uploaded_size", -1)
-                && !prefs.getString("uploaded_sha256", "").isEmpty();
+        if (file == null) return false;
+        JSONObject entry = receipts().optJSONObject(file.path);
+        return entry != null && file.size > 0
+                && entry.optLong("bytes", -1) == file.size
+                && !entry.optString("sha256", "").isEmpty();
     }
 
     static final class FileInfo {
@@ -93,28 +120,35 @@ final class SecretStore {
         }
     }
 
+    private JSONObject selectedReceipt() {
+        return receipts().optJSONObject(lastArchive());
+    }
+
     String lastReleaseUrl() {
-        return prefs.getString("uploaded_release", "");
+        JSONObject info = selectedReceipt();
+        return info == null ? "" : info.optString("release", "");
     }
 
     long lastReleaseId() {
-        return prefs.getLong("uploaded_release_id", 0);
+        JSONObject info = selectedReceipt();
+        return info == null ? 0 : info.optLong("release_id", 0);
     }
 
     boolean dispatched() {
-        return prefs.getBoolean("uploaded_dispatch", false);
-    }
-
-    boolean hasToken() {
-        return prefs.contains("token_ciphertext") && prefs.contains("token_iv");
+        JSONObject info = selectedReceipt();
+        return info != null && info.optBoolean("dispatched", false);
     }
 
     void forgetArchive() {
-        prefs.edit().remove("last_archive")
-                .remove("uploaded_path").remove("uploaded_sha256")
-                .remove("uploaded_size").remove("uploaded_release")
-                .remove("uploaded_release_id").remove("uploaded_dispatch")
-                .apply();
+        String removed = lastArchive();
+        JSONObject all = receipts();
+        all.remove(removed);
+        File[] remaining = archives();
+        SharedPreferences.Editor edit = prefs.edit()
+                .putString("upload_receipts", all.toString());
+        if (remaining.length == 0) edit.remove("last_archive");
+        else edit.putString("last_archive", remaining[0].getAbsolutePath());
+        edit.apply();
     }
 
     private static SecretKey key() throws Exception {
@@ -122,13 +156,14 @@ final class SecretStore {
         store.load(null);
         SecretKey existing = (SecretKey) store.getKey(ALIAS, null);
         if (existing != null) return existing;
-        KeyGenerator gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        KeyGenerator generator = KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256).build();
-        gen.init(spec);
-        return gen.generateKey();
+        generator.init(spec);
+        return generator.generateKey();
     }
 }
