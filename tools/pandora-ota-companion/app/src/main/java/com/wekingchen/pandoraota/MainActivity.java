@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
                 public void cancel(Runnable task) { handler.removeCallbacks(task); }
             }, worker);
     private String githubStatus = "未验证";
-    private TextView stageState;
+    private TextView stageState, stageCheckedAt, stageDetails, feedbackHint;
     private Button stageRefresh, stageSource;
     private TextView preflightState;
     private AlertDialog buildReminder;
@@ -330,11 +330,23 @@ public final class MainActivity extends Activity {
         Button feedbackButton = button("填写测试结果   →", false);
         feedbackCard.addView(feedbackButton, blockParams(dp(14)));
         feedbackButton.setOnClickListener(v -> startActivity(new Intent(this, FeedbackActivity.class)));
+        feedbackHint = text("仅在电脑临时启动新的待测镜像并完成实际测试后提交。", 11, MUTED, false);
+        feedbackCard.addView(feedbackHint, blockParams(dp(9)));
 
         LinearLayout stageCard = surfaceCard(work, dp(18), dp(18));
         stageCard.addView(sectionHeading("", "OTA 全链路状态", "当前 GitHub 固定输入 · 来源校验后展示"));
         stageState = text("尚未查询\n点击刷新，查看 GKI、ABI、待测、基线与 LKG 阶段。", 13, MUTED, false);
         stageCard.addView(stageState, blockParams(dp(14)));
+        stageCheckedAt = text("", 11, MUTED, false);
+        stageCheckedAt.setVisibility(View.GONE);
+        stageCard.addView(stageCheckedAt, blockParams(dp(8)));
+        stageDetails = text("查看核验详情  ›", 12, TEAL, true);
+        stageDetails.setVisibility(View.GONE);
+        stageDetails.setClickable(true);
+        stageDetails.setFocusable(true);
+        stageDetails.setPadding(dp(6), dp(8), dp(6), dp(8));
+        stageDetails.setBackground(touchBackground(Color.TRANSPARENT, dp(12)));
+        stageCard.addView(stageDetails, blockParams(dp(8)));
         stageRefresh = button("刷新可信状态", false);
         stageCard.addView(stageRefresh, blockParams(dp(14)));
         stageRefresh.setOnClickListener(v -> refreshStage());
@@ -1636,15 +1648,37 @@ public final class MainActivity extends Activity {
     private void refreshStage() {
         stageRefresh.setEnabled(false);
         stageSource.setVisibility(View.GONE);
+        stageDetails.setVisibility(View.GONE);
+        stageCheckedAt.setVisibility(View.GONE);
         stageState.setText("正在核验 GitHub 阶段快照与当前固定输入…");
         worker.execute(() -> {
             try {
                 StageClient.State state = new StageClient(store.repo(), store.loadToken()).latest();
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    stageState.setText(state.title() + "\n" + state.build + "\n\n" + state.detail + "\n" + state.next()
-                            + "\n\n快照 Run #" + state.run + " · 输入 #" + state.json.optLong("stock_asset_id"));
+                    String headline = state.title();
+                    String content = headline + "\n" + state.build + "\n\n" + state.friendlyDetail() + "\n" + state.next();
+                    android.text.SpannableString styled = new android.text.SpannableString(content);
+                    styled.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, headline.length(),
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    styled.setSpan(new android.text.style.RelativeSizeSpan(1.18f), 0, headline.length(),
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    stageState.setText(styled);
                     stageState.setTextColor(state.stage.equals("ABI_BLOCKED") ? WARNING : INK);
+                    stageCheckedAt.setText("GitHub 最近核验 · " + state.verifiedAt);
+                    stageCheckedAt.setVisibility(View.VISIBLE);
+                    stageDetails.setVisibility(View.VISIBLE);
+                    stageDetails.setOnClickListener(v -> new AlertDialog.Builder(this)
+                            .setTitle("来源与核验详情")
+                            .setMessage(state.technicalDetails())
+                            .setPositiveButton("关闭", null).show());
+                    if (state.stage.equals("LKG_ARCHIVED") || state.stage.equals("NO_NEW_OTA")) {
+                        feedbackHint.setText("当前版本没有新的待测任务，不需要提交测试反馈。更新 OTA 后再按流程操作。");
+                    } else if (state.stage.equals("TESTBOOT_READY") || state.stage.equals("WAITING_HUMAN")) {
+                        feedbackHint.setText("已有待测候选；先在电脑临时启动并实际测试，再回来填写反馈。");
+                    } else {
+                        feedbackHint.setText("仅在电脑临时启动新的待测镜像并完成实际测试后提交。");
+                    }
                     stageSource.setVisibility(View.VISIBLE);
                     stageSource.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
                             Uri.parse("https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/" + state.run))));
@@ -1655,6 +1689,7 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) return;
                     stageState.setText("状态未验证\n" + error.getMessage() + "\n请核对网络与 PAT，或检查全链路可信阶段状态工作流。");
                     stageState.setTextColor(WARNING);
+                    feedbackHint.setText("尚未确认当前是否有待测任务；请先刷新可信状态。");
                     stageRefresh.setEnabled(true);
                 });
             }

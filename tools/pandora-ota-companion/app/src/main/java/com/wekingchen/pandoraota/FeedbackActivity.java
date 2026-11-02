@@ -52,7 +52,7 @@ public final class FeedbackActivity extends Activity {
         chooseButton=button("选择候选",false);source.addView(chooseButton,space(12));chooseButton.setOnClickListener(v->chooseCandidate());
         runField=field("来源 Run ID",true);source.addView(runField,space(10));
         loadButton=button("读取候选信息",false);source.addView(loadButton,space(8));loadButton.setOnClickListener(v->loadCandidate());
-        sourceInfo=text("尚未选择候选；旧候选没有手机元数据时，可手动填入 IMG 的 SHA-256。",12,MUTED,false);source.addView(sourceInfo,space(10));
+        sourceInfo=text("仅在电脑已临时启动新的待测 boot 后选择候选。当前无新 OTA 时无需填写；旧候选可输入 Run ID 核对。",12,MUTED,false);source.addView(sourceInfo,space(10));
         shaField=field("实际测试 IMG 的 SHA-256（64 位）",false);shaField.setTextSize(12);shaField.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);shaField.setMinLines(2);shaField.setTypeface(Typeface.MONOSPACE);source.addView(shaField,space(10));
         shaField.addTextChangedListener(new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int start,int count,int after){}
@@ -104,7 +104,7 @@ public final class FeedbackActivity extends Activity {
         if(busy||pending())return;
         task("正在查询可用候选…",()->client().candidates(), value->{
             @SuppressWarnings("unchecked") List<FeedbackClient.Candidate> list=(List<FeedbackClient.Candidate>)value;
-            if(list.isEmpty()){statusInfo.setText("最近 15 轮中暂无有效候选。可输入已知 Run ID 查询；尚无新 OTA 时无需提交。 ");return;}
+            if(list.isEmpty()){sourceInfo.setText("当前未查到可用待测候选，无需提交反馈。已有实际测试的旧候选可输入来源 Run ID 核对。");return;}
             String[] labels=new String[list.size()];for(int i=0;i<labels.length;i++)labels[i]=list.get(i).label();
             new AlertDialog.Builder(this).setTitle("选择实际测试的候选").setItems(labels,(d,i)->{runField.setText(Long.toString(list.get(i).run));loadCandidate();}).setNegativeButton("取消",null).show();
         });
@@ -130,7 +130,7 @@ public final class FeedbackActivity extends Activity {
     private void renderEvidence(){
         if(evidenceInfo==null)return;
         if(evidence==null){evidenceInfo.setText("尚未读取");return;}
-        String modules=evidence.moduleError.isEmpty()?(evidence.modules.trim().isEmpty()?"已读取 · 当前列表为空":"已读取 · "+evidence.modules.trim().split("\\r?\\n").length+" 个模块"):evidence.moduleError;
+        String modules=evidence.moduleError.isEmpty()?(evidence.modules.trim().isEmpty()?"已读取 · 当前无已加载模块记录":"已读取 "+evidence.modules.trim().split("\\r?\\n").length+" 条已加载模块记录"):evidence.moduleError;
         evidenceInfo.setText((recovered.isChecked()?"恢复后环境（不会作为待测证据提交）\n":"")
                 +"设备："+value(evidence.device)+"\n系统："+value(evidence.build)+"\n启动完成："+value(evidence.bootCompleted)
                 +"\n内核："+value(evidence.uname)+"\n模块："+modules+"\n读取时间："+time(evidence.collectedAt));
