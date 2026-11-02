@@ -11,24 +11,12 @@ on:
   pull_request:
     branches:
       - dev
-    # LKG-only PRs are verified by the promotion workflow itself.
-    # Development PRs touching other files still run this independent guard.
-    paths-ignore:
-      - ".github/config/pandora-os4-full-parity-lkg.env"
-      - ".github/config/lkg-history/**"
 
 permissions:
   contents: read
 
 jobs:
   isolation:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.head_ref || github.ref_name, 'os4-') ||
-      startsWith(github.head_ref || github.ref_name, 'xiaomi-') ||
-      startsWith(github.head_ref || github.ref_name, 'pandora-') ||
-      startsWith(github.head_ref || github.ref_name, 'dev-ota-') ||
-      startsWith(github.head_ref || github.ref_name, 'audit/os4-')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
