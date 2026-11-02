@@ -1,5 +1,10 @@
 name: "小米17 Pro OS4 / 全链路可信阶段状态"
 on:
+  push:
+    branches: [dev]
+    paths:
+      - "scripts/xiaomi-os4/collect-os4-stage.py"
+      - ".github/workflows/pandora-os4-stage-status.yml"
   workflow_dispatch:
   schedule:
     - cron: '17 */6 * * *'

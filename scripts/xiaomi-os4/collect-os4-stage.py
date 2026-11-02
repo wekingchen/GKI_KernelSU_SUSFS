@@ -62,8 +62,12 @@ def valid_run(run, workflow):
             and run.get('event') in ('workflow_dispatch', 'schedule', 'release', 'workflow_run')
             and bool(re.fullmatch('[a-f0-9]{40}', run.get('head_sha', ''))))
 
-def binding(report, source):
-    require(report.get('device') == 'pandora' and report.get('kernel_marker_verified') is True,
+def binding(report, source, pinned_legacy_boot=None):
+    legacy = (pinned_legacy_boot is not None and report.get('status') == 'SAME_PINNED_BUILD'
+              and report.get('source_provenance') == 'LEGACY_PINNED_BOOT_SHA256_ONLY'
+              and report.get('stock_boot_sha256') == pinned_legacy_boot
+              and bool(re.fullmatch('[a-f0-9]{64}', pinned_legacy_boot)))
+    require(report.get('device') == 'pandora' and (report.get('kernel_marker_verified') is True or legacy),
             'unverified stock identity')
     require(str(report.get('github_asset_id')) == str(source['id'])
             and report.get('ota_source_id') == asset_sha(source), 'stock input changed')
@@ -99,7 +103,12 @@ def collect(root):
             continue
         trial = json.loads((folder / 'stock-report.json').read_text())
         if str(trial.get('github_asset_id')) == str(source['id']) and trial.get('ota_source_id') == source_digest:
-            binding(trial, source)
+            pinned = None
+            if trial.get('source_provenance') == 'LEGACY_PINNED_BOOT_SHA256_ONLY':
+                config = env('.github/config/pandora-os4-stock-input.env')
+                require(trial.get('build') == config.get('OS4_STOCK_INPUT_BUILD'), 'legacy build differs from pin')
+                pinned = config.get('OS4_STOCK_BOOT_SHA256')
+            binding(trial, source, pinned)
             report, origin = trial, run
             break
     require(report is not None, 'no retained input audit for current asset; run candidate inspection/recovery first')
@@ -179,7 +188,8 @@ def collect(root):
     if record_path.is_file():
         rec = json.loads(record_path.read_text())
         require(baseline_matches(rec, report, meta['IMAGE_SHA256'], meta['SYMVERS_SHA256']), 'baseline record differs from current input')
-        result.update(stage='BASELINE_VERIFIED', baseline_record_sha256=file_sha(record_path),
+        result.update(stage='BASELINE_VERIFIED', source_run_id=rec['source_ota_run_id'],
+                      source_head_sha=rec['source_ota_head_sha'], baseline_record_sha256=file_sha(record_path),
                       detail='同版本开发基线已由人工反馈确认；自定义内核仍需另行测试。')
         result['milestones'].append('BASELINE_VERIFIED')
         custom_runs = api('actions/workflows/xiaomi-sm8850-os4-custom.yml/runs?branch=dev&status=success&per_page=10')['workflow_runs']

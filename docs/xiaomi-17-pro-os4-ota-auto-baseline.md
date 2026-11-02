@@ -38,7 +38,7 @@ App 接收状态绑定 Asset ID 与源 SHA：
 4. OEM ABI 阶段逐项检查同 OTA 模块 vermagic 和导入 `vmlinux` 符号 CRC；只有 `eligible_for_fastboot_boot=true` 才生成 `UNVERIFIED-FASTBOOT-BOOT-ONLY.img`。
 5. 同时上传独立小型 `pandora-OTA-MOBILE-FEEDBACK-<build>-<run>` Artifact，保存 Run、commit、build、预期 uname、IMG SHA 和文件名；App 不必下载整个 boot 才能预填表单。没有该文件的旧候选仍需手填实际 IMG SHA。
 
-静态检查不覆盖全部驱动运行时。没有待测 IMG 的报告不能当作可启动包。App 尚不提供候选构建、ABI 和所有后续任务的统一实时进度面板。
+静态检查不覆盖全部驱动运行时。没有待测 IMG 的报告不能当作可启动包。App 0.13.0 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
 
 ## 电脑临时启动，手机提交原表单
 
@@ -62,3 +62,7 @@ App 接收状态绑定 Asset ID 与源 SHA：
 后续仍从同一自定义入口拿到同次 Image 的待测 IMG 与 `OTA_CUSTOM_UNVERIFIED` AnyKernel3，不需要再回报一次测试结果才能取得 ZIP。真正稳定使用后，另由用户在[唯一 LKG 晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)确认；App 的测试通过不会自动晋升 LKG。
 
 当前真实稳定基线为 R62 Gen 4；真正不同 OTA 的采集→候选→真机→功能版→LKG 全链路仍待实际固件验证。
+
+## 过期与中断恢复
+
+候选附件过期可从同一自动候选入口填写 recovery_build / recovery_input_sha / recovery_manifest_sha，恢复永久归档原字节并重新执行 OEM ABI 门禁。固定输入替换中断可使用独立事务审计/恢复入口；只处理绑定的资产 ID，不能批量删附件。详细参数、状态及验证边界见 [前三阶段整改](pandora-os4-audit-stages-2026-11-02.md)。

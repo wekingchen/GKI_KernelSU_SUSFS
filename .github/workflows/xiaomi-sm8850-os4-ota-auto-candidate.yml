@@ -26,12 +26,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  dispatch-current-dev:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.event_name == 'release' && github.event.release.tag_name == 'pandora-os4-stock-input'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - name: "Release 事件仅调度当前 dev，避免旧 tag commit 冒充构建来源"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run xiaomi-sm8850-os4-ota-auto-candidate.yml --repo "$GITHUB_REPOSITORY" --ref dev
+
   inspect:
     name: "读取 stock-input Release → 自动判断是否为新 OTA"
     if: >-
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
-      (github.event_name != 'release' ||
-       github.event.release.tag_name == 'pandora-os4-stock-input')
+      github.event_name != 'release' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -41,8 +51,20 @@ jobs:
       input_sha: ${{ steps.audit.outputs.input_sha }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: dev
+      - name: "恢复参数必须完整且固定来源提交"
+        env:
+          RECOVERY_BUILD: ${{ inputs.recovery_build }}
+          RECOVERY_INPUT_SHA: ${{ inputs.recovery_input_sha }}
+          RECOVERY_MANIFEST_SHA: ${{ inputs.recovery_manifest_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          if [[ -n "$RECOVERY_BUILD$RECOVERY_INPUT_SHA$RECOVERY_MANIFEST_SHA" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+            [[ "$RECOVERY_BUILD" =~ ^OS[0-9]+\.[0-9.]+[A-Z0-9]+$ ]]
+            [[ "$RECOVERY_INPUT_SHA" =~ ^[a-f0-9]{64}$ && "$RECOVERY_MANIFEST_SHA" =~ ^[a-f0-9]{64}$ ]]
+          fi
+
       - name: "验证 stock-input Release 恰有一个 xm.zip"
         id: obtain
         env:
@@ -167,8 +189,6 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: dev
 
       - name: "下载本次只读审计和锁定源码版本"
         uses: actions/download-artifact@v4
@@ -246,8 +266,6 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: dev
       - name: "下载刚完成的 GKI 候选"
         uses: actions/download-artifact@v4
         with:
@@ -292,7 +310,7 @@ jobs:
           已编译 Image、Module.symvers、final.config，未匹配 Xiaomi vendor ABI/KMI，
           未建立经过真机验证的 boot-v4 fixture。严禁把此 Image 或任何旧 boot 直接刷入手机。
           后续必须经过版本级 ABI 审核、可临时启动 boot 生成和用户真机验证。
-          当前 Gen 3 LKG 不变。
+          当前已验证 LKG 不变。
           EOF
           (cd "$DIR" && find . -maxdepth 1 -type f ! -name 'RELEASE-SHA256SUMS.txt' -printf '%f\0' \
             | LC_ALL=C sort -z | xargs -0 sha256sum > RELEASE-SHA256SUMS.txt)
@@ -339,8 +357,6 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: dev
 
       - name: "获取同一构建的候选 GKI 产物"
         uses: actions/download-artifact@v4

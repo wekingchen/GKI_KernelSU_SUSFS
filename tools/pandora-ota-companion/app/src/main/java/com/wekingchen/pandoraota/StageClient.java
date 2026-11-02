@@ -49,7 +49,8 @@ final class StageClient {
         String event=run.optString("event");
         return "dev".equals(run.optString("head_branch"))&&"completed".equals(run.optString("status"))
             &&"success".equals(run.optString("conclusion"))&&(".github/workflows/"+workflow).equals(run.optString("path"))
-            &&Arrays.asList("workflow_dispatch","workflow_run","schedule","release").contains(event)
+            &&(Arrays.asList("workflow_dispatch","workflow_run","schedule","release").contains(event)
+                ||(WORKFLOW.equals(workflow)&&"push".equals(event)))
             &&run.optString("head_sha").matches("[a-f0-9]{40}");
     }
     static void validateEnvelope(JSONObject j,JSONObject run,JSONObject fixed)throws Exception{
