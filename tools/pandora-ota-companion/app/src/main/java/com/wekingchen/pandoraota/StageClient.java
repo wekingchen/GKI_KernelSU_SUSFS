@@ -158,6 +158,6 @@ final class StageClient {
             StringBuilder hex=new StringBuilder();for(byte b:MessageDigest.getInstance("SHA-256").digest(bytes))hex.append(String.format(Locale.ROOT,"%02x",b&255));
             require(hex.toString().equals(j.getString("baseline_record_sha256")),"基线记录与状态来源提交不一致");
         }
-        return new State(j,run.optString("created_at"));
+        return new State(j,run.optString("updated_at"));
     }
 }
