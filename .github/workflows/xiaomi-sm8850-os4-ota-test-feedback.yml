@@ -45,7 +45,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
   pull-requests: write
   issues: write
 
@@ -298,6 +298,8 @@ jobs:
           grep -Fxq "$DEST/fixture.json" <<<"$FILES"
           grep -Fxq "$DEST/verification.json" <<<"$FILES"
           grep -Fxq ".github/config/ota-development-current.json" <<<"$FILES"
+          bash scripts/xiaomi-os4/await-pr-isolation.sh "$BRANCH" "$HEAD_SHA"
+
           [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
             echo "::error::dev 已变化，保留 PR 请重新审核"; exit 1;
           }

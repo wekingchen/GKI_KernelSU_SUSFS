@@ -12,7 +12,9 @@
 | 下载、验证或恢复已归档稳定包 | [LKG 长期恢复](xiaomi-17-pro-os4-lkg-release-archive.md) | 当前快照为 Gen 4，旧 Gen 3 继续留存 |
 | 将真正稳定使用的自定义内核标为 LKG | [跨 OTA 晋升与归档](xiaomi-17-pro-os4-cross-ota-lkg.md) | 唯一晋升入口自动识别 R62 / 新 OTA |
 | 红米 K50 Pro 的通用构建修复 | [隔离修复与自动跟进](generic-custom-build-fork.md) | 独立于 pandora；当前路由为 fork |
-| App 详细使用、权限和签名 | [OTA 助手说明](../tools/pandora-ota-companion/README.md) | 当前功能集为 0.12，0.12.1 修订帮助与验证工具 |
+| App 详细使用、权限和签名 | [OTA 助手说明](../tools/pandora-ota-companion/README.md) | 0.13.0-dev：手机反馈、可信阶段快照与恢复说明 |
+
+前三阶段审计整改与恢复入口见 [2026-11-02 整改说明](pandora-os4-audit-stages-2026-11-02.md)。
 
 ## 当前状态及证据等级
 
@@ -35,7 +37,8 @@
 3. 采集实际目录空间小于 1 GiB 阻止，1 GiB 至不足 2 GiB 警告；每次采集/上传前在线验证 GitHub 真实写权限。
 4. 上传到 Draft 后，在前台自动跟踪 PENDING / ACCEPTED / ALREADY_CURRENT / REJECTED；通知失败可重试通知，不重复上传。
 5. 电脑临时启动待测 boot，手机实际测试后，在工作台「真机测试反馈」读取五项信息并提交原工作流；无需测试前登记或开机监听。
-6. 本地 ZIP 仅在通知成功、接收终态、远端与本地哈希核验通过后由用户主动删除；不会顺带删除远端附件。
+6. 在工作台「OTA 全链路状态」刷新已核验的 GKI / ABI / 待测 / 基线 / 自定义 / LKG 阶段；输入或来源不符时显示状态未验证。
+7. 本地 ZIP 仅在通知成功、接收终态、远端与本地哈希核验通过后由用户主动删除；不会顺带删除远端附件。
 
 本次文档和历史清理的具体清单见 [2026-11-02 维护记录](pandora-maintenance-2026-11-02.md)。
 
@@ -45,4 +48,4 @@
 - [OS3 历史说明](xiaomi-sm8850.md) 仅保留历史结论与恢复资料，不再提供退役工作流的操作指引。
 - [2026-11-01 审计快照](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)、[合成验证快照](xiaomi-17-pro-os4-synthetic-validation-2026-11-01.md)、[0.11 清理记录](pandora-ota-0.11.0-maintenance-audit.md) 都是历史证据。
 
-正式工作流保留 25 份：上游通用入口、K50 Pro 隔离构建/守卫/自动同步、OS4 构建/晋升/复现/归档、手机接收/反馈、APK/模拟器/契约及隔离门禁。不能因名称包含 legacy、fork、实验性产物或暂未有新 OTA 就删除仍有调用关系的流程。
+正式工作流保留 27 份：上游通用入口、K50 Pro 隔离构建/守卫/自动同步、OS4 构建/晋升/复现/归档、手机接收/反馈、APK/模拟器/契约及隔离门禁。不能因名称包含 legacy、fork、实验性产物或暂未有新 OTA 就删除仍有调用关系的流程。

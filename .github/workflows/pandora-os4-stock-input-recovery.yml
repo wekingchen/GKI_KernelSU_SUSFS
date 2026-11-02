@@ -1,0 +1,51 @@
+name: "小米17 Pro OS4 / 固定输入事务审计与中断恢复"
+on:
+  workflow_dispatch:
+    inputs:
+      source_release:
+        description: "原手机上传 Draft Release ID（含持久备份与事务记录）"
+        required: true
+        type: string
+      intake_run:
+        description: "原接收入库 Run ID"
+        required: true
+        type: string
+      journal_sha:
+        description: "原日志或 Draft 回执 MOBILE_TRANSACTION_SHA256"
+        required: true
+        type: string
+      decision:
+        description: "audit 只读；complete 完成切换/补回执；rollback 仅撤回尚未提交的新资产"
+        required: true
+        default: audit
+        type: choice
+        options: [audit, complete, rollback]
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: pandora-os4-mobile-stock-input
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "固定 ID/SHA 审计后执行明确恢复决策"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ inputs.source_release }}
+          RUN: ${{ inputs.intake_run }}
+          SHA: ${{ inputs.journal_sha }}
+          DECISION: ${{ inputs.decision }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE" =~ ^[1-9][0-9]*$ && "$RUN" =~ ^[1-9][0-9]*$ && "$SHA" =~ ^[a-f0-9]{64}$ ]]
+          python3 scripts/xiaomi-os4/stock-input-transaction.py "$DECISION" \
+            --source-release "$SOURCE" --run "$RUN" --journal-sha "$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$DECISION" == complete ]]; then
+            gh workflow run xiaomi-sm8850-os4-ota-auto-candidate.yml --repo "$GITHUB_REPOSITORY" --ref dev
+          fi

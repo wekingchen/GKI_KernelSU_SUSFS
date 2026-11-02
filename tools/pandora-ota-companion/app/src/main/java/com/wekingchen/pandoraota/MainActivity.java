@@ -65,6 +65,8 @@ public final class MainActivity extends Activity {
                 public void cancel(Runnable task) { handler.removeCallbacks(task); }
             }, worker);
     private String githubStatus = "未验证";
+    private TextView stageState;
+    private Button stageRefresh, stageSource;
     private TextView preflightState;
     private AlertDialog buildReminder;
 
@@ -328,6 +330,17 @@ public final class MainActivity extends Activity {
         Button feedbackButton = button("填写测试结果   →", false);
         feedbackCard.addView(feedbackButton, blockParams(dp(14)));
         feedbackButton.setOnClickListener(v -> startActivity(new Intent(this, FeedbackActivity.class)));
+
+        LinearLayout stageCard = surfaceCard(work, dp(18), dp(18));
+        stageCard.addView(sectionHeading("", "OTA 全链路状态", "当前 GitHub 固定输入 · 来源校验后展示"));
+        stageState = text("尚未查询\n点击刷新，查看 GKI、ABI、待测、基线与 LKG 阶段。", 13, MUTED, false);
+        stageCard.addView(stageState, blockParams(dp(14)));
+        stageRefresh = button("刷新可信状态", false);
+        stageCard.addView(stageRefresh, blockParams(dp(14)));
+        stageRefresh.setOnClickListener(v -> refreshStage());
+        stageSource = button("查看状态来源   ↗", false);
+        stageSource.setVisibility(View.GONE);
+        stageCard.addView(stageSource, blockParams(dp(8)));
 
         // Records — status-led, concise and action-oriented.
         records.addView(pageHeading("记录", "采集文件与 GitHub 记录"));
@@ -738,8 +751,11 @@ public final class MainActivity extends Activity {
                 + "• 新候选预填 IMG SHA-256；旧候选需手填。build / uname / 启动完成不能证明电脑实际用了指定镜像，仍需你核对。\n"
                 + "• 本地清理要等上传确认、通知成功和接收终态，再在线核验远端与本地 SHA。REJECTED 不等于上传失败，符合条件后也可主动清理；远端附件不删除。\n"
                 + "• 真机反馈的模块全文留在本机草稿供查看，原工作流提交的是实际读数和人工确认；最近反馈历史保留 20 条。\n"
-                + "• 上传和查询请保持前台；目前没有后台断点续传，也没有 GKI/ABI/功能编译的全阶段实时进度面板。",
+                + "• 上传和查询请保持前台；目前没有后台断点续传。工作台「OTA 全链路状态」可刷新服务器已核验的阶段快照；这是当前固定输入的证据状态，并非逐秒编译进度。",
                 12, MUTED, false), blockParams(dp(7)));
+
+        guide.addView(text("如何理解全链路状态", 17, INK, true), blockParams(dp(20)));
+        guide.addView(text("没有新 OTA ≠ 新待测包；GKI 已构建还需通过 OEM ABI。待测包已生成 / 等待真机测试只允许由电脑临时启动；开发基线已验证不代表自定义功能稳定。自定义内核待验证仍需人工测试，稳定 LKG 已长期归档才表示完成明确的稳定晋升。输入变化、附件过期或来源不匹配时，App 会停止展示结论并提示重新核验。", 12, MUTED, false), blockParams(dp(7)));
 
         guide.addView(text("完成 App 内步骤之后", 17, INK, true), blockParams(dp(20)));
         guide.addView(text(
@@ -1615,6 +1631,34 @@ public final class MainActivity extends Activity {
         } else {
             super.onBackPressed();
         }
+    }
+
+    private void refreshStage() {
+        stageRefresh.setEnabled(false);
+        stageSource.setVisibility(View.GONE);
+        stageState.setText("正在核验 GitHub 阶段快照与当前固定输入…");
+        worker.execute(() -> {
+            try {
+                StageClient.State state = new StageClient(store.repo(), store.loadToken()).latest();
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    stageState.setText(state.title() + "\n" + state.build + "\n\n" + state.detail + "\n" + state.next()
+                            + "\n\n快照 Run #" + state.run + " · 输入 #" + state.json.optLong("stock_asset_id"));
+                    stageState.setTextColor(state.stage.equals("ABI_BLOCKED") ? WARNING : INK);
+                    stageSource.setVisibility(View.VISIBLE);
+                    stageSource.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/" + state.run))));
+                    stageRefresh.setEnabled(true);
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    stageState.setText("状态未验证\n" + error.getMessage() + "\n请核对网络与 PAT，或检查全链路可信阶段状态工作流。");
+                    stageState.setTextColor(WARNING);
+                    stageRefresh.setEnabled(true);
+                });
+            }
+        });
     }
 
     private LinearLayout card(LinearLayout parent, String step, String title, String sub) {

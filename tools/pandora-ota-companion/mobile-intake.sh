@@ -40,7 +40,7 @@ publish_receipt() {
 on_intake_exit() {
   local code=$?
   trap - EXIT
-  if [[ "$code" -ne 0 && "${RECEIPT_VALID:-0}" == "1" ]]; then
+  if [[ "$code" -ne 0 && "${RECEIPT_VALID:-0}" == "1" && "${TRANSACTION_STARTED:-0}" != "1" ]]; then
     publish_receipt REJECTED || true
   fi
   exit "$code"
@@ -146,37 +146,16 @@ fi
   exit 8
 }
 
-# Stage first under a name that DOES NOT match the original *xm.zip filter.
-PENDING="pandora-mobile-pending-$GITHUB_RUN_ID.upload"
-cp "$NEW" "$DIR/converted/$PENDING"
-gh release upload "$FIXED_TAG" "$DIR/converted/$PENDING" --repo "$R"
-NEW_ID="$(gh api "repos/$R/releases/$FIXED_ID" | jq -r --arg name "$PENDING" '.assets[] | select(.name == $name) | .id')"
-[[ "$NEW_ID" =~ ^[0-9]+$ ]] || exit 6
-gh release download "$FIXED_TAG" --repo "$R" --pattern "$PENDING" --dir "$DIR/check"
-if ! cmp -s "$NEW" "$DIR/check/$PENDING"; then
-  gh api -X DELETE "repos/$R/releases/assets/$NEW_ID" || true
-  echo "::error::固定 Release 暂存附件下载 SHA 检查失败，旧输入未改动"; exit 6
-fi
-
-# New asset is fully verified before renaming; the old one is only then removed.
-gh api -X PATCH "repos/$R/releases/assets/$NEW_ID" -f name="$NEW_NAME" >/dev/null
-if ! gh api -X DELETE "repos/$R/releases/assets/$OLD_ID"; then
-  gh api -X DELETE "repos/$R/releases/assets/$NEW_ID" || true
-  echo "::error::旧资产删除失败，已回滚新资产"; exit 7
-fi
-FINAL="$(gh api "repos/$R/releases/$FIXED_ID")"
-jq -e --argjson id "$NEW_ID" \
-  '([.assets[] | select(.name | endswith("xm.zip"))] |
-  length == 1 and .[0].id == $id)' <<< "$FINAL" >/dev/null
-
-echo "固定 Release 已切换到：$NEW_NAME" >> "$GITHUB_STEP_SUMMARY"
-echo "来源：ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK（非出厂原版保证）" >> "$GITHUB_STEP_SUMMARY"
-echo "Asset ID: $NEW_ID" >> "$GITHUB_STEP_SUMMARY"
-gh api -X PATCH "repos/$R/releases/$FIXED_ID" \
-  -f body="pandora current OTA stock-input: $BUILD; active device capture (NOT factory-original proof); asset $NEW_ID" >/dev/null
+# Once transaction preparation starts, an interruption is PENDING until audited.
+# Never label a potentially committed fixed-input switch REJECTED in an EXIT trap.
+TRANSACTION_STARTED=1
+python3 scripts/xiaomi-os4/stock-input-transaction.py switch \
+  --source-release "$STAGED_RELEASE_ID" --source-asset "$STAGED_ASSET_ID" \
+  --source-sha "$CLIENT_SHA" --run "$GITHUB_RUN_ID" --build "$BUILD" \
+  --new "$NEW" --old "$DIR/check/$OLD_NAME"
+echo "固定输入事务已提交并保存持久备份与回执。" >> "$GITHUB_STEP_SUMMARY"
 if gh workflow run xiaomi-sm8850-os4-ota-auto-candidate.yml --repo "$R" --ref dev; then
   echo "已主动触发原 OS4 OTA 自动 GKI 候选检查" >> "$GITHUB_STEP_SUMMARY"
 else
   echo "::warning::固定输入成功切换，但即时工作流触发失败；每日定时补查仍可接管"
 fi
-publish_receipt ACCEPTED

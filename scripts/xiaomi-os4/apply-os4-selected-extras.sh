@@ -227,8 +227,9 @@ PY
 
     if [[ "$USE_CVE" == "1" ]]; then
     # Audit/apply the repository's idempotent CVE-2026-43499 + CVE-2026-53163
-    # chain. 6.12.69 is below the generic 6.12.95 threshold, but Android R62
-    # may have cherry-picked it; the helper detects that from source semantics.
+    # chain. Resolve the actual verified source version; never reuse R62 sublevel for another OTA.
+    read -r CVE_SERIES CVE_SUBLEVEL < <(python3 "$ROOT/scripts/xiaomi-os4/kernel-version.py" "$SRC/Makefile" "$OS4_KERNEL_VERSION")
+    [[ "$CVE_SERIES" == "6.12" && "$CVE_SUBLEVEL" =~ ^[0-9]+$ ]] || exit 1
     CVE_PATHS=(
       kernel/locking/rtmutex.c
       kernel/locking/rtmutex_api.c
@@ -241,7 +242,7 @@ PY
     before_cve="$(git -C "$SRC" diff -- "${CVE_PATHS[@]}" | sha256sum | awk '{print $1}')"
     (
       cd "$SRC"
-      bash "$ROOT/security_patch/apply_cve_2026_43499.sh" "6.12" "69" "$ROOT/security_patch"
+      bash "$ROOT/security_patch/apply_cve_2026_43499.sh" "$CVE_SERIES" "$CVE_SUBLEVEL" "$ROOT/security_patch"
     ) | tee "$RESULT/cve-chain-audit.log"
     after_cve="$(git -C "$SRC" diff -- "${CVE_PATHS[@]}" | sha256sum | awk '{print $1}')"
     if [[ "$before_cve" == "$after_cve" ]]; then

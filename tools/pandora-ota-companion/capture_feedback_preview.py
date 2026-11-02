@@ -63,6 +63,12 @@ def main():
     print('Native feedback form preview captured')
     adb('shell', 'input', 'keyevent', '4')
     time.sleep(1)
+    tap_text('刷新可信状态')
+    root = screen()
+    if not any('OTA 全链路状态' in n.get('text', '') for n in root.iter('node')):
+        raise RuntimeError('stage card did not appear')
+    output.with_name('stage-status.png').write_bytes(adb('exec-out', 'screencap', '-p'))
+    print('Native stage status card preview captured')
     tap_text('设置')
     tap_text('使用指南')
     root = screen()

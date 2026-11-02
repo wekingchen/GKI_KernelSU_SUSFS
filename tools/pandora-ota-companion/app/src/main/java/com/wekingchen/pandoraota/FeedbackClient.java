@@ -120,7 +120,7 @@ final class FeedbackClient {
         final int status;
         ApiException(int status,String message) { super(message);this.status=status; }
     }
-    private JSONObject json(String method,String url,JSONObject data,int expected) throws Exception {
+    JSONObject json(String method,String url,JSONObject data,int expected) throws Exception {
         HttpURLConnection c=connection(new URL(url),true);
         try {
             c.setRequestMethod(method);
@@ -146,6 +146,9 @@ final class FeedbackClient {
         return c;
     }
     private JSONObject manifest(long id) throws Exception {
+        return artifactJson(id,"mobile-test-feedback.json",16384);
+    }
+    JSONObject artifactJson(long id,String filename,int limit) throws Exception {
         URL url=new URL(api+"/actions/artifacts/"+id+"/zip");byte[] archive=null;
         for(int hop=0;hop<4;hop++) {
             HttpURLConnection c=connection(url,hop==0);
@@ -163,9 +166,9 @@ final class FeedbackClient {
         JSONObject result=null;int entries=0;
         try(ZipInputStream zip=new ZipInputStream(new ByteArrayInputStream(archive))) {
             ZipEntry e;while((e=zip.getNextEntry())!=null) {
-                if(++entries>4||e.isDirectory()||!"mobile-test-feedback.json".equals(e.getName())||result!=null)
+                if(++entries>4||e.isDirectory()||!filename.equals(e.getName())||result!=null)
                     throw new IOException("候选元数据附件格式异常");
-                result=new JSONObject(new String(read(zip,16384),StandardCharsets.UTF_8));
+                result=new JSONObject(new String(read(zip,limit),StandardCharsets.UTF_8));
             }
         }
         if(result==null)throw new IOException("缺少手机反馈元数据");return result;
