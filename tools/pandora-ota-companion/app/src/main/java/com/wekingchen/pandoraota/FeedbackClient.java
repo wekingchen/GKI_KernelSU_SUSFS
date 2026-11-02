@@ -141,7 +141,7 @@ final class FeedbackClient {
                 ||(authenticated&&!"api.github.com".equals(host))) throw new IOException("非预期的 GitHub 地址");
         HttpURLConnection c=transport.open(url);c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(20000);c.setUseCaches(false);
         c.setRequestProperty("Accept","application/vnd.github+json");c.setRequestProperty("X-GitHub-Api-Version","2022-11-28");
-        c.setRequestProperty("User-Agent","pandora-ota-companion/0.12.0");
+        c.setRequestProperty("User-Agent","pandora-ota-companion/" + BuildConfig.VERSION_NAME);
         if(authenticated)c.setRequestProperty("Authorization","Bearer "+token);
         return c;
     }
