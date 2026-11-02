@@ -6,6 +6,16 @@ on:
   schedule:
     - cron: '41 20 * * *'
   workflow_dispatch:
+    inputs:
+      recovery_build:
+        description: "恢复过期待测附件：填写已归档 build；留空为常规检测"
+        type: string
+      recovery_input_sha:
+        description: "恢复时必须填写原始 stock-input SHA256"
+        type: string
+      recovery_manifest_sha:
+        description: "恢复时必须填写永久归档 RELEASE-SHA256SUMS.txt 本身的 SHA256"
+        type: string
 
 permissions:
   contents: read
@@ -26,6 +36,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       build_candidate: ${{ steps.resolve.outputs.build_candidate }}
+      restore_candidate: ${{ steps.resolve.outputs.restore_candidate }}
       ota_build: ${{ steps.audit.outputs.ota_build }}
       input_sha: ${{ steps.audit.outputs.input_sha }}
     steps:
@@ -55,6 +66,8 @@ jobs:
 
       - name: "只读身份审计、与当前已适配版本比较"
         id: audit
+        env:
+          RECOVERY_BUILD: ${{ inputs.recovery_build }}
         shell: bash
         run: |
           set -euo pipefail
@@ -68,9 +81,12 @@ jobs:
           echo "ota_build=$(jq -r .build "$REPORT")" >> "$GITHUB_OUTPUT"
           echo "input_sha=$(jq -r .ota_source_id "$REPORT")" >> "$GITHUB_OUTPUT"
           echo "new_ota=$(jq -r '.status == "NEW_OTA_CANDIDATE" and .may_build_gki_candidate' "$REPORT")" >> "$GITHUB_OUTPUT"
+          if [[ -n "$RECOVERY_BUILD" ]]; then
+            jq -e '.status == "NEW_OTA_CANDIDATE" and .may_build_gki_candidate == true' "$REPORT" >/dev/null
+          fi
 
       - name: "自动从 Android 官方 GKI 发布记录选择候选源码"
-        if: steps.audit.outputs.new_ota == 'true'
+        if: steps.audit.outputs.new_ota == 'true' && inputs.recovery_build == ''
         id: candidate
         shell: bash
         run: |
@@ -87,10 +103,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OTA_BUILD: ${{ steps.audit.outputs.ota_build }}
           OTA_SHA: ${{ steps.audit.outputs.input_sha }}
+          RECOVERY_BUILD: ${{ inputs.recovery_build }}
+          RECOVERY_INPUT_SHA: ${{ inputs.recovery_input_sha }}
+          RECOVERY_MANIFEST_SHA: ${{ inputs.recovery_manifest_sha }}
         shell: bash
         run: |
           set -euo pipefail
           TAG="pandora-os4-ota-candidate-$OTA_BUILD"
+          if [[ -n "$RECOVERY_BUILD$RECOVERY_INPUT_SHA$RECOVERY_MANIFEST_SHA" ]]; then
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$RECOVERY_BUILD" == "$OTA_BUILD" && "$RECOVERY_INPUT_SHA" == "$OTA_SHA" ]]
+            [[ "$RECOVERY_MANIFEST_SHA" =~ ^[a-f0-9]{64}$ ]]
+            RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")"
+            jq -e --arg sha "$OTA_SHA" '.draft == false and .prerelease == true and (.body | contains("OTA_INPUT_SHA256=" + $sha))' <<<"$RELEASE" >/dev/null
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/ota-report/archive"
+            python3 scripts/xiaomi-os4/verify-archived-candidate.py \
+              --directory "$RUNNER_TEMP/ota-report/archive" --manifest-sha "$RECOVERY_MANIFEST_SHA" \
+              --build "$OTA_BUILD" --input-sha "$OTA_SHA" \
+              --asset '${{ steps.obtain.outputs.asset_id }}' > "$RUNNER_TEMP/ota-report/archive/recovery-provenance.json"
+            echo "restore_candidate=true" >> "$GITHUB_OUTPUT"
+            echo "build_candidate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" 2>/dev/null)"; then
             jq -e --arg sha "$OTA_SHA" \
               '.prerelease == true and (.body | contains("OTA_INPUT_SHA256=" + $sha))' <<<"$RELEASE" >/dev/null || {
@@ -126,7 +159,7 @@ jobs:
   baseline:
     name: "隔离构建新 OTA 未验证 GKI 基线候选（不打包 boot）"
     needs: inspect
-    if: needs.inspect.outputs.build_candidate == 'true'
+    if: needs.inspect.outputs.build_candidate == 'true' || needs.inspect.outputs.restore_candidate == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     permissions:
@@ -144,6 +177,7 @@ jobs:
           path: ${{ runner.temp }}/ota-input
 
       - name: "安装仅供 GKI 分析编译的依赖"
+        if: needs.inspect.outputs.build_candidate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -156,12 +190,14 @@ jobs:
             zip zstd dwarves
 
       - name: "固定 r536225 工具链缓存"
+        if: needs.inspect.outputs.build_candidate == 'true'
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-os4/toolchain-r536225
           key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
 
       - name: "构建未验证 GKI Image / Module.symvers"
+        if: needs.inspect.outputs.build_candidate == 'true'
         shell: bash
         env:
           OTA_CANDIDATE_ENV: ${{ runner.temp }}/ota-input/gki-candidate.env
@@ -172,6 +208,14 @@ jobs:
           bash scripts/xiaomi-os4/build-ota-gki-baseline-candidate.sh
           cp "$RUNNER_TEMP/ota-input/stock-report.json" "$RUNNER_TEMP/ota-candidate/results/"
           cp "$RUNNER_TEMP/ota-input/gki-candidate.json" "$RUNNER_TEMP/ota-candidate/results/"
+
+      - name: "恢复锁定永久候选原始字节（不编译、不覆盖 Release）"
+        if: needs.inspect.outputs.restore_candidate == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ota-candidate/results"
+          cp "$RUNNER_TEMP/ota-input/archive/"* "$RUNNER_TEMP/ota-candidate/results/"
 
       - name: "上传不可刷写的 GKI 基线候选"
         uses: actions/upload-artifact@v6
@@ -194,7 +238,7 @@ jobs:
   archive:
     name: "永久归档不可刷写候选供后续人工 ABI/真机审核"
     needs: [inspect, baseline]
-    if: needs.baseline.result == 'success'
+    if: needs.baseline.result == 'success' && needs.inspect.outputs.build_candidate == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

@@ -10,6 +10,10 @@ on:
       - "tools/pandora-ota-companion/normalize_mobile_capture.py"
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"
+      - "scripts/xiaomi-os4/stock-input-transaction.py"
+      - "scripts/xiaomi-os4/verify-archived-candidate.py"
+      - "scripts/xiaomi-os4/collect-os4-stage.py"
+      - "scripts/xiaomi-os4/test_audit_*.py"
       - "scripts/xiaomi-os4/inspect-ota-stock-input.py"
       - "scripts/xiaomi-os4/guard-current-stock-input.py"
       - "scripts/xiaomi-os4/test_current_stock_input_guard.py"
@@ -24,6 +28,10 @@ on:
       - "tools/pandora-ota-companion/normalize_mobile_capture.py"
       - "tools/pandora-ota-companion/test_*.py"
       - "tools/pandora-ota-companion/mobile-intake.sh"
+      - "scripts/xiaomi-os4/stock-input-transaction.py"
+      - "scripts/xiaomi-os4/verify-archived-candidate.py"
+      - "scripts/xiaomi-os4/collect-os4-stage.py"
+      - "scripts/xiaomi-os4/test_audit_*.py"
       - "scripts/xiaomi-os4/inspect-ota-stock-input.py"
       - "scripts/xiaomi-os4/guard-current-stock-input.py"
       - "scripts/xiaomi-os4/test_current_stock_input_guard.py"
@@ -49,3 +57,6 @@ jobs:
           python3 scripts/xiaomi-os4/test_os4_stock_collector_integrity.py
       - name: "GitHub 接收器 Bash 语法校验"
         run: bash -n tools/pandora-ota-companion/mobile-intake.sh
+
+      - name: "审计前三阶段：恢复、事务及状态契约"
+        run: python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_*.py' -v

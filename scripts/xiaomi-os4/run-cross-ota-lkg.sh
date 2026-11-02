@@ -202,6 +202,7 @@ FILES="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUM/files?per_page=100" --jq '.
 [[ "$(wc -l <<<"$FILES")" -eq "$COUNT" ]] || exit 1
 grep -Fxq "$CURRENT" <<<"$FILES"
 if [[ -n "$HISTORY" ]]; then grep -Fxq "$HISTORY" <<<"$FILES"; fi
+bash scripts/xiaomi-os4/await-pr-isolation.sh "$BRANCH" "$HEAD_SHA"
 [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || exit 1
 for i in {1..12}; do
   MERGEABLE="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUM" --jq .mergeable)"

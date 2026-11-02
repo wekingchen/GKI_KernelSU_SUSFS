@@ -1,0 +1,43 @@
+name: "小米17 Pro OS4 / 全链路可信阶段状态"
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_run:
+    workflows:
+      - "小米17 Pro OS4 / OTA 自动识别与非刷机 GKI 基线候选"
+      - "小米17 Pro OS4 / 提交 OTA 真机测试结果与固化基线"
+      - "小米17 Pro OS4 / 当前 LKG 复现与打包"
+      - "小米17 Pro OS4 / LKG 长期归档 Release"
+      - "小米17 Pro OS4 / 将自定义构建晋升为 LKG"
+      - "小米17 Pro OS4 / 自定义内核"
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pandora-os4-stage-status
+  cancel-in-progress: false
+jobs:
+  stage:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "只读核验当前输入、候选、人工记录和永久归档"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/xiaomi-os4/collect-os4-stage.py --output os4-stage.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-STAGE-${{ github.run_id }}
+          path: os4-stage.json
+          retention-days: 30
+          if-no-files-found: error
+      - name: "阶段摘要"
+        run: |
+          echo '### 可信阶段状态' >> "$GITHUB_STEP_SUMMARY"
+          cat os4-stage.json >> "$GITHUB_STEP_SUMMARY"

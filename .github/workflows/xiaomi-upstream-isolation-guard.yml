@@ -2,6 +2,10 @@ name: "小米内核 / 上游文件隔离门禁"
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_head:
+        description: "机器人 PR 固定 head（可选；提供时必须与 checkout 完全一致）"
+        type: string
   push:
     branches:
       - "os4-*"
@@ -23,6 +27,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: "校验机器人调度的固定 head"
+        env:
+          EXPECTED_HEAD: ${{ inputs.expected_head }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$EXPECTED_HEAD" ]]; then
+            [[ "$EXPECTED_HEAD" =~ ^[a-f0-9]{40}$ && "$(git rev-parse HEAD)" == "$EXPECTED_HEAD" ]]
+          fi
 
       - name: "获取 fork dev"
         shell: bash
@@ -63,3 +76,8 @@ jobs:
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
           bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
+
+      - name: "审计前三阶段灾难恢复与状态正反向回归"
+        run: python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_*.py' -v
+      - name: "实际内核版本和 CVE 阈值回归"
+        run: python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_kernel_version.py' -v

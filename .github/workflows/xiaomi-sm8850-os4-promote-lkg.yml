@@ -35,7 +35,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
   pull-requests: write
 
 concurrency:
@@ -377,6 +377,8 @@ jobs:
           }
           printf '%s\n' "${PR_PATHS[@]}" | grep -Fxq '.github/config/pandora-os4-full-parity-lkg.env'
           printf '%s\n' "${PR_PATHS[@]}" | grep -Fxq "$HISTORY"
+
+          bash scripts/xiaomi-os4/await-pr-isolation.sh "$BRANCH" "$HEAD_SHA"
 
           # The source branch must not silently change during validation.
           CURRENT_DEV="$(gh api "/repos/$GITHUB_REPOSITORY/branches/dev" --jq '.commit.sha')"
