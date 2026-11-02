@@ -41,6 +41,11 @@ class Transactions(unittest.TestCase):
     def prepare(self,api):
         return m.prepare(api,api.api('releases/tags/'+m.TAG),2,42,'a'*64,123,'OS4.0.6.0.XBLCNXM',
                          'new-xm.zip',b'NEW',b'OLD')
+    def test_original_fixed_asset_named_exactly_xm_zip_is_supported(self):
+        a=FakeGitHub();a.releases[1]['assets'][0]['name']='xm.zip'
+        t=self.prepare(a);t.complete()
+        self.assertEqual([x['name'] for x in a.releases[1]['assets']],['new-xm.zip'])
+
     def test_happy_switch_backup_and_receipt(self):
         a=FakeGitHub();t=self.prepare(a);t.complete()
         self.assertEqual([x['name'] for x in a.releases[1]['assets']],['new-xm.zip'])

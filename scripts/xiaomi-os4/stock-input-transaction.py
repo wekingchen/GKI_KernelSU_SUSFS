@@ -48,8 +48,8 @@ class Transaction:
             or not all(isinstance(j.get(k), int) and j[k] > 0 for k in
                        ('fixed_release_id', 'source_release_id', 'source_asset_id', 'old_id', 'backup_id'))
             or not re.fullmatch(r'OS[0-9]+\.[0-9.]+[A-Z0-9]+', j.get('build', ''))
-            or not re.fullmatch(r'[A-Za-z0-9_.-]+xm.zip', j.get('old_name', ''))
-            or not re.fullmatch(r'[A-Za-z0-9_.-]+xm.zip', j.get('new_name', ''))
+            or not re.fullmatch(r'[A-Za-z0-9_.-]*xm\.zip', j.get('old_name', ''))
+            or not re.fullmatch(r'[A-Za-z0-9_.-]*xm\.zip', j.get('new_name', ''))
             or j.get('pending_name') != f'pandora-mobile-pending-{j["run_id"]}.upload'
             or j['old_name'] == j['new_name']):
             raise ValueError('invalid transaction journal')
