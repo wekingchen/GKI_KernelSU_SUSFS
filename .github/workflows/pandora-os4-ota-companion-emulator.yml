@@ -54,24 +54,10 @@ jobs:
             gradle --no-daemon :app:connectedDebugAndroidTest
             mkdir -p app/build/reports/androidTests/preview
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am force-stop com.wekingchen.pandoraota
-            adb shell am start -n com.wekingchen.pandoraota/.MainActivity
-            sleep 4
-            adb exec-out screencap -p > app/build/reports/androidTests/preview/workbench.png
-            test -s app/build/reports/androidTests/preview/workbench.png
-
-            # pixel_7_pro / API 35 profile is fixed at 1440x3120 in this workflow.
-            # Use stable navigation coordinates instead of parsing wm size across shells.
-            adb shell input tap 720 2960
-            sleep 2
-            adb exec-out screencap -p > app/build/reports/androidTests/preview/records.png
-            test -s app/build/reports/androidTests/preview/records.png
-
-            adb shell input tap 1200 2960
-            sleep 2
-            adb exec-out screencap -p > app/build/reports/androidTests/preview/settings.png
-            test -s app/build/reports/androidTests/preview/settings.png
             python3 capture_feedback_preview.py app/build/reports/androidTests/preview/feedback-form.png
+            test -s app/build/reports/androidTests/preview/workbench.png
+            test -s app/build/reports/androidTests/preview/records.png
+            test -s app/build/reports/androidTests/preview/settings.png
             test -s app/build/reports/androidTests/preview/feedback-form.png
             test -s app/build/reports/androidTests/preview/help-guide.png
             test -s app/build/reports/androidTests/preview/stage-status.png
