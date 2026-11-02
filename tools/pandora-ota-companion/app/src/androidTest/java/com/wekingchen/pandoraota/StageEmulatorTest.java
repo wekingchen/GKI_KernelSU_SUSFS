@@ -29,6 +29,25 @@ public class StageEmulatorTest {
         assertTrue(new StageClient.State(stage("WAITING_HUMAN")).next().contains("电脑"));
         assertTrue(new StageClient.State(stage("CUSTOM_UNVERIFIED")).title().contains("待验证"));
     }
+    @Test public void verifiedLkgGenerationAndSnapshotTimeArePresentedWithoutTechnicalIds()throws Exception{
+        JSONObject lkg=stage("LKG_ARCHIVED");
+        lkg.put("detail","本次 OTA 检测可能仅为 NOOP");
+        for(int i=0;i<3;i++)lkg.getJSONArray("release_assets").put(
+                new JSONObject().put("tag","pandora-os4-lkg-gen4").put("id",100+i));
+        StageClient.State current=new StageClient.State(lkg,"2026-11-02T03:59:10Z");
+        assertEquals("已归档稳定内核 · Gen 4",current.title());
+        assertEquals("Gen 4",current.lkgGeneration());
+        assertFalse(current.friendlyDetail().contains("NOOP"));
+        assertTrue(current.friendlyDetail().contains("不代表"));
+        assertTrue(current.verifiedAt.matches("[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}"));
+        assertFalse(current.title().contains("100"));
+        assertTrue(current.technicalDetails().contains("输入 Asset #77"));
+        JSONObject different=stage("LKG_ARCHIVED");
+        assertEquals("稳定 LKG 已长期归档",new StageClient.State(different).title());
+        assertEquals("未取得",new StageClient.State(different,"not-a-time").verifiedAt);
+        JSONObject noop=stage("NO_NEW_OTA").put("detail","仅为 NOOP");
+        assertTrue(new StageClient.State(noop).friendlyDetail().contains("无需重复处理"));
+    }
     @Test public void noopEnvelopeCannotClaimAnyOtherStageWithoutEvidence()throws Exception{
         StageClient.validateEnvelope(stage("NO_NEW_OTA"),run(),fixed());
         for(String name:StageClient.STAGES){if(name.equals("NO_NEW_OTA"))continue;reject(stage(name),run(),fixed());}
