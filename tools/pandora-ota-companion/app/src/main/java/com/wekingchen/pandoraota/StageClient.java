@@ -16,8 +16,44 @@ final class StageClient {
     StageClient(String repo,String token){client=new FeedbackClient(repo,token);}
     StageClient(String repo,String token,FeedbackClient.Transport transport){client=new FeedbackClient(repo,token,transport);}
     static final class State {
-        final JSONObject json; final String stage,build,detail; final long run;
-        State(JSONObject j)throws Exception {json=j;stage=j.getString("stage");build=j.getString("build");detail=j.optString("detail");run=j.getLong("producer_run_id");}
+        final JSONObject json; final String stage,build,detail,verifiedAt; final long run;
+        State(JSONObject j)throws Exception {this(j,"");}
+        State(JSONObject j,String producedAt)throws Exception {
+            json=j;stage=j.getString("stage");build=j.getString("build");detail=j.optString("detail");
+            run=j.getLong("producer_run_id");verifiedAt=localTime(producedAt);
+        }
+        static String localTime(String utc){
+            try {
+                return java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm",java.util.Locale.CHINA)
+                        .withZone(java.time.ZoneId.systemDefault()).format(java.time.Instant.parse(utc));
+            } catch (java.time.DateTimeException e) {return "未取得";}
+        }
+        String lkgGeneration(){
+            if(!"LKG_ARCHIVED".equals(stage))return "";
+            JSONArray proofs=json.optJSONArray("release_assets");
+            if(proofs==null)return "";
+            String generation="";
+            for(int i=0;i<proofs.length();i++){
+                String tag=proofs.optJSONObject(i)==null?"":proofs.optJSONObject(i).optString("tag");
+                if(!tag.matches("pandora-os4-lkg-gen[1-9][0-9]*"))continue;
+                String value=tag.substring("pandora-os4-lkg-gen".length());
+                if(!generation.isEmpty()&&!generation.equals(value))return "";
+                generation=value;
+            }
+            return generation.isEmpty()?"":"Gen "+generation;
+        }
+        String friendlyDetail(){
+            if("LKG_ARCHIVED".equals(stage))
+                return "该系统版本的稳定内核已通过人工确认并完成 GitHub 长期归档；这不代表已校验本机运行镜像的文件哈希。";
+            return detail.replace("NOOP","无需重复处理");
+        }
+        String technicalDetails(){
+            return "阶段："+stage+"\n系统："+build+"\n快照 Run #"+run
+                    +"\n输入 Asset #"+json.optLong("stock_asset_id")
+                    +"\n来源 Run #"+json.optLong("source_run_id")
+                    +"\n快照 Git SHA："+json.optString("producer_head_sha")
+                    +"\n固定输入 SHA256："+json.optString("stock_input_sha256");
+        }
         String title(){
             switch(stage){
                 case "NO_NEW_OTA":return "没有新 OTA";
@@ -27,7 +63,7 @@ final class StageClient {
                 case "WAITING_HUMAN":return "等待真机测试";
                 case "BASELINE_VERIFIED":return "开发基线已验证";
                 case "CUSTOM_UNVERIFIED":return "自定义内核待验证";
-                case "LKG_ARCHIVED":return "稳定 LKG 已长期归档";
+                case "LKG_ARCHIVED":return lkgGeneration().isEmpty()?"稳定 LKG 已长期归档":"已归档稳定内核 · "+lkgGeneration();
                 default:return "状态未验证";
             }
         }
@@ -122,6 +158,6 @@ final class StageClient {
             StringBuilder hex=new StringBuilder();for(byte b:MessageDigest.getInstance("SHA-256").digest(bytes))hex.append(String.format(Locale.ROOT,"%02x",b&255));
             require(hex.toString().equals(j.getString("baseline_record_sha256")),"基线记录与状态来源提交不一致");
         }
-        return new State(j);
+        return new State(j,run.optString("created_at"));
     }
 }
