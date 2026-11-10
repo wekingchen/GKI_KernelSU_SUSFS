@@ -39,7 +39,15 @@ jobs:
                       print('-----',name,'line',i+1)
                       for j in range(max(0,i-12),min(len(lines),i+25)):
                           print('%4d %s'%(j+1,lines[j]))
-              print('FUNCTION-GUARDS at first 300 lines:')
-              for i,line in enumerate(lines[:310]):
-                  if line.lstrip().startswith(('#if','#else','#endif','#include')):print('%4d %s'%(i+1,line))
+              print('FUNCTION-GUARDS at all lines:')
+              for i,line in enumerate(lines):
+                  if line.lstrip().startswith(('#if','#elif','#else','#endif')):print('%4d %s'%(i+1,line))
+              print('PRIORITY FILTER region preamble:')
+              for i,line in enumerate(lines):
+                  if 'priority uid filter' in line.lower() or 'priority_uid_filter' in line:
+                      lo=max(0,i-8)
+                      for j in range(lo,min(len(lines),i+9)):
+                          if lines[j].lstrip().startswith(('#if','#elif','#else','#endif','/*','*')) or ('CONFIG_' in lines[j]):
+                              print('%4d %s'%(j+1,lines[j]))
+                      if i>1750:break
           PY
