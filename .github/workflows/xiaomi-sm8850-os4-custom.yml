@@ -296,9 +296,11 @@ jobs:
           bash -n scripts/xiaomi-os4/resolve-stable-upstreams.sh
           python3 -m py_compile \
             scripts/xiaomi-os4/susfs-task-mmu-compat.py \
+            scripts/xiaomi-os4/susfs-priority-uid-compat.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
             scripts/xiaomi-os4/verify-lkg-image-equivalence.py \
             scripts/xiaomi-os4/describe-image-reproducibility.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_susfs_priority_uid_compat.py' -v
           ! grep -R -nE 'fastboot[[:space:]]+flash|dd[[:space:]].*of=/dev/block' \
             scripts/xiaomi-os4/package-validated-anykernel3.sh \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py

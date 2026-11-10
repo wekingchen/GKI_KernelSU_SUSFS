@@ -355,7 +355,11 @@ patch --batch --forward --no-backup-if-mismatch -d "$SRC" -p1 < "$STAGE/susfs-fi
   tail -n 90 "$RESULT/patch-apply.log"; exit 1;
 }
 python3 "$ROOT/scripts/xiaomi-os4/susfs-task-mmu-compat.py" port-source "$SRC/fs/proc/task_mmu.c"
-git -C "$SRC" diff --check -- fs/proc/task_mmu.c
+# The current pinned SUSFS branch optionally wraps its priority UID filter but
+# leaves the filter-only cred helpers unconditional. Keep upstream semantics:
+# with the option off both the calls and the helpers must be compiled out.
+python3 "$ROOT/scripts/xiaomi-os4/susfs-priority-uid-compat.py" "$SRC/fs/susfs.c"
+git -C "$SRC" diff --check -- fs/proc/task_mmu.c fs/susfs.c
 if find "$SRC" -name '*.rej' -print -quit | grep -q .; then
   echo "::error::SUSFS patch produced reject files"; exit 1
 fi
