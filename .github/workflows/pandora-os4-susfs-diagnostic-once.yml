@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - name: "Inspect pinned old and new SUSFS credentials helpers, without changing source"
         shell: bash
         run: |
@@ -50,4 +51,12 @@ jobs:
                           if lines[j].lstrip().startswith(('#if','#elif','#else','#endif','/*','*')) or ('CONFIG_' in lines[j]):
                               print('%4d %s'%(j+1,lines[j]))
                       if i>1750:break
+          echo "=== UNIT TESTS ==="
+          python3 -m unittest discover -s "$GITHUB_WORKSPACE/scripts/xiaomi-os4" -p 'test_susfs_priority_uid_compat.py' -v
+          echo "=== PINNED SOURCE TRANSFORM ==="
+          for sha in 15890c612d4a2ff37557a0aafe4189451859771b 395a8c0c88d348e9fe7c14f66a456fde4653287c; do
+            file="$RUNNER_TEMP/susfs-$sha.c"
+            python3 "$GITHUB_WORKSPACE/scripts/xiaomi-os4/susfs-priority-uid-compat.py" "$file"
+            python3 "$GITHUB_WORKSPACE/scripts/xiaomi-os4/susfs-priority-uid-compat.py" "$file"
+          done
           PY
