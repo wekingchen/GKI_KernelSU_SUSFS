@@ -51,6 +51,7 @@ jobs:
                           if lines[j].lstrip().startswith(('#if','#elif','#else','#endif','/*','*')) or ('CONFIG_' in lines[j]):
                               print('%4d %s'%(j+1,lines[j]))
                       if i>1750:break
+          PY
           echo "=== UNIT TESTS ==="
           python3 -m unittest discover -s "$GITHUB_WORKSPACE/scripts/xiaomi-os4" -p 'test_susfs_priority_uid_compat.py' -v
           echo "=== PINNED SOURCE TRANSFORM ==="
@@ -59,4 +60,3 @@ jobs:
             python3 "$GITHUB_WORKSPACE/scripts/xiaomi-os4/susfs-priority-uid-compat.py" "$file"
             python3 "$GITHUB_WORKSPACE/scripts/xiaomi-os4/susfs-priority-uid-compat.py" "$file"
           done
-          PY
