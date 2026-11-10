@@ -62,8 +62,8 @@ def transform(source: str) -> tuple[str, str]:
     require(end > feature, "priority UID filter scope has no exact end marker")
     if ENDIF in source:
         require(source.count(IFDEF) == 3 and source.count(ENDIF) == 1
-                and source[sw - len(IFDEF) - 1:sw] == IFDEF + "\\n"
-                and ENDIF + "\\n\\n" + NEXT_SECTION in source,
+                and source[sw - len(IFDEF) - 1:sw] == IFDEF + "\n"
+                and ENDIF + "\n\n" + NEXT_SECTION in source,
                 "partial or divergent existing compatibility guard")
         return source, "ALREADY_GUARDED"
     require(source.count(IFDEF) == 2 and source.count(FEATURE_END) == 2,
