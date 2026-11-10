@@ -32,6 +32,10 @@ def require(condition: bool, message: str) -> None:
         raise CompatibilityError("SUSFS priority UID filter layout changed: " + message)
 
 
+def directive_count(source: str, directive: str) -> int:
+    return sum(line.strip() == directive for line in source.splitlines())
+
+
 def transform(source: str) -> tuple[str, str]:
     require(source.count(HELPER_SWITCH) == 1, "switch helper definition must be unique")
     require(source.count(HELPER_RESTORE) == 1, "restore helper definition must be unique")
@@ -61,12 +65,12 @@ def transform(source: str) -> tuple[str, str]:
     end = source.find(FEATURE_END, feature)
     require(end > feature, "priority UID filter scope has no exact end marker")
     if ENDIF in source:
-        require(source.count(IFDEF) == 3 and source.count(ENDIF) == 1
+        require(directive_count(source, IFDEF) == 3 and source.count(ENDIF) == 1
                 and source[sw - len(IFDEF) - 1:sw] == IFDEF + "\n"
                 and ENDIF + "\n\n" + NEXT_SECTION in source,
                 "partial or divergent existing compatibility guard")
         return source, "ALREADY_GUARDED"
-    require(source.count(IFDEF) == 2 and source.count(FEATURE_END) == 2,
+    require(directive_count(source, IFDEF) == 2 and source.count(FEATURE_END) == 2,
             "unknown priority UID filter preprocessor structure")
     block = source[feature:end]
     require(block.count("orig_cred = susfs_switch_to_ksu_domain();") == 2,
@@ -94,7 +98,7 @@ def transform(source: str) -> tuple[str, str]:
     idx = output.index(NEXT_SECTION)
     require(output[idx - 2:idx] == "\n\n", "unexpected section separator")
     output = output[:idx] + ENDIF + "\n\n" + output[idx:]
-    require(output.count(IFDEF) == 3 and output.count(ENDIF) == 1,
+    require(directive_count(output, IFDEF) == 3 and output.count(ENDIF) == 1,
             "guard insertion failed to preserve upstream feature section")
     return output, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS"
 
