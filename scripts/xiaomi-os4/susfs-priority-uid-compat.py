@@ -60,6 +60,12 @@ def transform(source: str) -> tuple[str, str]:
     require(feature > section, "priority UID filter block must follow helpers")
     end = source.find(FEATURE_END, feature)
     require(end > feature, "priority UID filter scope has no exact end marker")
+    if ENDIF in source:
+        require(source.count(IFDEF) == 3 and source.count(ENDIF) == 1
+                and source[sw - len(IFDEF) - 1:sw] == IFDEF + "\\n"
+                and ENDIF + "\\n\\n" + NEXT_SECTION in source,
+                "partial or divergent existing compatibility guard")
+        return source, "ALREADY_GUARDED"
     require(source.count(IFDEF) == 2 and source.count(FEATURE_END) == 2,
             "unknown priority UID filter preprocessor structure")
     block = source[feature:end]
@@ -75,12 +81,6 @@ def transform(source: str) -> tuple[str, str]:
             "restore function is referenced outside the guarded feature")
     require(source[end:].count("susfs_restore_creds(orig_cred);") == 0,
             "restore function is referenced after guarded feature")
-
-    # Re-running against this isolated source checkout is safe.
-    if source[sw - len(IFDEF) - 1:sw] == IFDEF + "\n":
-        require(ENDIF + "\n\n" + NEXT_SECTION in source,
-                "partial or divergent existing compatibility guard")
-        return source, "ALREADY_GUARDED"
 
     # An upstream-owned fix that changes these definitions must be reviewed,
     # never silently overwritten by a generic regex.
