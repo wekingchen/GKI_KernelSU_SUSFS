@@ -7,18 +7,19 @@ import re
 import zipfile
 from pathlib import Path
 
-BUILD_RE = re.compile(r"^OS([0-9]+(?:\.[0-9]+)+)\.([A-Z0-9]+)$")
+BUILD_RE = re.compile(r"^OS([0-9]+(?:\.[0-9]+)+)\.([A-Z0-9]+)(?:\.D([0-9]{2}))?$")
 
 
 def abort(message: str) -> None:
     raise SystemExit("ERROR: " + message)
 
 
-def build_order(value: str) -> tuple[tuple[int, ...], str]:
+def build_order(value: str) -> tuple[tuple[int, ...], str, int]:
     match = BUILD_RE.fullmatch(value)
     if not match:
         abort("unrecognized HyperOS build ordering: " + value)
-    return tuple(int(x) for x in match.group(1).split(".")), match.group(2)
+    return (tuple(int(x) for x in match.group(1).split(".")),
+            match.group(2), int(match.group(3) or "0"))
 
 
 def build_from_zip(path: Path, fallback: str) -> tuple[str, bool]:
@@ -56,16 +57,21 @@ def file_sha(path: Path) -> str:
 
 def decide(current_zip: Path, incoming_zip: Path, incoming_build: str,
            fallback_build: str, incoming_state: str) -> tuple[str, str]:
-    incoming_order, incoming_channel = build_order(incoming_build)
+    incoming_order, incoming_channel, incoming_revision = build_order(incoming_build)
     current_build, legacy_fallback = build_from_zip(current_zip, fallback_build)
-    current_order, current_channel = build_order(current_build)
+    current_order, current_channel, current_revision = build_order(current_build)
 
     if incoming_channel != current_channel:
         abort("HyperOS build channel differs from current fixed stock-input")
-    if incoming_order < current_order:
+    if (incoming_order, incoming_revision) < (current_order, current_revision):
         abort("incoming HyperOS build is older than current fixed stock-input")
 
     if incoming_order == current_order:
+        if incoming_revision > current_revision:
+            if incoming_state != "SOFTWARE_OTA_REVIEW":
+                abort("software revision must be independently classified before review")
+            # Capture remains in its source Draft; NO fixed input mutation or GKI dispatch.
+            return "SOFTWARE_REVIEW", current_build
         if incoming_build != current_build:
             abort("ambiguous HyperOS build ordering at equal numeric version")
         # The original fixed OS4 input is a legacy two-image ZIP without README.
@@ -86,7 +92,7 @@ def main() -> None:
     parser.add_argument("--incoming-build", required=True)
     parser.add_argument("--fallback-current-build", required=True)
     parser.add_argument("--incoming-state", required=True,
-                        choices=("SAME_PINNED_BUILD", "NEW_OTA_CANDIDATE"))
+                        choices=("SAME_PINNED_BUILD", "NEW_OTA_CANDIDATE", "SOFTWARE_OTA_REVIEW"))
     args = parser.parse_args()
     for item in (args.current_zip, args.incoming_zip):
         if not item.is_file():
@@ -99,6 +105,8 @@ def main() -> None:
     print("OTA_REPLACEMENT_DECISION=" + decision)
     if decision == "ALREADY_CURRENT":
         raise SystemExit(80)
+    if decision == "SOFTWARE_REVIEW":
+        raise SystemExit(81)
 
 
 if __name__ == "__main__":

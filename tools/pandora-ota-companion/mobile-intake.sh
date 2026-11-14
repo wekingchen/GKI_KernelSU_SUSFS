@@ -68,7 +68,7 @@ python3 scripts/xiaomi-os4/inspect-ota-stock-input.py \
   --stock-config .github/config/pandora-os4-stock-input.env \
   --output "$DIR/stock-audit.json"
 STATE="$(jq -r .status "$DIR/stock-audit.json")"
-[[ "$STATE" == "SAME_PINNED_BUILD" || "$STATE" == "NEW_OTA_CANDIDATE" ]] || {
+[[ "$STATE" == "SAME_PINNED_BUILD" || "$STATE" == "NEW_OTA_CANDIDATE" || "$STATE" == "SOFTWARE_OTA_REVIEW" ]] || {
   echo "::error::OTA 来源身份审计阻断，固定输入完全不变"; exit 4;
 }
 
@@ -139,6 +139,11 @@ cat "$DIR/current-version-guard.env" >> "$GITHUB_STEP_SUMMARY" || true
 if [[ "$rc" -eq 80 ]]; then
   echo '与 GitHub 当前固定 OTA 输入一致，无须替换资产。' >> "$GITHUB_STEP_SUMMARY"
   publish_receipt ALREADY_CURRENT
+  exit 0
+fi
+if [[ "$rc" -eq 81 ]]; then
+  echo '软件 OTA 版本证据已保存至手机来源 Draft；底层内核/OEM 输入尚未证明相同，不替换固定 stock-input，不构建 GKI，不修改 LKG。' >> "$GITHUB_STEP_SUMMARY"
+  publish_receipt REVIEW_REQUIRED
   exit 0
 fi
 [[ "$rc" -eq 0 ]] || {

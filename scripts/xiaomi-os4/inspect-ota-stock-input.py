@@ -14,8 +14,8 @@ PAGE = 4096
 MAX_ZIP_SIZE = 950 * 1024 * 1024
 MAX_MEMBER_SIZE = 650 * 1024 * 1024
 MAX_UNCOMPRESSED = 1900 * 1024 * 1024
-BUILD_RE = re.compile(r"^OS[0-9]+\.[0-9.]+[A-Z0-9]+$")
-BUILD_ORDER_RE = re.compile(r"^OS([0-9]+(?:\.[0-9]+)+)\.([A-Z0-9]+)$")
+BUILD_RE = re.compile(r"^OS[0-9]+(?:\.[0-9]+)+\.[A-Z0-9]+(?:\.D[0-9]{2})?$")
+BUILD_ORDER_RE = re.compile(r"^OS([0-9]+(?:\.[0-9]+)+)\.([A-Z0-9]+)(?:\.D([0-9]{2}))?$")
 RELEASE_RE = re.compile(rb"Linux version ([0-9]+\.[0-9]+\.[0-9]+-android[0-9]+-[0-9]+-[^\x00\r\n ]+)")
 UNAME_RE = re.compile(r"^([0-9]+\.[0-9]+\.[0-9]+)-android([0-9]+)-([0-9]+)-[A-Za-z0-9_.-]+$")
 
@@ -24,11 +24,13 @@ def abort(message: str) -> None:
     raise SystemExit("ERROR: " + message)
 
 
-def build_order(value: str) -> tuple[tuple[int, ...], str]:
+def build_order(value: str) -> tuple[tuple[int, ...], str, int]:
+    """Parse firmware build and optional software revision without conflating them."""
     match = BUILD_ORDER_RE.fullmatch(value)
     if not match:
         abort("unrecognized HyperOS build ordering: " + value)
-    return tuple(int(part) for part in match.group(1).split(".")), match.group(2)
+    return (tuple(int(part) for part in match.group(1).split(".")),
+            match.group(2), int(match.group(3) or "0"))
 
 
 def sha(data: bytes) -> str:
@@ -160,13 +162,17 @@ def main() -> None:
     if build == pinned:
         state = "SAME_PINNED_BUILD" if boot_hash == expected_boot else "SAME_BUILD_BOOT_DRIFT_REVIEW"
     else:
-        incoming_order, incoming_channel = build_order(build)
-        pinned_order, pinned_channel = build_order(pinned)
+        incoming_order, incoming_channel, incoming_revision = build_order(build)
+        pinned_order, pinned_channel, pinned_revision = build_order(pinned)
         if incoming_channel != pinned_channel:
             abort("HyperOS build channel changed; require manual stock-input review")
-        if incoming_order <= pinned_order:
+        if incoming_order < pinned_order or (incoming_order == pinned_order
+                                               and incoming_revision <= pinned_revision):
             abort("older/non-forward HyperOS build; refuse automated stock-input replacement")
-        state = "NEW_OTA_CANDIDATE"
+        # D02-like app/software revisions are evidence, not a proved new kernel.
+        # Do not resolve a GKI candidate or overwrite the pinned stock-input.
+        state = ("SOFTWARE_OTA_REVIEW" if incoming_order == pinned_order
+                 else "NEW_OTA_CANDIDATE")
     kmi = f"android{android}-{kmi_generation}"
     can_build = state == "NEW_OTA_CANDIDATE" and android == "16" and kmi_generation == "6" and patch.startswith("6.12.")
     report = {
@@ -194,6 +200,7 @@ def main() -> None:
         "safe_to_flash": False, "fixture_promoted": False, "lkg_unchanged": True,
         "next_gate": ("NOOP_CURRENT_BUILD" if state == "SAME_PINNED_BUILD" else
                       "HUMAN_REVIEW_STOCK_BOOT_DRIFT" if state == "SAME_BUILD_BOOT_DRIFT_REVIEW" else
+                      "SOFTWARE_OTA_EVIDENCE_REVIEW" if state == "SOFTWARE_OTA_REVIEW" else
                       "AUTO_RESOLVE_GKI_CANDIDATE" if can_build else "MANUAL_KMI_SOURCE_REVIEW"),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
