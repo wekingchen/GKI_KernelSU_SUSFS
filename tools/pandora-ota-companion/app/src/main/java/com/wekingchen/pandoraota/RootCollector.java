@@ -112,7 +112,7 @@ final class RootCollector {
             String slot = fields.getOrDefault("slot", "");
             String propSlot = fields.getOrDefault("ro.boot.slot_suffix", "");
             String uname = fields.getOrDefault("uname", "");
-            if (!build.matches("OS[0-9]+\\.[0-9.]+[A-Z0-9]+")) {
+            if (!build.matches("OS[0-9]+(?:\\.[0-9]+)+\\.[A-Z0-9]+(?:\\.D[0-9]{2})?")) {
                 throw new SecurityException("采集包 HyperOS 版本无效");
             }
             if (!("_a".equals(slot) || "_b".equals(slot)) || !slot.equals(propSlot)) {

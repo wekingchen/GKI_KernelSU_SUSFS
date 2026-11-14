@@ -23,7 +23,7 @@ final class ForegroundIntakeTracker {
         this.executor = executor;
     }
     static boolean terminal(String state) {
-        return "ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state);
+        return "ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state) || "REVIEW_REQUIRED".equals(state);
     }
     static long delay(int attempts) {
         return Math.min(60000L, 5000L << Math.min(4, Math.max(0, attempts - 1)));

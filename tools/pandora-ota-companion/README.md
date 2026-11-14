@@ -1,6 +1,6 @@
 # Pandora OTA 助手：当前使用说明
 
-当前版本 **0.13.1-dev**（versionCode 25）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
+当前版本 **0.13.2-dev**（versionCode 26）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
 
 App 的范围：只读采集、GitHub 上传与接收跟踪、在手机填写原真机反馈工作流。电脑负责 fastboot boot；App 不执行 fastboot/flash、重启、切 slot 或分区写入，也不会自动晋升 LKG。
 
@@ -38,7 +38,7 @@ App 的范围：只读采集、GitHub 上传与接收跟踪、在手机填写原
 4. Root 只读采集活动 slot 的 boot/init_boot/vendor_boot/dtbo 和 OEM 模块；强制检查 pandora、build、slot、文件完整性。单个 ZIP 必须小于 950 MiB。
 5. 成功只保留最终 ZIP，删除镜像/TAR/staging；失败删除残缺 ZIP 并尝试清理 staging。上次中断的 staging 在 30 分钟宽限后回收，不误删最终 ZIP。
 
-Root 后 init_boot 明确是诊断快照，不是 OEM 原件；无需把离线原始 init_boot 塞回 App ZIP。boot/OEM .ko 是 GKI/ABI 主输入，但当前快照也不能被无条件视为原厂 pristine 镜像。转换后的八文件 xm.zip 明确保留来源标签。
+`.D02` 是更新页面标识，不保证 `ro.mi.os.version.incremental` 一定带该后缀；应以升级后真实 getprop 和 fingerprint 为准。若属性包含 `.D02`，采集和上传可识别该格式，但同主版本软件修订先保存来源证据并转人工核验，不自动宣称内核没有变化；若属性没有变化，则继续沿用严格的同 build / boot 漂移安全检查。\n\nRoot 后 init_boot 明确是诊断快照，不是 OEM 原件；无需把离线原始 init_boot 塞回 App ZIP。boot/OEM .ko 是 GKI/ABI 主输入，但当前快照也不能被无条件视为原厂 pristine 镜像。转换后的八文件 xm.zip 明确保留来源标签。
 
 ### 上传、状态与本地清理
 
@@ -49,11 +49,12 @@ Root 后 init_boot 明确是诊断快照，不是 OEM 原件；无需把离线�
 | PENDING | 等待本附件 ID / SHA 对应的服务端回执，保留本地 ZIP |
 | ACCEPTED | 新输入已接收，不代表 ABI/KMI、可启动或 LKG 通过 |
 | ALREADY_CURRENT | 与当前固定输入一致，无需重复分析 |
+| REVIEW_REQUIRED | 同一系统主版本下的 `.D02` 类软件修订证据已保存至原 Draft；尚未证明底层内核/OEM 模块相同，不替换 stock-input、不触发 GKI、不改变 LKG |
 | REJECTED | 身份或内容被安全拒收，远端采集附件保留 |
 
 前台轮询从 5 秒退避至最多 60 秒；退出前台暂停、返回恢复；网络失败不伪造终态。通知失败点「重新通知」，只核验已上传附件并重发通知，不重新传整个 ZIP。
 
-本地删除必须同时满足：上传确认、通知成功、接收终态。删除前再次在线核对远端 Release/附件 ID、名称、大小、上传状态及 SHA-256，再核对本地 SHA；任何网络错误或不一致都停止。REJECTED 不等于上传失败，满足这些条件后用户仍可主动删本地副本。不会删除远端 Draft、固定 xm.zip 或 LKG。
+本地删除必须同时满足：上传确认、通知成功、接收终态。删除前再次在线核对远端 Release/附件 ID、名称、大小、上传状态及 SHA-256，再核对本地 SHA；任何网络错误或不一致都停止。REVIEW_REQUIRED 与 REJECTED 都不等于上传失败，满足这些条件后用户仍可主动删本地副本；建议先离线保存需要的审计证据。不会删除远端 Draft、固定 xm.zip 或 LKG。
 
 查看草稿时重新核验远端附件，再打开私有草稿编辑 URL `/releases/edit/...`；`/releases/tag/untagged-*` 的 404 不代表附件丢失。浏览器需登录有仓库权限的账号，PAT 不放入浏览器 URL。
 
@@ -103,5 +104,6 @@ gradle --no-daemon :app:assembleDebug
 | 0.12.1 | 修订帮助说明及模拟器截图工具 |
 | 0.12.2 | 修复成功响应被静默截断至 16 KiB 的问题；完整读取 GitHub JSON，超过 2 MiB 明确失败，错误提示最多保留 16 KiB |
 | 0.13 | 加入来源绑定的全链路阶段快照卡及相应帮助；服务器配套增加候选/固定输入恢复入口。后续维护补齐模拟器 Launcher 弹窗处理、页面就绪确认与黑屏拒收 |
+| 0.13.2 | 支持严格的 `.Dxx` 软件修订格式；服务端分类为待核验而非自动声明无内核变化；增加 `REVIEW_REQUIRED` 回执、前台停止轮询及本地安全删除适配 |
 
 HTTP User-Agent 的版本字段直接取构建生成的 `BuildConfig.VERSION_NAME`，随 App 版本自动更新。

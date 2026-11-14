@@ -321,7 +321,7 @@ final class GitHubUploader {
             throw new SecurityException("服务器状态对应不同附件，不能视为本次接收结果");
         }
         if ("ACCEPTED".equals(state) || "ALREADY_CURRENT".equals(state)
-                || "REJECTED".equals(state)) return state;
+                || "REJECTED".equals(state) || "REVIEW_REQUIRED".equals(state)) return state;
         return "PENDING";
     }
 

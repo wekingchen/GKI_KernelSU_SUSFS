@@ -185,7 +185,8 @@ final class SecretStore {
 
     void recordIntake(String state) throws Exception {
         if (!("PENDING".equals(state) || "ACCEPTED".equals(state)
-                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state))) {
+                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state)
+                || "REVIEW_REQUIRED".equals(state))) {
             throw new IllegalArgumentException("未知 OTA 接收状态");
         }
         String path = lastArchive();
