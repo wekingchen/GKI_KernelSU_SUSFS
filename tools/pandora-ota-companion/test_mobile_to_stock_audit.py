@@ -151,6 +151,28 @@ class MobileIntakeIntegration(unittest.TestCase):
             self.assertIn("same HyperOS build but stock boot changed",
                           p.stderr + p.stdout)
 
+    def test_real_capture_contract_accepts_d02_as_review_not_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source, xm = base / "mobile.zip", base / "mobile-xm.zip"
+            config, report = base / "stock.env", base / "report.json"
+            new_build = "OS4.0.5.0.XBLCNXM.D02"
+            capture(source, build=new_build)
+            result = normalize(source, xm)
+            self.assertEqual(result["build"], new_build)
+            config.write_text(
+                "OS4_STOCK_INPUT_BUILD=OS4.0.5.0.XBLCNXM\n"
+                "OS4_STOCK_BOOT_SHA256=" + "0" * 64 + "\n", encoding="utf-8")
+            run = subprocess.run(
+                [sys.executable, str(STOCK_AUDIT), "--zip", str(xm),
+                 "--stock-config", str(config), "--output", str(report)],
+                check=False, text=True, capture_output=True)
+            self.assertEqual(0, run.returncode, run.stderr + run.stdout)
+            data = json.loads(report.read_text())
+            self.assertEqual("SOFTWARE_OTA_REVIEW", data["status"])
+            self.assertFalse(data["may_build_gki_candidate"])
+            self.assertFalse(data["safe_to_flash"])
+
 
 if __name__ == "__main__":
     unittest.main()

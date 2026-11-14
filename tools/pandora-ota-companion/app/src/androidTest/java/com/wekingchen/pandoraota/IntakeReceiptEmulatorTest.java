@@ -49,6 +49,17 @@ public class IntakeReceiptEmulatorTest {
     }
 
     @Test
+    public void d02ReviewReceiptRequiresExactSourceIdentity() throws Exception {
+        String body = "MOBILE_OTA_INTAKE=REVIEW_REQUIRED\n"
+                + "MOBILE_ASSET_ID=567\nMOBILE_SOURCE_SHA256=" + SHA + "\n";
+        assertEquals("REVIEW_REQUIRED", GitHubUploader.parseIntakeReceipt(draft(body), 567, SHA));
+        try {
+            GitHubUploader.parseIntakeReceipt(draft(body), 568, SHA);
+            fail("different asset must not be classified as review");
+        } catch (SecurityException expected) { }
+    }
+
+    @Test
     public void neverTrustNonDraftAsIntakeReceipt() throws Exception {
         JSONObject release = draft("MOBILE_OTA_INTAKE=ACCEPTED\n"
                 + "MOBILE_ASSET_ID=567\nMOBILE_SOURCE_SHA256=" + SHA + "\n");

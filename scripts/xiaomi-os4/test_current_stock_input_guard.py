@@ -80,6 +80,72 @@ class CurrentStockInputGuardTest(unittest.TestCase):
                          self.fallback, "NEW_OTA_CANDIDATE")
         self.assertIn("channel differs", str(ctx.exception))
 
+    def test_d02_software_revision_is_evidence_only(self):
+        stock_zip(self.current, self.fallback, b"current")
+        stock_zip(self.incoming, self.fallback + ".D02", b"incoming")
+        decision, current = GUARD.decide(
+            self.current, self.incoming, self.fallback + ".D02",
+            self.fallback, "SOFTWARE_OTA_REVIEW")
+        self.assertEqual(("SOFTWARE_REVIEW", self.fallback), (decision, current))
+
+    def test_d02_mislabeled_candidate_is_still_evidence_only(self):
+        stock_zip(self.current, self.fallback)
+        stock_zip(self.incoming, self.fallback + ".D02")
+        decision, current = GUARD.decide(
+            self.current, self.incoming, self.fallback + ".D02",
+            self.fallback, "NEW_OTA_CANDIDATE")
+        self.assertEqual(("SOFTWARE_REVIEW", self.fallback), (decision, current))
+
+    def test_d02_d01_and_base_rollbacks_are_blocked(self):
+        stock_zip(self.current, self.fallback + ".D02")
+        for older in (self.fallback, self.fallback + ".D01"):
+            stock_zip(self.incoming, older)
+            with self.assertRaises(SystemExit) as ctx:
+                GUARD.decide(self.current, self.incoming, older,
+                             self.fallback, "SOFTWARE_OTA_REVIEW")
+            self.assertIn("older than current fixed stock-input", str(ctx.exception))
+
+    def test_d02_to_new_firmware_build_is_full_ota(self):
+        stock_zip(self.current, self.fallback + ".D02")
+        newer = "OS4.0.6.0.XBLCNXM"
+        stock_zip(self.incoming, newer)
+        decision, current = GUARD.decide(
+            self.current, self.incoming, newer, self.fallback, "NEW_OTA_CANDIDATE")
+        self.assertEqual(("FORWARD", self.fallback + ".D02"), (decision, current))
+
+    def test_same_d02_different_content_still_requires_manual_review(self):
+        stock_zip(self.current, self.fallback + ".D02", b"original")
+        stock_zip(self.incoming, self.fallback + ".D02", b"modified")
+        with self.assertRaises(SystemExit) as ctx:
+            GUARD.decide(self.current, self.incoming, self.fallback + ".D02",
+                         self.fallback, "SOFTWARE_OTA_REVIEW")
+        self.assertIn("different canonical ZIP bytes", str(ctx.exception))
+
+    def test_malformed_software_suffix_is_not_accepted(self):
+        for invalid in (self.fallback + ".D2", self.fallback + ".D002",
+                        self.fallback + ".D02.EXTRA", self.fallback + ".XYZ"):
+            with self.assertRaises(SystemExit):
+                GUARD.build_order(invalid)
+
+    def test_software_review_cannot_replace_older_full_kernel_build(self):
+        stock_zip(self.current, "OS4.0.4.0.XBLCNXM")
+        stock_zip(self.incoming, self.fallback + ".D02")
+        with self.assertRaises(SystemExit) as ctx:
+            GUARD.decide(self.current, self.incoming, self.fallback + ".D02",
+                         self.fallback, "SOFTWARE_OTA_REVIEW")
+        self.assertIn("cannot auto-replace", str(ctx.exception))
+
+    def test_after_full_ota_current_release_overrides_old_pinned_config(self):
+        current_build = "OS4.0.7.0.XBLCNXM"
+        incoming_build = current_build + ".D02"
+        stock_zip(self.current, current_build)
+        stock_zip(self.incoming, incoming_build)
+        decision, actual_current = GUARD.decide(
+            self.current, self.incoming, incoming_build,
+            self.fallback, "NEW_OTA_CANDIDATE")
+        self.assertEqual(("SOFTWARE_REVIEW", current_build),
+                         (decision, actual_current))
+
 
 if __name__ == "__main__":
     unittest.main()

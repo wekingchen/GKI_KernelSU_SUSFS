@@ -35,6 +35,14 @@ public class PreflightEmulatorTest {
                 CapturePreflight.buildIdentity("OS4.0.5.0.XBLCNXM", "fingerprint-b")));
         assertFalse(CapturePreflight.buildChanged(current, CapturePreflight.buildIdentity("未知版本", "x")));
     }
+    @Test public void d02BuildSyntaxIsAcceptedButMalformedSuffixFailsClosed() {
+        assertTrue(RootCollector.isValidHyperOsBuild("OS4.0.5.0.XBLCNXM"));
+        assertTrue(RootCollector.isValidHyperOsBuild("OS4.0.5.0.XBLCNXM.D02"));
+        assertFalse(RootCollector.isValidHyperOsBuild("OS4.0.5.0.XBLCNXM.D2"));
+        assertFalse(RootCollector.isValidHyperOsBuild("OS4.0.5.0.XBLCNXM.D02.EXTRA"));
+        assertFalse(RootCollector.isValidHyperOsBuild("OS4.0.5.0.XBLCNXM.D002"));
+        assertFalse(RootCollector.isValidHyperOsBuild(null));
+    }
     @Test public void acknowledgementSurvivesStoreReload() {
         android.content.Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
         android.content.SharedPreferences prefs = ctx.getSharedPreferences("private_config", 0);

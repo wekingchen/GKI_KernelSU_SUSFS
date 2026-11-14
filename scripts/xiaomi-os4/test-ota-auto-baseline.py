@@ -118,6 +118,26 @@ class AutoOTAGuards(unittest.TestCase):
         self.assertFalse(x["safe_to_flash"])
         self.assertIn("OTA_GKI_TAG=", env.read_text())
 
+    def test_d02_is_recorded_without_gki_build(self):
+        result = self.run_inspect(self.make_zip(build="OS4.0.5.0.XBLCNXM.D02"))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        report = json.loads(self.report.read_text())
+        self.assertEqual("SOFTWARE_OTA_REVIEW", report["status"])
+        self.assertEqual("SOFTWARE_OTA_EVIDENCE_REVIEW", report["next_gate"])
+        self.assertFalse(report["may_build_gki_candidate"])
+        self.assertFalse(report["safe_to_flash"])
+
+    def test_d02_older_or_malformed_software_revision_is_blocked(self):
+        for build in ("OS4.0.5.0.XBLCNXM.D2", "OS4.0.5.0.XBLCNXM.D02.EXTRA"):
+            result = self.run_inspect(self.make_zip(build=build))
+            self.assertNotEqual(result.returncode, 0)
+        self.cfg.write_text(
+            "OS4_STOCK_INPUT_BUILD=OS4.0.5.0.XBLCNXM.D03\n"
+            "OS4_STOCK_BOOT_SHA256=" + "f" * 64 + "\n", encoding="utf-8")
+        result = self.run_inspect(self.make_zip(build="OS4.0.5.0.XBLCNXM.D02"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("older/non-forward HyperOS build", result.stderr + result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

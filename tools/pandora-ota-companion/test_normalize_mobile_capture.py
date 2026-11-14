@@ -148,6 +148,21 @@ class MobileNormalizerTest(unittest.TestCase):
             normalize(self.capture, self.output)
         self.assertEqual(self.output.read_bytes(), b"KEEP")
 
+    def test_d02_capture_is_valid_and_keeps_full_build_identity(self):
+        manifest = BASE.replace("OS4.0.6.0.XBLCNXM", "OS4.0.5.0.XBLCNXM.D02")
+        create_capture(self.capture, manifest=manifest)
+        result = normalize(self.capture, self.output)
+        self.assertEqual(result["build"], "OS4.0.5.0.XBLCNXM.D02")
+        with zipfile.ZipFile(self.output) as archive:
+            self.assertIn(b"build=OS4.0.5.0.XBLCNXM.D02",
+                          archive.read("README.txt"))
+
+    def test_malformed_suffix_fails_closed(self):
+        manifest = BASE.replace("OS4.0.6.0.XBLCNXM", "OS4.0.5.0.XBLCNXM.D2")
+        create_capture(self.capture, manifest=manifest)
+        with self.assertRaisesRegex(ValueError, "invalid HyperOS build"):
+            normalize(self.capture, self.output)
+
 
 if __name__ == "__main__":
     unittest.main()

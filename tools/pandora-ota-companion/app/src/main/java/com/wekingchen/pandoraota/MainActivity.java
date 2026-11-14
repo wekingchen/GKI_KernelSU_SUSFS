@@ -722,7 +722,7 @@ public final class MainActivity extends Activity {
                 "为本 App 单独授权 Root；读取活动 slot 四个启动分区及 OEM 模块。上传到 Draft，保持前台；打包后清理中间文件，只留最终 ZIP。"));
         steps.addView(guideDivider());
         steps.addView(guideStep("4", R.drawable.ic_external_simple, "自动跟踪接收",
-                "前台自动查询 PENDING → ACCEPTED / ALREADY_CURRENT / REJECTED，后台暂停、返回恢复。通知失败点重新通知，不重传整个 ZIP；接收成功不等于 ABI 或开机通过。"));
+                "前台自动查询 PENDING → ACCEPTED / ALREADY_CURRENT / REVIEW_REQUIRED / REJECTED，后台暂停、返回恢复。软件 OTA 待核验时保留附件、不替换内核输入。通知失败点重新通知，不重传整个 ZIP；接收成功不等于 ABI 或开机通过。"));
         steps.addView(guideDivider());
         steps.addView(guideStep("5", R.drawable.ic_repo, "电脑临时启动，手机反馈",
                 "候选和 OEM ABI 全绿后，由电脑 fastboot boot。手机测试后在工作台「真机测试反馈」选择候选，自动读取设备、build、启动状态、uname 和模块，人工确认功能并提交原工作流。"));
@@ -1123,6 +1123,7 @@ public final class MainActivity extends Activity {
             case "ACCEPTED": return "新输入已接收（不是 ABI/KMI 或真机验证通过）";
             case "ALREADY_CURRENT": return "与固定输入一致，无须重复分析";
             case "REJECTED": return "OTA 身份门禁未通过，远端采集附件已保留";
+            case "REVIEW_REQUIRED": return "软件 OTA 证据已保留 · 内核与 OEM 输入待核验（未替换固定基线）";
             default: return "等待后端接收结果 · 前台自动跟踪";
         }
     }
@@ -1186,7 +1187,8 @@ public final class MainActivity extends Activity {
         File file = selectedFile();
         String intake = store.intakeState();
         boolean intakeTerminal = "ACCEPTED".equals(intake)
-                || "ALREADY_CURRENT".equals(intake) || "REJECTED".equals(intake);
+                || "ALREADY_CURRENT".equals(intake) || "REJECTED".equals(intake)
+                || "REVIEW_REQUIRED".equals(intake);
         if (file == null || !store.isUploaded(
                 new SecretStore.FileInfo(file.getAbsolutePath(), file.length()))
                 || !store.hasToken() || store.lastAssetId() <= 0) {
@@ -1198,12 +1200,12 @@ public final class MainActivity extends Activity {
             return;
         }
         if (!intakeTerminal) {
-            notifyMessage("后端接收结果尚未完成，请先查询到 ACCEPTED / ALREADY_CURRENT / REJECTED");
+            notifyMessage("后端接收结果尚未完成，请先查询到终态（含 REVIEW_REQUIRED）");
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("确认删除本地文件？")
-                .setMessage(file.getName() + "\n\n后端接收已得到终态；即使 OTA 审计为 REJECTED，也可以清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
+                .setMessage(file.getName() + "\n\n后端接收已得到终态；REVIEW_REQUIRED / REJECTED 仍会保留 GitHub 远端证据，核验哈希后才允许手动清理本地副本。操作前将在线核验 GitHub 附件 ID、大小和 SHA-256。\n\n仅删除手机上的 ZIP，远端采集附件保持不变。"
                         + "本地删除后无法在应用内恢复。")
                 .setNegativeButton("保留文件", null)
                 .setPositiveButton("删除本地 ZIP", (dialog, which) ->
@@ -1323,7 +1325,8 @@ public final class MainActivity extends Activity {
         intakeSummary.setVisibility(uploaded ? View.VISIBLE : View.GONE);
         chooseArchiveButton.setEnabled(!busy && store.archives().length > 0);
         boolean intakeTerminal = "ACCEPTED".equals(state)
-                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state);
+                || "ALREADY_CURRENT".equals(state) || "REJECTED".equals(state)
+                || "REVIEW_REQUIRED".equals(state);
         deleteButton.setEnabled(!busy && uploaded && store.hasToken()
                 && store.lastAssetId() > 0 && store.dispatched() && intakeTerminal);
         checkIntakeButton.setVisibility(uploaded && store.dispatched()
@@ -1340,13 +1343,14 @@ public final class MainActivity extends Activity {
         if (!busy && uploaded) {
             uploadStage.setText(store.intakeAccepted() ? "已接收 · 校验完成"
                     : "REJECTED".equals(state) ? "已上传 · 后端安全拒收"
+                    : "REVIEW_REQUIRED".equals(state) ? "已上传 · 软件 OTA 证据待核验"
                     : "已上传 · 等待后端审计");
             uploadBar.setProgress(100);
             percent.setText("100%");
             uploadNumbers.setText(size(file.length()) + " / " + size(file.length()));
             uploadSpeed.setText("GitHub 附件已保存");
             intakeSummary.setText("后端状态  ·  " + intakeLabel(state));
-            intakeSummary.setTextColor("REJECTED".equals(state) ? WARNING : TEAL);
+            intakeSummary.setTextColor("REJECTED".equals(state) || "REVIEW_REQUIRED".equals(state) ? WARNING : TEAL);
             receiptState.setText("Release #" + store.lastReleaseId()
                     + " · 附件 #" + store.lastAssetId()
                     + "\nSHA-256：" + store.uploadedSha256(
