@@ -88,12 +88,13 @@ class CurrentStockInputGuardTest(unittest.TestCase):
             self.fallback, "SOFTWARE_OTA_REVIEW")
         self.assertEqual(("SOFTWARE_REVIEW", self.fallback), (decision, current))
 
-    def test_d02_cannot_be_mislabeled_as_full_kernel_candidate(self):
+    def test_d02_mislabeled_candidate_is_still_evidence_only(self):
         stock_zip(self.current, self.fallback)
         stock_zip(self.incoming, self.fallback + ".D02")
-        with self.assertRaises(SystemExit):
-            GUARD.decide(self.current, self.incoming, self.fallback + ".D02",
-                         self.fallback, "NEW_OTA_CANDIDATE")
+        decision, current = GUARD.decide(
+            self.current, self.incoming, self.fallback + ".D02",
+            self.fallback, "NEW_OTA_CANDIDATE")
+        self.assertEqual(("SOFTWARE_REVIEW", self.fallback), (decision, current))
 
     def test_d02_d01_and_base_rollbacks_are_blocked(self):
         stock_zip(self.current, self.fallback + ".D02")
