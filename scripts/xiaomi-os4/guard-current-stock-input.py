@@ -71,8 +71,11 @@ def decide(current_zip: Path, incoming_zip: Path, incoming_build: str,
 
     if incoming_order == current_order:
         if incoming_revision > current_revision:
-            if incoming_state != "SOFTWARE_OTA_REVIEW":
-                abort("software revision must be independently classified before review")
+            if incoming_state not in ("SOFTWARE_OTA_REVIEW", "NEW_OTA_CANDIDATE"):
+                abort("software revision was not classified as a supported OTA")
+            # The pinned legacy config may predate the current full OTA. Even when
+            # inspector called it NEW_OTA_CANDIDATE, the CURRENT fixed Release
+            # proves this is only a higher Dxx revision of the same build.
             # Capture remains in its source Draft; NO fixed input mutation or GKI dispatch.
             return "SOFTWARE_REVIEW", current_build
         if incoming_build != current_build:

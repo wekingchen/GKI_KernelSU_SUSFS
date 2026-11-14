@@ -134,6 +134,17 @@ class CurrentStockInputGuardTest(unittest.TestCase):
                          self.fallback, "SOFTWARE_OTA_REVIEW")
         self.assertIn("cannot auto-replace", str(ctx.exception))
 
+    def test_after_full_ota_current_release_overrides_old_pinned_config(self):
+        current_build = "OS4.0.7.0.XBLCNXM"
+        incoming_build = current_build + ".D02"
+        stock_zip(self.current, current_build)
+        stock_zip(self.incoming, incoming_build)
+        decision, actual_current = GUARD.decide(
+            self.current, self.incoming, incoming_build,
+            self.fallback, "NEW_OTA_CANDIDATE")
+        self.assertEqual(("SOFTWARE_REVIEW", current_build),
+                         (decision, actual_current))
+
 
 if __name__ == "__main__":
     unittest.main()
