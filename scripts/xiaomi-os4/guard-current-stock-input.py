@@ -66,6 +66,9 @@ def decide(current_zip: Path, incoming_zip: Path, incoming_build: str,
     if (incoming_order, incoming_revision) < (current_order, current_revision):
         abort("incoming HyperOS build is older than current fixed stock-input")
 
+    if incoming_state == "SOFTWARE_OTA_REVIEW" and incoming_order != current_order:
+        abort("software-revision evidence cannot auto-replace a different kernel build")
+
     if incoming_order == current_order:
         if incoming_revision > current_revision:
             if incoming_state != "SOFTWARE_OTA_REVIEW":

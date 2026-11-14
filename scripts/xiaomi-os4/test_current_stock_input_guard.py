@@ -126,6 +126,14 @@ class CurrentStockInputGuardTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 GUARD.build_order(invalid)
 
+    def test_software_review_cannot_replace_older_full_kernel_build(self):
+        stock_zip(self.current, "OS4.0.4.0.XBLCNXM")
+        stock_zip(self.incoming, self.fallback + ".D02")
+        with self.assertRaises(SystemExit) as ctx:
+            GUARD.decide(self.current, self.incoming, self.fallback + ".D02",
+                         self.fallback, "SOFTWARE_OTA_REVIEW")
+        self.assertIn("cannot auto-replace", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

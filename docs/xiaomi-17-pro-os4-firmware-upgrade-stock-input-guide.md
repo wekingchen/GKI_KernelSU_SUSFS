@@ -6,8 +6,8 @@
 
 | 你的情况 | 操作 |
 | --- | --- |
-| 系统 build 没变，只想更新组件或自选功能 | 不用重复采集，直接运行 OS4 自定义内核 |
-| 升级到另一个 HyperOS OTA build | 重新采集，建立该版本纯 GKI 基线 |
+| 系统 build 没变，只想更新组件或自选功能 | 日常编译无需重复采集；若要验收真实 OTA 助手，可以单独采集并保留证据，但同 build / boot 漂移安全门禁仍生效 |
+| 升级到另一个 HyperOS OTA build | 重新采集；仅完整内核 OTA 经 ABI/KMI 后才建立新 GKI 基线；同主版本 `.D02` 类软件修订只记录证据并待核验，不自动替换固定输入 |
 | 只是重新安装 App 或换 PAT | 不用重采；固定签名覆盖安装保留原数据 |
 
 ## 二、新 OTA 之后先保留恢复点
@@ -34,7 +34,7 @@ App 新 build / fingerprint 提醒的「已了解」只表示读过说明，不�
 2. 每次采集/上传前在线核验 GitHub：真实读取仓库、创建/核对/删除专属空草稿、发送不会触发接收的权限探针。仅显示已配置不代表实时写权限通过；清理失败会给出空草稿 ID。
 3. 只读采集活动 slot 的 boot/init_boot/vendor_boot/dtbo 与 OEM 模块，生成最终 ZIP；完成后清理临时镜像/TAR/staging，失败清理残缺 ZIP 并保留明确错误。
 4. 上传到专用 Draft Release，不要 Publish。显示真实字节进度；服务器确认附件后保存回执，再通知手机接收工作流。保持 App 前台及网络稳定，不支持断点续传。
-5. 前台自动查询接收结果，后台暂停、返回恢复。PENDING 保留 ZIP；ACCEPTED 只说明输入接收，后续 GKI/ABI 仍需继续；ALREADY_CURRENT 不必重复；REJECTED 说明门禁未通过，远端原始附件仍在。
+5. 前台自动查询接收结果，后台暂停、返回恢复。PENDING 保留 ZIP；ACCEPTED 只说明输入接收，后续 GKI/ABI 仍需继续；ALREADY_CURRENT 不必重复；REVIEW_REQUIRED 表示软件 OTA 来源证据已保存、待核对内核/OEM 差异且不替换 stock-input；REJECTED 说明门禁未通过，远端原始附件仍在。
 6. 通知失败使用「重新通知」，不重复上传。记录页可切换历史 ZIP；通知成功且接收到终态后，用户可主动核验并清理本地 ZIP。远端附件名称/ID/大小/SHA 和本地 SHA 必须一致，网络失败不能删除。
 
 手机包内的 Root 后 init_boot 是诊断快照，不能替代离线原件；boot 与 OEM .ko 是内核/ABI 主输入，但并非因为 init_boot 已修补就自动证明 boot 原厂。当前转换仍维持八文件 xm.zip 契约。
@@ -101,5 +101,7 @@ Windows 10/11 可运行仓库最新 [`collect-pandora-stock-input.cmd`](../scrip
 人工更新固定 Release 前，必须完整备份旧附件并核验新输入；不能先删除唯一恢复输入，再验证新 ZIP。只更换附件未必触发 edited，可等北京时间 04:41 每日补查，或手动运行 OTA 主流程。Windows 新 OTA 实机采集和真正新 OTA 全链路仍待实物验证。
 
 ## 八、恢复与验证边界
+
+软件更新页面的 `.D02` 标记不保证 `ro.mi.os.version.incremental` 含相同后缀。验收需要真实的 getprop、fingerprint 与 slot；`REVIEW_REQUIRED` 不能解读为内核不变、ABI 通过或新 LKG。
 
 当前 Gen 4 和旧 Gen 3 Release 只适用于各自已记录的系统，不是跨版本恢复包。下载并核验方式见 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md)。App 既有采集/上传/本地删除已真机验证，新增预检、状态轮询和反馈表单已通过模拟器/契约；不能因此宣称另一版真实 OTA 已端到端成功。
