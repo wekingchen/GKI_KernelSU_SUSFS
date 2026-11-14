@@ -17,7 +17,7 @@ public class ForegroundIntakeTrackerTest {
         void next() { assertFalse(tasks.isEmpty()); tasks.remove(0).run(); }
     }
     @Test public void pendingTransitionsToEveryTerminalAndStops() {
-        for (String terminal : Arrays.asList("ACCEPTED", "ALREADY_CURRENT", "REJECTED")) {
+        for (String terminal : Arrays.asList("ACCEPTED", "ALREADY_CURRENT", "REVIEW_REQUIRED", "REJECTED")) {
             Scheduler s = new Scheduler();
             ForegroundIntakeTracker t = new ForegroundIntakeTracker(s, Runnable::run);
             List<String> result = new ArrayList<>(); int[] queryCount = {0};
