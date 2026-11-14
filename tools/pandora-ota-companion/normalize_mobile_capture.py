@@ -30,7 +30,7 @@ ROOTS = (
     "system_dlkm/lib/modules/",
 )
 BOOT_PARTS = ("boot", "init_boot", "vendor_boot", "dtbo")
-BUILD_PATTERN = re.compile(r"OS[0-9]+\.[0-9.]+[A-Z0-9]+\Z")
+BUILD_PATTERN = re.compile(r"OS[0-9]+(?:\.[0-9]+)+\.[A-Z0-9]+(?:\.D[0-9]{2})?\Z")
 KO_PATTERN = re.compile(r"\.ko(?:\.(?:zst|xz|gz))?\Z", re.I)
 UNAME_PATTERN = re.compile(r"6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+\Z")
 
