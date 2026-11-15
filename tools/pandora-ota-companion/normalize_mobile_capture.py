@@ -81,8 +81,7 @@ def parse_manifest(content: bytes) -> dict[str, str]:
         if (not re.fullmatch(r"D[0-9]{2}", revision)
                 or result.get("software_revision_source") != "USER_CONFIRMED_UPDATE_SCREEN"
                 or result.get("software_revision_base_build")
-                    != result.get("ro.mi.os.version.incremental")
-                or result.get("ro.mi.os.version.incremental", "").endswith("." + revision)):
+                    != result.get("ro.mi.os.version.incremental")):
             fail("invalid or unbound user-claimed software revision")
         if re.search(r"\.D[0-9]{2}\Z", result.get("ro.mi.os.version.incremental", "")):
             fail("manual software revision cannot override property-reported revision")
