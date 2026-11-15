@@ -100,7 +100,7 @@ class CurrentStockInputGuardTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             GUARD.decide(self.current, self.incoming, self.fallback,
                          self.fallback, "SOFTWARE_OTA_REVIEW")
-        self.assertIn("requires explicit bound user testimony", str(ctx.exception))
+        self.assertIn("different canonical ZIP bytes", str(ctx.exception))
 
     def test_manual_revision_does_not_bypass_current_full_build_rollback(self):
         stock_zip(self.current, "OS4.0.7.0.XBLCNXM")
