@@ -52,6 +52,17 @@ public class PreflightEmulatorTest {
         assertFalse(RootCollector.isValidOptionalSoftwareRevision("OS4.0.5.0.XBLCNXM.D02"));
         assertFalse(RootCollector.isValidOptionalSoftwareRevision(null));
     }
+    @Test public void captureIdentityLabelsManualD02WithoutChangingBuild() {
+        RootCollector.CaptureIdentity d02 = new RootCollector.CaptureIdentity(
+                "OS4.0.5.0.XBLCNXM", "_a", "6.12.69-android16-6-os4r62-custom-4k", "D02");
+        assertEquals("OS4.0.5.0.XBLCNXM", d02.build);
+        assertEquals("D02", d02.softwareRevision);
+        assertEquals("OS4.0.5.0.XBLCNXM · 软件 D02（更新页确认） · slot A",
+                d02.displayLabel());
+        RootCollector.CaptureIdentity plain = new RootCollector.CaptureIdentity(
+                "OS4.0.5.0.XBLCNXM", "_a", "6.12.69-android16-6-os4r62-custom-4k", "");
+        assertEquals("OS4.0.5.0.XBLCNXM · slot A", plain.displayLabel());
+    }
     @Test public void acknowledgementSurvivesStoreReload() {
         android.content.Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
         android.content.SharedPreferences prefs = ctx.getSharedPreferences("private_config", 0);
