@@ -719,7 +719,7 @@ public final class MainActivity extends Activity {
                 "设置仓库和 PAT：采集/上传需 Contents 读写，手机反馈另需 Actions 读写。设置可实时验证 GitHub；采集目录不足 1 GiB 阻止，1 GiB 至不足 2 GiB 警告。"));
         steps.addView(guideDivider());
         steps.addView(guideStep("3", R.drawable.ic_file_zip, "只读采集并上传",
-                "为本 App 单独授权 Root；读取活动 slot 四个启动分区及 OEM 模块。上传到 Draft，保持前台；打包后清理中间文件，只留最终 ZIP。"));
+                "为本 App 单独授权 Root；若更新页面显示 D02 但系统 Build 不变，采集前在「软件修订号」确认 D02。此声明仅供人工核验，不伪造系统属性。再读取活动 slot 四个启动分区及 OEM 模块，上传到 Draft；打包后清理中间文件。"));
         steps.addView(guideDivider());
         steps.addView(guideStep("4", R.drawable.ic_external_simple, "自动跟踪接收",
                 "前台自动查询 PENDING → ACCEPTED / ALREADY_CURRENT / REVIEW_REQUIRED / REJECTED，后台暂停、返回恢复。软件 OTA 待核验时保留附件、不替换内核输入。通知失败点重新通知，不重传整个 ZIP；接收成功不等于 ABI 或开机通过。"));
