@@ -943,9 +943,9 @@ public final class MainActivity extends Activity {
                     if (CapturePreflight.space(bytes) == CapturePreflight.Space.WARN) {
                         new AlertDialog.Builder(this).setTitle("采集空间偏少")
                                 .setMessage("采集目录可用空间介于 1–2 GiB，采集及压缩可能耗尽空间。建议先清理旧文件。")
-                                .setPositiveButton("继续采集", (d, w) -> collectAfterPreflight())
+                                .setPositiveButton("继续采集", (d, w) -> promptSoftwareRevisionBeforeCapture())
                                 .setNegativeButton("先清理空间", null).show();
-                    } else collectAfterPreflight();
+                    } else promptSoftwareRevisionBeforeCapture();
                 });
             } catch (Exception e) {
                 String error = safeMessage(e);
@@ -959,10 +959,42 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void collectAfterPreflight() {
+    private void promptSoftwareRevisionBeforeCapture() {
+        if (!foreground || isFinishing()) return;
+        if (RootCollector.currentOsVersion().matches(".*\\.D[0-9]{2}$")) {
+            collectAfterPreflight("");
+            return;
+        }
+        EditText revision = new EditText(this);
+        revision.setSingleLine(true);
+        revision.setHint("例如 D02");
+        revision.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        LinearLayout wrapper = vertical();
+        wrapper.setPadding(dp(24), dp(2), dp(24), dp(2));
+        wrapper.addView(revision);
+        new AlertDialog.Builder(this)
+                .setTitle("软件修订号 · 可选")
+                .setMessage("Android 系统属性可能仍是旧 Build，但小米更新页面显示 D02。"
+                        + "只有亲眼确认更新页面出现 D02 时才填写；这是人工确认的修订证据，"
+                        + "不是内核变化证明，也不会自动升级 LKG。")
+                .setView(wrapper)
+                .setNegativeButton("取消", null)
+                .setNeutralButton("无软件修订", (d, w) -> collectAfterPreflight(""))
+                .setPositiveButton("确认并采集", (d, w) -> {
+                    String value = revision.getText().toString().trim().toUpperCase(Locale.US);
+                    if (!value.matches("D[0-9]{2}")) {
+                        notifyMessage("请输入 D02 这样的修订号；没有软件修订请选择「无软件修订」");
+                        return;
+                    }
+                    collectAfterPreflight(value);
+                }).show();
+    }
+
+    private void collectAfterPreflight(String softwareRevision) {
         if (busy || !foreground) return;
         runTask("正在采集设备数据…", () -> {
-            File output = RootCollector.capture(getApplicationContext(), true);
+            File output = RootCollector.capture(getApplicationContext(), true, softwareRevision);
             store.saveArchive(output.getAbsolutePath());
             return "采集完成 · " + output.getName() + " · " + size(output.length());
         });
