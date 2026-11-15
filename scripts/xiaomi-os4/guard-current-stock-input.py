@@ -94,11 +94,16 @@ def decide(current_zip: Path, incoming_zip: Path, incoming_build: str,
                 if key in rows:
                     abort("duplicate incoming software revision evidence key")
                 rows[key] = value
-            if (re.fullmatch(r"D[0-9]{2}", rows.get("software_revision", "")) is None
-                    or rows.get("software_revision_source") != "USER_CONFIRMED_UPDATE_SCREEN"
-                    or rows.get("software_revision_base_build") != incoming_build):
-                abort("same-build software review requires explicit bound user testimony")
-            return "SOFTWARE_REVIEW", current_build
+            manual_fields = {"software_revision", "software_revision_source",
+                             "software_revision_base_build"}
+            if manual_fields.intersection(rows):
+                if (re.fullmatch(r"D[0-9]{2}", rows.get("software_revision", "")) is None
+                        or rows.get("software_revision_source") != "USER_CONFIRMED_UPDATE_SCREEN"
+                        or rows.get("software_revision_base_build") != incoming_build):
+                    abort("same-build software review requires explicit bound user testimony")
+                return "SOFTWARE_REVIEW", current_build
+            # A property-reported .Dxx at the same current Build must still
+            # pass the original exact-ZIP equality check below.
         # The original fixed OS4 input is a legacy two-image ZIP without README.
         # inspect-ota-stock-input.py already proved the exact pinned boot SHA.
         if legacy_fallback and incoming_state == "SAME_PINNED_BUILD":
