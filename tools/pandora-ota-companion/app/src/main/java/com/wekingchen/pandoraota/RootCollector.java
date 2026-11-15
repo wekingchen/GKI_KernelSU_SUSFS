@@ -120,7 +120,7 @@ final class RootCollector {
                 if (!revision.matches("D[0-9]{2}")
                         || !"USER_CONFIRMED_UPDATE_SCREEN".equals(fields.get("software_revision_source"))
                         || !build.equals(fields.get("software_revision_base_build"))
-                        || build.matches(".*\.D[0-9]{2}$")) {
+                        || build.matches(".*\\.D[0-9]{2}$")) {
                     throw new SecurityException("软件修订号证据与真实系统 Build 不一致");
                 }
             } else if (fields.containsKey("software_revision_source")
@@ -196,7 +196,7 @@ final class RootCollector {
     static File capture(Context ctx, boolean includeBoot, String softwareRevision) throws Exception {
         if (!isValidOptionalSoftwareRevision(softwareRevision))
             throw new IllegalArgumentException("软件修订号必须留空或为 D02 这样的两位数字格式");
-        if (!softwareRevision.isEmpty() && currentOsVersion().matches(".*\.D[0-9]{2}$"))
+        if (!softwareRevision.isEmpty() && currentOsVersion().matches(".*\\.D[0-9]{2}$"))
             throw new IllegalArgumentException("系统属性已包含 Dxx 修订，无需人工重复标记");
         if (!isPandora()) throw new IllegalStateException("仅支持小米17 Pro（pandora）");
         if (!includeBoot) throw new IllegalArgumentException("OTA 完整采集必须包括当前 slot 四个启动分区");
