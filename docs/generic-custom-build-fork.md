@@ -54,11 +54,39 @@
 - **编译一致性：**日志真实显示 `CONFIG_LTO_CLANG_FULL=y`，进入并通过 `LTO vmlinux.o`；启用 16 GiB swap，`JOBS=2`，磁盘剩余充足。新增修复保留既有 LTO 模式，不依赖禁用 Root、SUSFS 或 BBG 来规避编译失败。
 - **未宣称的验收：**#5 是**编译验证成功**，并没有 #5 对应的新真机刷入记录。仓库 `generic-custom-route.json` 中的 `validated_kernel_run_id=41239924766` 仍指向此前已通过红米 K50 Pro 真机验证的版本；不因 #5 的 CI 成功而覆盖。
 - **监控兼容性：**#5 宿主未暴露预期的 cgroup v2 `memory.current` 等文件，旧版监控因此留下 `unknown`。收尾补丁改为识别 v1/v2 并在不可用时使用**标注来源的宿主级 /proc 数据**，不会把宿主内存信息冒充为 Job 内存峰值；该改动仅增强诊断，不触及 kernel/编译输入。
-- **仍待仓库授权：**[上游自动同步 #23](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43904050708) 因缺少仓库 Secret `UPSTREAM_SYNC_PAT` 而失败。该权限只能由仓库拥有者安全配置；没有 Token 就不能保证后续无人值守同步成功，也不能把失败记为已修复。
+- **历史权限故障（已解决）：**[上游自动同步 #23](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43904050708) 曾因缺少 `UPSTREAM_SYNC_PAT` 失败；2026-11-17 已通过真实写入和工作流触发权限验证。
+
+## 2026-11-17：K50 Pro 自动构建功能组合已由用户确认
+
+以下**仅针对红米 K50 Pro 的 Android 12 / 5.10.209**。用户确认自动构建当前固定勾选组合合适，后续自动跟进上游继续沿用这一组，不再擅自添加、关闭或更换功能。它与手动「Android 内核构建-自定义（本仓隔离修复版）」页面的默认选项不同，**不改手动入口的默认勾选**。
+
+| 参数 | 已确认的自动构建值 |
+| --- | --- |
+| 内核 | `5.10`（Android 12，5.10.209） |
+| 安全补丁级别 | `2024-05` |
+| Root 变体 | `BakaSU` |
+| KernelSU / SUSFS 模式 | `关闭`：表示不选「禁用SUSFS / 禁用KSU」，因此 Root 和 SUSFS 均开启 |
+| KPM | `disabled (关闭)` |
+| ZRAM 增强 | `true` |
+| BBG 防格机 | `true` |
+| Re-Kernel | `true` |
+| NoMount | `true` |
+| 网络增强 | `true` |
+| CVE-2026-43499 修复 | `true` |
+| DroidSpaces 补丁槽位 | `678` |
+| DroidSpaces NTSync | `false` |
+| 一加 8E `supp_op` | `false` |
+| 上传模式 | `仅上传 AnyKernel3.zip`（Manager、SUSFS 仍按独立构建流程上传） |
+
+**代码中的实际来源：**`scripts/generic-custom/run_auto_sync.sh` 与 `scripts/generic-custom/try_native_upstream.sh` 中固定传递的 `gh workflow run ... -f` 参数。两条路径均使用同一组用户认可的选项；以后若明确提出调整，必须保持两处一致并同步本文，**不得仅凭页面默认值推断或擅自变更用户的编译配置**。
+
+**验收边界：**[隔离版 #6](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43923661383) 已于 2026-11-17 完整编译成功并产出 AnyKernel3，但它对应的 [自动同步 #24](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43923602520) 因编译期间上游 `build.yml` 再次更新，严格版本门禁拒绝将候选晋升至 `dev`；临时候选分支已自动删除。这属于安全门禁正确发挥作用，不是功能勾选导致的编译失败。**#6 仅证明编译成功，不代表真机刷入验证**；真机验证记录仍为 `41239924766`。
+
+**PAT 验收：**[权限验证 Run #43923547837](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43923547837) 已证实 `UPSTREAM_SYNC_PAT` 能访问仓库、向临时分支写入工作流并触发 Actions；[上游原件同步 #1](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43923597156) 已成功。后续只需在令牌过期时轮换，不需要每次编译重新设置。
 
 ## 自动跟进上游（首次必须授权，之后无人值守）
 
-**2026-11-16 权限确认：**此前 [K50 Pro 自动同步 Run #43882595245](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43882595245) 因 GitHub 默认令牌缺少 Workflows 写入权限，无法推送私有 `build-fork-custom.yml`。完整上游自动同步由 `upstream-exact-auto-sync.yml` 实现，本仓共享文件仍由逐字节门禁保护。
+**历史权限说明（2026-11-16，2026-11-17 已完成配置）：**此前 [K50 Pro 自动同步 Run #43882595245](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43882595245) 因 GitHub 默认令牌缺少 Workflows 写入权限，无法推送私有 `build-fork-custom.yml`。完整上游自动同步由 `upstream-exact-auto-sync.yml` 实现，本仓共享文件仍由逐字节门禁保护。
 
 请先在本仓仓库 GitHub **Settings → Secrets and variables → Actions → New repository secret** 配置 **`UPSTREAM_SYNC_PAT`**。建议创建一个 **Fine-grained personal access token**，仅授权 `wekingchen/GKI_KernelSU_SUSFS`，权限要求：
 
