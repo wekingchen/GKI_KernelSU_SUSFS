@@ -1,0 +1,32 @@
+name: "仓库维护 / 单次清理合并后的 K50 Pro 修复分支"
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/maintenance-prune-merged-generic-lto-fix-once.yml"
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  prune:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "核对已合并 PR、分支 SHA 与未关闭 PR 后删除临时分支"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          branch="fix/generic-custom-full-lto-resource-guard-20261116"
+          expected_sha="a09302aba0bc954f2f0c8eba964f54c4e4736bf6"
+          merged="$(gh api "repos/$repo/pulls/93" --jq '.merged')"
+          [[ "$merged" == "true" ]] || { echo "::error::PR #93 尚未合入，拒绝删除分支"; exit 1; }
+          active="$(gh api "repos/$repo/pulls?state=open&per_page=100" --jq '.[].head.ref')"
+          ! grep -Fxq "$branch" <<< "$active" || { echo "::error::分支存在未关闭 PR"; exit 1; }
+          sha="$(gh api "repos/$repo/git/ref/heads/$branch" --jq '.object.sha')"
+          [[ "$sha" == "$expected_sha" ]] || { echo "::error::分支在审计后发生变化，拒绝删除 $sha"; exit 1; }
+          gh api --method DELETE "repos/$repo/git/refs/heads/$branch" >/dev/null
+          echo "已清理已合并修复分支：$branch"
