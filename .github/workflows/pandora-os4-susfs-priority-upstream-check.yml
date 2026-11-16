@@ -54,7 +54,22 @@ jobs:
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
           source = Path(sys.argv[1]).read_text()
-          patched, status = module.transform(source)
+          try:
+              patched, status = module.transform(source)
+          except Exception:
+              # 仅输出精确锁定的公开上游源码中的保护指令与辅助函数上下文。
+              lines = source.splitlines()
+              needle = ("susfs_switch_to_ksu_domain", "susfs_restore_creds",
+                        "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER", "/* sus_path */")
+              indices = [i for i, line in enumerate(lines) if any(v in line for v in needle)]
+              print("SUSFS 源码当前调用/保护结构（仅匹配行及其上下文）：", flush=True)
+              shown = set()
+              for i in indices:
+                  for j in range(max(0, i - 2), min(len(lines), i + 3)):
+                      if j not in shown:
+                          print(f"{j + 1}: {lines[j][:220]}", flush=True)
+                          shown.add(j)
+              raise
           repeated, second = module.transform(patched)
           assert repeated == patched, "兼容处理不是幂等的"
           if status == "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS":
