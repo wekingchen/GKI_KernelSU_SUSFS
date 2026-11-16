@@ -37,26 +37,26 @@ def directive_count(source: str, directive: str) -> int:
 
 
 def strip_noncode(source: str) -> str:
-    """Mask C comments and string/character literals, preserving offsets."""
+    """Mask C comments and literals without shifting source positions."""
     literal = re.compile(
-        r'/\\*.*?\\*/|//[^\\n]*|"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'',
+        r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
         re.DOTALL,
     )
     return literal.sub(
-        lambda hit: "".join("\\n" if ch == "\\n" else " " for ch in hit.group()),
+        lambda hit: "".join("\n" if ch == "\n" else " " for ch in hit.group()),
         source,
     )
 
 
 def validate_guarded_calls(source: str, sw: int, restore: int, section: int) -> None:
-    """Confirm every live helper invocation is inside an exact feature guard."""
+    """Every real helper call must be in one of two exact feature scopes."""
     headers = [m.start() for m in re.finditer(
-        r"(?m)^[ \\t]*#ifdef[ \\t]+" + re.escape(SYMBOL) + r"[ \\t]*$",
+        r"(?m)^[ \t]*#ifdef[ \t]+" + re.escape(SYMBOL) + r"[ \t]*$",
         source,
     ) if m.start() > section]
     endings = [m.start() for m in re.finditer(
-        r"(?m)^[ \\t]*#endif[ \\t]*//[ \\t]*#ifdef[ \\t]+"
-        + re.escape(SYMBOL) + r"[ \\t]*$",
+        r"(?m)^[ \t]*#endif[ \t]*//[ \t]*#ifdef[ \t]+"
+        + re.escape(SYMBOL) + r"[ \t]*$",
         source,
     ) if m.start() > section]
     require(len(headers) == 2 and len(endings) == 2,
@@ -72,15 +72,15 @@ def validate_guarded_calls(source: str, sw: int, restore: int, section: int) -> 
         ("susfs_restore_creds", restore),
     ):
         occurrences = [m.start() for m in re.finditer(
-            r"\\b" + re.escape(name) + r"\\s*\\(", executable,
+            r"\b" + re.escape(name) + r"\s*\(", executable,
         )]
-        require(any(definition <= p < section for p in occurrences),
-                name + " definition no longer matches the expected layout")
+        definitions = [p for p in occurrences if definition <= p < section]
+        require(len(definitions) == 1,
+                name + " must have exactly one helper definition")
         calls = [p for p in occurrences if p >= section]
         require(bool(calls), name + " has no feature-guarded call sites")
-        require(all(start < p < finish for p in calls for start, finish in scopes
-                    if start < p < finish) or
-                all(any(start < p < finish for start, finish in scopes) for p in calls),
+        require(all(any(start < p < finish for start, finish in scopes)
+                    for p in calls),
                 name + " is referenced outside the feature guard")
         require(len(occurrences) == len(calls) + 1,
                 name + " has an unexpected declaration or unguarded reference")
