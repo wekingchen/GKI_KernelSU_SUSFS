@@ -25,6 +25,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
+      - name: "检查具备 workflow 写入权限的专用令牌"
+        shell: bash
+        env:
+          SYNC_PAT: ${{ secrets.UPSTREAM_SYNC_PAT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SYNC_PAT" ]]; then
+            echo "::error::缺少 UPSTREAM_SYNC_PAT；GITHUB_TOKEN 无法写入 .github/workflows 文件。请添加仓库级专用 PAT，允许 Contents 和 Workflows 写入。"
+            exit 1
+          fi
       - name: "检出当前稳定 dev"
         uses: actions/checkout@v7
         with:
@@ -32,15 +42,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
           token: ${{ secrets.UPSTREAM_SYNC_PAT }}
-      - name: "检查具备 workflow 写入权限的专用令牌"
-        shell: bash
-        env:
-          SYNC_PAT: ${{ secrets.UPSTREAM_SYNC_PAT }}
-        run: |
-          if [[ -z "$SYNC_PAT" ]]; then
-            echo "::error::缺少 UPSTREAM_SYNC_PAT；GITHUB_TOKEN 无法写入 .github/workflows 文件。请添加仓库级专用 PAT，允许 Contents 和 Workflows 写入。"
-            exit 1
-          fi
       - name: "优先验证上游原版 → 原版通过即自动恢复；否则继续隔离补丁同步"
         shell: bash
         env:

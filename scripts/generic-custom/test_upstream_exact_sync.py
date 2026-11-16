@@ -23,6 +23,8 @@ class ExactUpstreamSync(unittest.TestCase):
         self.assertIn("secrets.UPSTREAM_SYNC_PAT", wf)
         self.assertNotIn("GH_TOKEN: ${{ github.token }}", wf)
         self.assertIn("缺少 UPSTREAM_SYNC_PAT", wf)
+        self.assertLess(wf.index("检查具备 workflow 写入权限的专用令牌"),
+                        wf.index("检出当前稳定 dev"))
 
     def test_no_bypass_of_upstream_integrity_or_ci(self):
         s = SCRIPT.read_text()
