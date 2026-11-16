@@ -25,16 +25,32 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
+      - name: "检查自动同步专用凭据"
+        shell: bash
+        env:
+          SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SYNC_TOKEN:-}" ]]; then
+            echo "::error title=自动同步缺少凭据::请在仓库 Settings → Secrets and variables → Actions 新增 UPSTREAM_SYNC_PAT。"
+            echo "::error::必须授予本仓 Contents: Read and write、Workflows: Read and write；默认 GITHUB_TOKEN 无法更新工作流文件。"
+            exit 1
+          fi
+          if ! GH_TOKEN="$SYNC_TOKEN" gh api "repos/$GITHUB_REPOSITORY" --jq '.full_name' >/dev/null; then
+            echo "::error::UPSTREAM_SYNC_PAT 无法访问本仓库，请检查 Token 有效期、授权仓库与 SSO 权限。"
+            exit 1
+          fi
       - name: "检出当前稳定 dev"
         uses: actions/checkout@v7
         with:
           ref: dev
           fetch-depth: 0
           persist-credentials: true
+          token: ${{ secrets.UPSTREAM_SYNC_PAT }}
       - name: "优先验证上游原版 → 原版通过即自动恢复；否则继续隔离补丁同步"
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}
         run: |
           set -euo pipefail
           if bash scripts/generic-custom/try_native_upstream.sh; then

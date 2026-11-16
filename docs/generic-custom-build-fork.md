@@ -34,9 +34,17 @@
 
 **关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。隔离版后续已由 Run 41239924766 完成真实编译，用户已确认红米 K50 Pro 真机刷入成功；该结果不能推及所有其它设备。
 
-## 自动跟进上游，不需要手工同步
+## 自动跟进上游（首次需要授权一次）
 
-已新增 [`红米 K50 Pro / 上游 build.yml 无人值守同步`](../.github/workflows/generic-custom-auto-sync.yml)，在仓库默认分支 `dev` 上**每天自动检查一次**（UTC 03:17；北京时间 11:17），也支持手动检查，但常规操作不需要人工启动。上游未变更时立即结束，不会浪费约 40 分钟重新编译。
+**2026-11-16 实际故障修复：**原自动同步工作流在创建候选分支时被 GitHub 拒绝，日志为 `refusing to allow a GitHub App to create or update workflow ... without workflows permission`。这是凭据权限问题，不是内核编译失败，也不是上游合并冲突。
+
+首次启用无人值守同步，需要在本仓 **Settings → Secrets and variables → Actions → New repository secret** 创建 `UPSTREAM_SYNC_PAT`，值为有该仓库授权的 GitHub Fine-grained PAT，至少具备 **Contents: Read and write、Workflows: Read and write**（若使用的 Token 类型另有 Actions 调度权限要求，应一并授予）。不要把 Token 写进代码、PR 或 Actions 日志，设置合理有效期。设置完成后可从工作流页面手动运行一次验证。之后日常同步可自动运行；Token 失效需要续期。
+
+自动同步入口现先检查此 Secret 是否存在并能访问仓库，再执行候选编译和推送。GitHub 默认 `GITHUB_TOKEN` 即使声明 `contents: write` 也不能代替修改 `.github/workflows/*.yml` 所需的 Workflows 权限。缺少或不足权限时，必须显式失败并保留已经验证的私有构建和 LKG，不声称已经成功同步。
+
+
+
+已新增 [`红米 K50 Pro / 上游 build.yml 无人值守同步`](../.github/workflows/generic-custom-auto-sync.yml)，在仓库默认分支 `dev` 上**每天自动检查一次**（UTC 03:17；北京时间 11:17），也支持手动检查；首次必须完成上述 Token 授权，其后不需要每天人工启动。上游未变更时立即结束，不会浪费约 40 分钟重新编译。
 
 具体机制：
 

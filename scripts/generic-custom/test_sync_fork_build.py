@@ -115,6 +115,14 @@ class RebaseSafety(unittest.TestCase):
         self.assertIn('git push origin "$BRANCH"', pipeline)
         self.assertIn('trap cleanup EXIT', pipeline)
 
+    def test_scheduler_requires_workflow_capable_token(self):
+        schedule = (ROOT / ".github/workflows/generic-custom-auto-sync.yml").read_text()
+        self.assertIn('SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}', schedule)
+        self.assertIn('token: ${{ secrets.UPSTREAM_SYNC_PAT }}', schedule)
+        self.assertIn('GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}', schedule)
+        self.assertNotIn('GH_TOKEN: ${{ github.token }}', schedule)
+        self.assertIn('默认 GITHUB_TOKEN 无法更新工作流文件', schedule)
+
     def test_yaml_parser_can_parse_fork_snapshot(self):
         result = subprocess.run(["ruby", "-ryaml", "-e",
                                  "YAML.parse_file(ARGV[0])", str(FORK)],
