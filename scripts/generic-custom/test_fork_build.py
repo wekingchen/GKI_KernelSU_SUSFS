@@ -22,7 +22,9 @@ class ForkBuildChecks(unittest.TestCase):
                 "name: Android 内核构建-自定义",
                 "name: Android 内核构建-自定义（本仓隔离修复版）").replace(
                 "    uses: ./.github/workflows/build.yml",
-                "    uses: ./.github/workflows/build-fork-custom.yml"))
+                "    uses: ./.github/workflows/build-fork-custom.yml").replace(
+                "    uses: ./.github/workflows/get-manager.yml",
+                "    uses: ./.github/workflows/get-manager-fork.yml"))
         # Once native upstream has been restored, its menu may evolve
         # independently of the frozen emergency fallback selector.
         self.assertIn("uses: ./.github/workflows/build.yml", upstream)

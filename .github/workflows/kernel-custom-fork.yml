@@ -230,7 +230,7 @@ jobs:
       artifact_upload_mode: ${{ inputs.artifact_upload_mode }}
 
   get-ksu-manager:
-    uses: ./.github/workflows/get-manager.yml
+    uses: ./.github/workflows/get-manager-fork.yml
     secrets: inherit
     with:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
