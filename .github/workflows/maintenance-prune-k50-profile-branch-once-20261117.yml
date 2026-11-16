@@ -1,0 +1,33 @@
+name: "仓库维护 / 清理 K50 Pro 配置确认分支（单次）"
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/maintenance-prune-k50-profile-branch-once-20261117.yml"
+permissions:
+  contents: write
+  pull-requests: read
+jobs:
+  cleanup:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "确认 PR 已合入、HEAD 未改变且无开放 PR 后清理分支"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="docs/k50pro-confirm-auto-build-profile-20261117"
+          expected="6b7b4e981aebe811eadd9afffc487f4c9fcdcaa8"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/pulls/95" --jq .merged_at)" != "null" ]] ||
+            { echo "::error::PR #95 尚未合入"; exit 1; }
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq .object.sha)"
+          [[ "$current" == "$expected" ]] ||
+            { echo "::error::临时分支已变化，拒绝删除"; exit 1; }
+          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq '.[] | .head.ref')"
+          [[ -z "$open" ]] || ! grep -Fxq "$branch" <<< "$open" ||
+            { echo "::error::仍有开放 PR，拒绝删除"; exit 1; }
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          echo "已删除合并后的 K50 Pro 配置确认分支。"
