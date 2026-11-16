@@ -22,7 +22,7 @@
 ## 必需令牌（尚待运行环境验收）
 
 2026-11-16 的 K50 Pro 自动同步失败，是因为原 GITHUB_TOKEN 没有修改 .github/workflows 工作流文件的权限。
-仓库需要一个 Actions Secret：UPSTREAM_SYNC_PAT。令牌应仅授权本仓，Contents: Read and write、Workflows: Read and write、Pull requests: Read and write、Actions: Read。
+仓库需要一个 Actions Secret：UPSTREAM_SYNC_PAT。令牌应仅授权本仓，Contents: Read and write、Workflows: Read and write、Pull requests: Read and write、Actions: Read and write。
 在 GitHub 仓库 Settings → Secrets and variables → Actions 中设置，不要将令牌贴到聊天、日志或仓库源码里。
 缺少凭据时，新的上游自动同步和原 K50 Pro 自动构建更新都应明确失败，不得声称已自动完成。
 

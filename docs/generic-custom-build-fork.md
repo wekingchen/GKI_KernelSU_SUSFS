@@ -34,9 +34,22 @@
 
 **关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。隔离版后续已由 Run 41239924766 完成真实编译，用户已确认红米 K50 Pro 真机刷入成功；该结果不能推及所有其它设备。
 
-## 自动跟进上游，不需要手工同步
+## 自动跟进上游（首次必须授权，之后无人值守）
 
-已新增 [`红米 K50 Pro / 上游 build.yml 无人值守同步`](../.github/workflows/generic-custom-auto-sync.yml)，在仓库默认分支 `dev` 上**每天自动检查一次**（UTC 03:17；北京时间 11:17），也支持手动检查，但常规操作不需要人工启动。上游未变更时立即结束，不会浪费约 40 分钟重新编译。
+**2026-11-16 权限确认：**此前 [K50 Pro 自动同步 Run #43882595245](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43882595245) 因 GitHub 默认令牌缺少 Workflows 写入权限，无法推送私有 `build-fork-custom.yml`。完整上游自动同步由 `upstream-exact-auto-sync.yml` 实现，本仓共享文件仍由逐字节门禁保护。
+
+请先在本仓仓库 GitHub **Settings → Secrets and variables → Actions → New repository secret** 配置 **`UPSTREAM_SYNC_PAT`**。建议创建一个 **Fine-grained personal access token**，仅授权 `wekingchen/GKI_KernelSU_SUSFS`，权限要求：
+
+- **Contents**：Read and write（创建和合并上游同步提交）
+- **Workflows**：Read and write（修改私有 Actions 工作流文件）
+- **Actions**：Read and write（调用 workflow_dispatch 并读取构建结果）
+- **Pull requests**：Read and write（自动创建同步 PR）
+
+使用最短合理有效期，并在到期前轮换；不要把 Token 粘贴到聊天、代码或 Action 日志。授权后分别从工作流页面手动运行一次验证。**未配置或授权不完整时自动同步会明确失败，不会修改已验证的 OS4 LKG 或已部署的内核。**
+
+
+
+已新增 [`红米 K50 Pro / 上游 build.yml 无人值守同步`](../.github/workflows/generic-custom-auto-sync.yml)，在仓库默认分支 `dev` 上**每天自动检查一次**（UTC 03:17；北京时间 11:17），也支持手动检查，但完成首次授权后常规操作不需要人工启动。上游未变更时立即结束，不会浪费约 40 分钟重新编译。
 
 具体机制：
 

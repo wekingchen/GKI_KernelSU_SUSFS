@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$SYNC_PAT" ]]; then
-            echo "::error::缺少 UPSTREAM_SYNC_PAT；GITHUB_TOKEN 无法写入 .github/workflows 文件。请添加仓库级专用 PAT，允许 Contents 和 Workflows 写入。"
+            echo "::error::缺少 UPSTREAM_SYNC_PAT；GITHUB_TOKEN 无法写入 .github/workflows 文件。请添加本仓 UPSTREAM_SYNC_PAT，授权 Contents / Workflows / Actions 写入及 Pull requests 写入。"
             exit 1
           fi
       - name: "检出当前稳定 dev"
