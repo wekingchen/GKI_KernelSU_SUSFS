@@ -56,10 +56,36 @@ class ForkBuildChecks(unittest.TestCase):
         self.assertIn('      JOBS: "2"', fork)
         self.assertIn('      MAKEFLAGS: "-j2 -l2"', fork)
         self.assertIn("prepare-host-linker.sh", fork)
-        self.assertIn("sudo swapon", fork)
+        self.assertIn("prepare-lto-resources.sh", fork)
+        self.assertIn("monitor-lto-build.sh", fork)
+        self.assertIn("BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh", fork)
+        self.assertNotIn("LTO=thin BUILD_CONFIG=", fork)
         self.assertIn("CONFIG_LTO_CLANG_THIN=y", fork)
         self.assertIn("BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh", fork)
         self.assertNotIn("prepare-host-linker.sh", original)
+
+    def test_swap_planning_never_consumes_build_headroom(self):
+        resource = ROOT / "scripts/generic-custom/prepare-lto-resources.sh"
+        expected = ((20, 0), (31, 0), (32, 8), (35, 8),
+                    (36, 12), (43, 12), (44, 16), (64, 16))
+        for disk, swap in expected:
+            with self.subTest(disk=disk):
+                env = dict(os.environ,
+                           GKI_RESOURCE_DRY_RUN="1",
+                           GKI_TEST_DISK_GIB=str(disk))
+                proc = subprocess.run(
+                    ["bash", str(resource), "5.10"],
+                    env=env, capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertIn(f"GKI_SWAP_PLAN_GIB={swap}", proc.stdout)
+
+    def test_resource_scripts_parse_without_host_privileges(self):
+        for name in ("prepare-lto-resources.sh", "monitor-lto-build.sh"):
+            with self.subTest(name=name):
+                proc = subprocess.run(
+                    ["bash", "-n", str(ROOT / "scripts/generic-custom" / name)],
+                    capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
