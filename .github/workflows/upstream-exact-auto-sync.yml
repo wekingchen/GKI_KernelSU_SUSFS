@@ -1,0 +1,44 @@
+name: "上游原件 / 每日完整同步（CI 验证后合入）"
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: upstream-exact-mirror
+  cancel-in-progress: false
+
+jobs:
+  exact-upstream:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: "检查工作流写入令牌"
+        shell: bash
+        env:
+          SYNC_PAT: ${{ secrets.UPSTREAM_SYNC_PAT }}
+        run: |
+          if [[ -z "$SYNC_PAT" ]]; then
+            echo "::error::UPSTREAM_SYNC_PAT 未配置；请设置拥有 Contents、Workflows、Pull requests 写权限及 Actions 读取权限的仓库级 PAT。"
+            exit 1
+          fi
+
+      - name: "检出本仓 dev（使用专用令牌）"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_PAT }}
+
+      - name: "仅同步完整上游原件，交由 PR 门禁检验"
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}
+        shell: bash
+        run: bash scripts/upstream-sync/sync-exact-upstream.sh
