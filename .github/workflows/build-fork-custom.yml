@@ -1568,30 +1568,11 @@ jobs:
         run: |
           set -euo pipefail
           bash "$GITHUB_WORKSPACE/scripts/generic-custom/prepare-host-linker.sh" "$KERNEL_ROOT"
-      - name: "GKI LTO 资源保护（不修改内核编译选项）"
+      - name: "GKI LTO 资源保护（保持 FULL LTO，不修改 Kconfig）"
         shell: bash
         run: |
           set -euo pipefail
-          echo "使用 JOBS=${JOBS} MAKEFLAGS=${MAKEFLAGS} 限制并行，保留实际 GKI LTO 编译模式"
-          free -h
-          df -h "$RUNNER_TEMP"
-          avail="$(df -BG --output=avail "$RUNNER_TEMP" | tail -n 1 | tr -dc '0-9')"
-          if [[ "$avail" =~ ^[0-9]+$ ]] && (( avail >= 25 )); then
-            SWAP="/mnt/gki-generic-build.swap"
-            if sudo fallocate -l 8G "$SWAP" &&
-               sudo chmod 600 "$SWAP" &&
-               sudo mkswap "$SWAP" >/dev/null &&
-               sudo swapon "$SWAP"; then
-              echo "已添加 8GiB swap 用于大型 LTO 链接"
-            else
-              echo "::warning::Runner 无法开启 swap，只使用低并发构建"
-              sudo swapoff "$SWAP" 2>/dev/null || true
-              sudo rm -f "$SWAP" || true
-            fi
-          else
-            echo "::warning::磁盘不足 25GiB，避免 swap 造成磁盘耗尽"
-          fi
-          free -h
+          bash "$GITHUB_WORKSPACE/scripts/generic-custom/prepare-lto-resources.sh" "${{ inputs.kernel_version }}"
 
       - name: 编译内核
         id: compile_kernel
@@ -1625,6 +1606,11 @@ jobs:
               echo "当前 SUSFS 最新提交日期: ${SUSFS_LATEST_COMMIT_DATE:-未启用}"
               set -ex
               cd "$KERNEL_ROOT"
+
+              # 运行期资源快照进入构建日志；Runner 异常退出前仍尽量留下 OOM/Swap 证据。
+              bash "$GITHUB_WORKSPACE/scripts/generic-custom/monitor-lto-build.sh" "$LOG_DIR" &
+              GKI_RESOURCE_MONITOR_PID=$!
+              trap 'kill "$GKI_RESOURCE_MONITOR_PID" 2>/dev/null || true' EXIT
 
               sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
               sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
