@@ -49,6 +49,8 @@ class RebaseSafety(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn("# upstream-new-note", built)
         self.assertIn("prepare-host-linker.sh", built)
+        self.assertIn("prepare-lto-resources.sh", built)
+        self.assertIn("monitor-lto-build.sh", built)
         self.assertIn("    timeout-minutes: 360", built)
         self.assertEqual(nstate["upstream_blob_sha"], mod.git_blob_sha(new))
         self.assertEqual(nstate["private_base_blob_sha"],
