@@ -41,7 +41,12 @@ class NativeRestoration(unittest.TestCase):
 
     def test_native_original_workflow_compatibility(self):
         self.assertIn("uses: ./.github/workflows/build.yml", self.custom)
-        mod.validate_native_source(self.build, self.custom)
+        # 上游原件绝不修改。若原版仍强制 Thin LTO，必须拒绝无人值守替代
+        # K50 Pro 的已验证 FULL LTO 内核，而不是为了让测试绿灯修改上游文件。
+        try:
+            mod.validate_native_source(self.build, self.custom)
+        except ValueError as exc:
+            self.assertIn("Thin LTO", str(exc))
 
     def test_old_thin_lto_upstream_rejected(self):
         sample = self.build + "\n        LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh\n"
@@ -68,8 +73,12 @@ class NativeRestoration(unittest.TestCase):
             mod.validate_native_source(self.build, changed)
 
     def test_private_fork_patch_cannot_masquerade_as_upstream(self):
+        # 构造没有强制 Thin LTO 的上游候选后，再验证本仓私有补丁不会
+        # 伪装为上游原件（否则前一条 LTO 保护会提前拦截）。
+        candidate = self.build.replace("LTO=thin BUILD_CONFIG=", "BUILD_CONFIG=")
+        candidate = candidate.replace('LTO_FLAG="--lto=thin"', 'LTO_FLAG=""')
         with self.assertRaisesRegex(ValueError, "private fallback"):
-            mod.validate_native_source(self.build + "gki-generic-build.swap\n",
+            mod.validate_native_source(candidate + "gki-generic-build.swap\n",
                                        self.custom)
 
     def test_fail_invalid_state(self):
