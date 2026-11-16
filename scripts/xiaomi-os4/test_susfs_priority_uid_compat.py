@@ -65,6 +65,62 @@ class PriorityUidFilterCompatibilityTests(unittest.TestCase):
         self.assertEqual(status, "ALREADY_GUARDED")
         self.assertEqual(once, twice)
 
+    def test_newer_upstream_multiple_balanced_guarded_calls(self):
+        # 不能假设 SUSFS 永远只有两对调用，新的受保护调用应可安全适配。
+        expanded = example().replace(
+            "    susfs_restore_creds(orig_cred);\n",
+            "    susfs_restore_creds(orig_cred);\n"
+            "    orig_cred = susfs_switch_to_ksu_domain();\n"
+            "    susfs_restore_creds(orig_cred);\n", 1)
+        result, status = compat.transform(expanded)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertEqual(result.count("orig_cred = susfs_switch_to_ksu_domain();"), 3)
+        self.assertEqual(result.count("susfs_restore_creds(orig_cred);"), 3)
+
+    def test_sus_path_and_priority_uid_share_feature_union_guard(self):
+        source = example().replace(
+            "/* sus_path */\n",
+            "/* sus_path */\n"
+            "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+            "void protected_sus_path(void) {\n"
+            "    orig_cred = susfs_switch_to_ksu_domain();\n"
+            "    susfs_restore_creds(orig_cred);\n"
+            "}\n"
+            "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH\n")
+        result, status = compat.transform(source)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertIn(compat.COMBINED_IFDEF + "\n" + compat.HELPER_SWITCH, result)
+        self.assertIn(compat.COMBINED_ENDIF + "\n\n/* sus_path */", result)
+        repeated, status = compat.transform(result)
+        self.assertEqual(status, "ALREADY_GUARDED")
+        self.assertEqual(repeated, result)
+
+    def test_unprotected_sus_path_helper_use_must_still_fail(self):
+        source = example().replace(
+            "/* sus_path */\n",
+            "/* sus_path */\n"
+            "void unsafe_path(void) { susfs_switch_to_ksu_domain(); }\n")
+        with self.assertRaises(compat.CompatibilityError):
+            compat.transform(source)
+
+    def test_comments_and_literals_must_not_count_as_live_calls(self):
+        expanded = example().replace(
+            "void list_filter(void) {}",
+            '/* susfs_switch_to_ksu_domain(); susfs_restore_creds(cred); */\n'
+            'const char *example = "susfs_switch_to_ksu_domain();";\n'
+            "void list_filter(void) {}")
+        patched, status = compat.transform(expanded)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertIn('const char *example', patched)
+
+    def test_extra_unprotected_invocation_is_rejected(self):
+        drift = example().replace(
+            "/* sus_path */",
+            "/* sus_path */\n"
+            "void broken(void) { susfs_switch_to_ksu_domain(); }")
+        with self.assertRaisesRegex(compat.CompatibilityError, "outside|unexpected|diverged"):
+            compat.transform(drift)
+
     def test_upstream_callgraph_drift_is_rejected(self):
         drift = example().replace("    susfs_restore_creds(orig_cred);\n", "", 1)
         with self.assertRaises(compat.CompatibilityError):
