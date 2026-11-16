@@ -30,6 +30,12 @@ class ForkBuildChecks(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/build.yml", upstream)
         self.assertIn("uses: ./.github/workflows/build-fork-custom.yml", fork)
 
+    def test_susfs_compatibility_only_in_private_build(self):
+        private = (WF / "build-fork-custom.yml").read_text()
+        upstream = (WF / "build.yml").read_text()
+        self.assertIn("generic-custom/susfs-compat-overlay.sh", private)
+        self.assertNotIn("generic-custom/susfs-compat-overlay.sh", upstream)
+
     def test_fork_only_build_has_bounded_resources_and_real_timeout(self):
         original = (WF / "build.yml").read_text()
         fork = (WF / "build-fork-custom.yml").read_text()
