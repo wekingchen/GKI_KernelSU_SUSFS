@@ -22,8 +22,8 @@ ENV_NEW = ENV_OLD + '      JOBS: "2"\n      MAKEFLAGS: "-j2 -l2"\n      NINJAFLA
 RETRY_OLD = "          timeout_minutes: 30\n          max_attempts: 3\n"
 RETRY_NEW = "          timeout_minutes: 120\n          max_attempts: 2\n"
 COMPILE_ANCHOR = "      - name: 编译内核\n"
-SUSFS_OLD = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh"\\n'
-SUSFS_NEW = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" && bash "$GITHUB_WORKSPACE/scripts/generic-custom/susfs-compat-overlay.sh"\\n'
+SUSFS_OLD = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh"\n'
+SUSFS_NEW = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" && bash "$GITHUB_WORKSPACE/scripts/generic-custom/susfs-compat-overlay.sh"\n'
 PRIVATE_STEPS = r'''      # Private fork-only compatibility for the Android12 / 5.10 toolchain.
       - name: "修复 BBG HOST ld（仅修改 Runner 下载的构建树）"
         if: inputs.use_bbg && inputs.kernel_version == '5.10'
