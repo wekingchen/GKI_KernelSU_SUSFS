@@ -1,0 +1,70 @@
+name: "小米17 Pro OS4 / SUSFS 固定上游源码兼容验证"
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/pandora-os4-susfs-priority-upstream-check.yml"
+      - "scripts/xiaomi-os4/susfs-priority-uid-compat.py"
+      - "scripts/xiaomi-os4/test_susfs_priority_uid_compat.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pinned-susfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "检出小米 OS4 独立兼容脚本"
+        uses: actions/checkout@v7
+
+      - name: "检查 Python 语法并运行调用结构回归"
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/susfs-priority-uid-compat.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_susfs_priority_uid_compat.py' -v
+
+      - name: "复现 LKG 与失败 #32 的精确 SUSFS 提交"
+        env:
+          SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
+          SUSFS_LKG: 395a8c0c88d348e9fe7c14f66a456fde4653287c
+          SUSFS_RUN32: 9b0b13f069673b9b07b713a5c66977de4d62b175
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$RUNNER_TEMP/susfs-pinned"
+          git -C "$RUNNER_TEMP/susfs-pinned" remote add origin "$SUSFS_REPO"
+          for entry in "lkg:$SUSFS_LKG" "run32:$SUSFS_RUN32"; do
+            label="${entry%%:*}"
+            sha="${entry#*:}"
+            echo "验证 $label 固定提交 $sha"
+            git -C "$RUNNER_TEMP/susfs-pinned" fetch -q --depth=1 origin "$sha"
+            git -C "$RUNNER_TEMP/susfs-pinned" checkout -q --detach FETCH_HEAD
+            [[ "$(git -C "$RUNNER_TEMP/susfs-pinned" rev-parse HEAD)" == "$sha" ]] || exit 1
+            original="$RUNNER_TEMP/susfs-pinned/kernel_patches/fs/susfs.c"
+            [[ -s "$original" ]] || exit 1
+            python3 - "$original" <<'PY'
+          import importlib.util
+          import sys
+          from pathlib import Path
+          path = Path("scripts/xiaomi-os4/susfs-priority-uid-compat.py")
+          spec = importlib.util.spec_from_file_location("compat", path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          source = Path(sys.argv[1]).read_text()
+          patched, status = module.transform(source)
+          repeated, second = module.transform(patched)
+          assert repeated == patched, "兼容处理不是幂等的"
+          if status == "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS":
+              assert patched.replace(module.IFDEF + "\n" + module.HELPER_SWITCH,
+                                     module.HELPER_SWITCH, 1).replace(
+                  module.ENDIF + "\n\n" + module.NEXT_SECTION,
+                  module.NEXT_SECTION, 1) == source, "错误改动了 SUSFS 上游函数本体"
+              assert second == "ALREADY_GUARDED"
+          else:
+              assert patched == source
+          print(f"SUSFS PINNED SOURCE VERIFIED: {status} / {second}")
+          PY
+          done
