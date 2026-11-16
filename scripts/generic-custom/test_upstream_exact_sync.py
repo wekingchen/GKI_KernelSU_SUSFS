@@ -23,6 +23,8 @@ class ExactUpstreamSync(unittest.TestCase):
         self.assertIn("secrets.UPSTREAM_SYNC_PAT", wf)
         self.assertNotIn("GH_TOKEN: ${{ github.token }}", wf)
         self.assertIn("缺少 UPSTREAM_SYNC_PAT", wf)
+        self.assertIn("Actions 写入", wf)
+        self.assertIn("Pull requests 写入", wf)
         self.assertLess(wf.index("检查具备 workflow 写入权限的专用令牌"),
                         wf.index("检出当前稳定 dev"))
 

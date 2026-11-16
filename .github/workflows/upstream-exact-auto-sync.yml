@@ -26,7 +26,7 @@ jobs:
           SYNC_PAT: ${{ secrets.UPSTREAM_SYNC_PAT }}
         run: |
           if [[ -z "$SYNC_PAT" ]]; then
-            echo "::error::UPSTREAM_SYNC_PAT 未配置；请设置拥有 Contents、Workflows、Pull requests 写权限及 Actions 读取权限的仓库级 PAT。"
+            echo "::error::UPSTREAM_SYNC_PAT 未配置；请设置仅授权本仓、具有 Contents、Workflows、Pull requests、Actions 全部写入权限的专用 PAT。"
             exit 1
           fi
 
