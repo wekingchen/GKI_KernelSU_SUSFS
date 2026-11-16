@@ -34,6 +34,20 @@
 
 **关键边界：**10 月 25 日的 Runner shutdown 不是可复现的 kernel C 编译错误，资源修复能减少常见的内存/时间风险，但不能保证不会再次遭遇 GitHub 的基础设施中断；最终只能以新入口对应真实编译 Run `conclusion=success`、Image/ZIP 有效和上传成功为准。隔离版后续已由 Run 41239924766 完成真实编译，用户已确认红米 K50 Pro 真机刷入成功；该结果不能推及所有其它设备。
 
+## 2026-11-16：原版 #112 / 隔离版 #4 回归排查
+
+- [上游原版 #112](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43882343458)：BBG 宿主编译曾输出 `clang-12: error: Executable "ld" doesn't exist!`，但后续内核仍进入 `LTO vmlinux.o`，最终 GitHub 报 Runner 收到 shutdown signal。不能把它误诊为普通内核 C 编译错误。
+- [隔离版 #4](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43885825971)：已通过依赖同步、补丁集成和 host ld 准备，进入 `编译内核` 后运行异常结束；GitHub Job 的日志端点当时返回 `BlobNotFound`，且步骤状态没有正常结束回执。因此没有足够日志证明是 OOM、LTO 代码报错或 GitHub 底层宿主故障。
+- **对照**：[隔离版 #3](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43014413241) 在 2026-11-11 编译成功，最终配置真实包含 `CONFIG_LTO_CLANG_FULL=y`，并在编译前成功启用 8 GiB swap。这证明我们不能为通过新编译而擅自切换 Thin LTO / LTO_NONE。
+- 对比 #3 与 #4 的隔离版主工作流，主要变化是增加 fork 专属 SUSFS 兼容处理，不能仅据此认定 LTO 或内核源码回归。
+
+### 本仓限定的增强
+
+1. `prepare-lto-resources.sh` 根据构建时实际剩余磁盘空间选择 0/8/12/16 GiB swap，保留内核编译目录空间；只有 `swapon` 成功才报告已启用。5.10 在 swap 正常时保持此前成功的 `JOBS=2`，无法启用时退到 `JOBS=1`。
+2. `monitor-lto-build.sh` 在编译期间持续记录 cgroup 内存当前值、峰值、`memory.events` 中的 OOM 数据、交换空间和磁盘容量。连续输出到 Job 日志及 `build-logs/resource-samples.log`，方便捕捉下一次异常的真实证据。
+3. 资源步骤和监控注入同时固化在 `sync_fork_build.py` 的可逆叠加规则中；后续自动跟进上游时不会丢失，更不修改任何上游原文件。
+4. **验证范围**：单元测试和隔离门禁通过只代表脚本安全；内核编译、构建产物、真机启动仍需新的真实 Run 单独验收。Runner 若在编译中直接被强制销毁，Job 后续的 Artifact 上传仍可能无法运行，不能宣称完全解决底层宿主故障。
+
 ## 自动跟进上游（首次必须授权，之后无人值守）
 
 **2026-11-16 权限确认：**此前 [K50 Pro 自动同步 Run #43882595245](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43882595245) 因 GitHub 默认令牌缺少 Workflows 写入权限，无法推送私有 `build-fork-custom.yml`。完整上游自动同步由 `upstream-exact-auto-sync.yml` 实现，本仓共享文件仍由逐字节门禁保护。
