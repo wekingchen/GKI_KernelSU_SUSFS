@@ -30,6 +30,16 @@ class ForkBuildChecks(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/build.yml", upstream)
         self.assertIn("uses: ./.github/workflows/build-fork-custom.yml", fork)
 
+    def test_private_manager_is_exact_upstream_plus_patch(self):
+        upstream = (WF / "get-manager.yml").read_text()
+        private = (WF / "get-manager-fork.yml").read_text()
+        self.assertIn("BAKASU_APKS", private)
+        self.assertNotIn("BAKASU_APKS", upstream)
+        check = subprocess.run(
+            ["python3", str(ROOT / "scripts/generic-custom/sync_fork_manager.py"), "--check"],
+            capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
     def test_susfs_compatibility_only_in_private_build(self):
         private = (WF / "build-fork-custom.yml").read_text()
         upstream = (WF / "build.yml").read_text()
