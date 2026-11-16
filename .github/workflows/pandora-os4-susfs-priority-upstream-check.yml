@@ -73,9 +73,13 @@ jobs:
           repeated, second = module.transform(patched)
           assert repeated == patched, "兼容处理不是幂等的"
           if status == "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS":
-              assert patched.replace(module.IFDEF + "\n" + module.HELPER_SWITCH,
+              if module.COMBINED_IFDEF + "\n" + module.HELPER_SWITCH in patched:
+                  begin, end = module.COMBINED_IFDEF, module.COMBINED_ENDIF
+              else:
+                  begin, end = module.IFDEF, module.ENDIF
+              assert patched.replace(begin + "\n" + module.HELPER_SWITCH,
                                      module.HELPER_SWITCH, 1).replace(
-                  module.ENDIF + "\n\n" + module.NEXT_SECTION,
+                  end + "\n\n" + module.NEXT_SECTION,
                   module.NEXT_SECTION, 1) == source, "错误改动了 SUSFS 上游函数本体"
               assert second == "ALREADY_GUARDED"
           else:
