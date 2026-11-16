@@ -28,37 +28,40 @@ if [[ "$(printenv GKI_RESOURCE_DRY_RUN || echo 0)" == "1" ]]; then
   exit 0
 fi
 
-# 在 5.10 FULL LTO 已验证配置上只降低编译资源并行，不修改链接模式。
-if [[ "$version" == "5.10" ]]; then
-  [[ -n "$(printenv GITHUB_ENV || true)" ]] || { echo "::error::missing GITHUB_ENV" >&2; exit 1; }
-  {
-    echo 'JOBS=1'
-    echo 'MAKEFLAGS=-j1 -l1'
-    echo 'NINJAFLAGS=-j1'
-    echo 'LLVM_PARALLEL_LINK_JOBS=1'
-  } >> "$GITHUB_ENV"
-  echo "[GKI] 5.10 FULL LTO 保持原样；单线程构建控制内存峰值"
-fi
-
+# 优先使用已在 #3 验证成功的双并发 + 真实 swap；
+# 若系统禁止 swapon 或存储不足，退回单并发降低 OOM 概率。
+swap_active=0
 if (( swap_gib == 0 )); then
   echo "::warning::可用空间不足以安全开启 swap；继续构建并记录资源压力"
-  exit 0
-fi
-run_id="$(printenv GITHUB_RUN_ID || echo manual)"
-swapfile="$workdir/gki-fork-$run_id.swap"
-if [[ -e "$swapfile" ]]; then
-  echo "::warning::交换文件已存在，拒绝覆盖: $swapfile"
-  exit 0
-fi
-if sudo fallocate -l "$swap_gib"G "$swapfile" &&
-   sudo chmod 600 "$swapfile" &&
-   sudo mkswap "$swapfile" >/dev/null &&
-   sudo swapon "$swapfile"; then
-  echo "[GKI] 已真实启用 $swap_gib GiB swap"
-  swapon --show
 else
-  echo "::warning::本 Runner 不支持 swapon，未将准备文件误报为可用 swap"
-  sudo swapoff "$swapfile" 2>/dev/null || true
-  sudo rm -f "$swapfile" || true
+  run_id="$(printenv GITHUB_RUN_ID || echo manual)"
+  swapfile="$workdir/gki-fork-$run_id.swap"
+  if [[ -e "$swapfile" ]]; then
+    echo "::warning::交换文件已存在，拒绝覆盖: $swapfile"
+  elif sudo fallocate -l "$swap_gib"G "$swapfile" &&
+       sudo chmod 600 "$swapfile" &&
+       sudo mkswap "$swapfile" >/dev/null &&
+       sudo swapon "$swapfile"; then
+    echo "[GKI] 已真实启用 $swap_gib GiB swap"
+    swap_active=1
+    swapon --show
+  else
+    echo "::warning::本 Runner 不支持 swapon，未将准备文件误报为可用 swap"
+    sudo swapoff "$swapfile" 2>/dev/null || true
+    sudo rm -f "$swapfile" || true
+  fi
+fi
+
+if [[ "$version" == "5.10" ]]; then
+  [[ -n "$(printenv GITHUB_ENV || true)" ]] || { echo "::error::missing GITHUB_ENV" >&2; exit 1; }
+  parallel=1
+  if (( swap_active == 1 )); then parallel=2; fi
+  {
+    echo "JOBS=$parallel"
+    echo "MAKEFLAGS=-j$parallel -l$parallel"
+    echo "NINJAFLAGS=-j$parallel"
+    echo 'LLVM_PARALLEL_LINK_JOBS=1'
+  } >> "$GITHUB_ENV"
+  echo "[GKI] 5.10 FULL LTO 未改变；实际 JOBS=$parallel（已启用额外 swap=$swap_active）"
 fi
 free -h
