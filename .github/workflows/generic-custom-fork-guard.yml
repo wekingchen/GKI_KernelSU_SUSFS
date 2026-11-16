@@ -40,6 +40,8 @@ jobs:
             .github/workflows/build-fork-custom.yml \
             .github/workflows/generic-custom-auto-sync.yml
           bash -n scripts/generic-custom/prepare-host-linker.sh
+          bash -n scripts/generic-custom/prepare-lto-resources.sh
+          bash -n scripts/generic-custom/monitor-lto-build.sh
           bash -n scripts/generic-custom/run_auto_sync.sh
           bash -n scripts/generic-custom/try_native_upstream.sh
           python3 -m py_compile scripts/generic-custom/native_upstream_policy.py
