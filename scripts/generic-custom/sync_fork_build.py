@@ -24,6 +24,8 @@ RETRY_NEW = "          timeout_minutes: 120\n          max_attempts: 2\n"
 COMPILE_ANCHOR = "      - name: 编译内核\n"
 SUSFS_OLD = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh"\n'
 SUSFS_NEW = '        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" && bash "$GITHUB_WORKSPACE/scripts/generic-custom/susfs-compat-overlay.sh"\n'
+COMPILE_MONITOR_OLD = "              cd \"$KERNEL_ROOT\"\n\n"
+COMPILE_MONITOR_NEW = "              cd \"$KERNEL_ROOT\"\n\n              # 运行期资源快照进入构建日志；Runner 异常退出前仍尽量留下 OOM/Swap 证据。\n              bash \"$GITHUB_WORKSPACE/scripts/generic-custom/monitor-lto-build.sh\" \"$LOG_DIR\" &\n              GKI_RESOURCE_MONITOR_PID=$!\n              trap 'kill \"$GKI_RESOURCE_MONITOR_PID\" 2>/dev/null || true' EXIT\n\n"
 PRIVATE_STEPS = r'''      # Private fork-only compatibility for the Android12 / 5.10 toolchain.
       - name: "修复 BBG HOST ld（仅修改 Runner 下载的构建树）"
         if: inputs.use_bbg && inputs.kernel_version == '5.10'
@@ -31,30 +33,11 @@ PRIVATE_STEPS = r'''      # Private fork-only compatibility for the Android12 / 
         run: |
           set -euo pipefail
           bash "$GITHUB_WORKSPACE/scripts/generic-custom/prepare-host-linker.sh" "$KERNEL_ROOT"
-      - name: "GKI LTO 资源保护（不修改内核编译选项）"
+      - name: "GKI LTO 资源保护（保持 FULL LTO，不修改 Kconfig）"
         shell: bash
         run: |
           set -euo pipefail
-          echo "使用 JOBS=${JOBS} MAKEFLAGS=${MAKEFLAGS} 限制并行，保留实际 GKI LTO 编译模式"
-          free -h
-          df -h "$RUNNER_TEMP"
-          avail="$(df -BG --output=avail "$RUNNER_TEMP" | tail -n 1 | tr -dc '0-9')"
-          if [[ "$avail" =~ ^[0-9]+$ ]] && (( avail >= 25 )); then
-            SWAP="/mnt/gki-generic-build.swap"
-            if sudo fallocate -l 8G "$SWAP" &&
-               sudo chmod 600 "$SWAP" &&
-               sudo mkswap "$SWAP" >/dev/null &&
-               sudo swapon "$SWAP"; then
-              echo "已添加 8GiB swap 用于大型 LTO 链接"
-            else
-              echo "::warning::Runner 无法开启 swap，只使用低并发构建"
-              sudo swapoff "$SWAP" 2>/dev/null || true
-              sudo rm -f "$SWAP" || true
-            fi
-          else
-            echo "::warning::磁盘不足 25GiB，避免 swap 造成磁盘耗尽"
-          fi
-          free -h
+          bash "$GITHUB_WORKSPACE/scripts/generic-custom/prepare-lto-resources.sh" "${{ inputs.kernel_version }}"
 
 '''
 
@@ -75,6 +58,7 @@ def render(base: str) -> str:
     for old, new in ((NAME_OLD, NAME_NEW), (TIME_OLD, TIME_NEW),
                      (ENV_OLD, ENV_NEW), (RETRY_OLD, RETRY_NEW),
                      (COMPILE_ANCHOR, PRIVATE_STEPS + COMPILE_ANCHOR),
+                     (COMPILE_MONITOR_OLD, COMPILE_MONITOR_NEW),
                      (SUSFS_OLD, SUSFS_NEW)):
         s = replace_one(s, old, new)
     return s
@@ -83,6 +67,7 @@ def render(base: str) -> str:
 def unrender(custom: str) -> str:
     s = custom
     for old, new in ((SUSFS_NEW, SUSFS_OLD),
+                     (COMPILE_MONITOR_NEW, COMPILE_MONITOR_OLD),
                      (PRIVATE_STEPS + COMPILE_ANCHOR, COMPILE_ANCHOR),
                      (RETRY_NEW, RETRY_OLD), (ENV_NEW, ENV_OLD),
                      (TIME_NEW, TIME_OLD), (NAME_NEW, NAME_OLD)):
