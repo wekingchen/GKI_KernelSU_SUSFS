@@ -44,9 +44,17 @@
 ### 本仓限定的增强
 
 1. `prepare-lto-resources.sh` 根据构建时实际剩余磁盘空间选择 0/8/12/16 GiB swap，保留内核编译目录空间；只有 `swapon` 成功才报告已启用。5.10 在 swap 正常时保持此前成功的 `JOBS=2`，无法启用时退到 `JOBS=1`。
-2. `monitor-lto-build.sh` 在编译期间持续记录 cgroup 内存当前值、峰值、`memory.events` 中的 OOM 数据、交换空间和磁盘容量。连续输出到 Job 日志及 `build-logs/resource-samples.log`，方便捕捉下一次异常的真实证据。
+2. `monitor-lto-build.sh` 在编译期间持续采集内存、交换空间和磁盘余量：优先读取 cgroup v2，其次 cgroup v1；两者均不可用时明确标记 `memory_source=host_proc_only`，以 `/proc/meminfo`、`/proc/vmstat` 提供**宿主级趋势信息（不是单个 Job 的 OOM 证据）**。结果同时写入 Job 日志和 `build-logs/resource-samples.log`。
 3. 资源步骤和监控注入同时固化在 `sync_fork_build.py` 的可逆叠加规则中；后续自动跟进上游时不会丢失，更不修改任何上游原文件。
 4. **验证范围**：单元测试和隔离门禁通过只代表脚本安全；内核编译、构建产物、真机启动仍需新的真实 Run 单独验收。Runner 若在编译中直接被强制销毁，Job 后续的 Artifact 上传仍可能无法运行，不能宣称完全解决底层宿主故障。
+
+## 2026-11-17：#5 完整构建验收与收尾结论
+
+- **CI 已验证成功：**[Android 内核构建-自定义（本仓隔离修复版）#5](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43904918314)，运行提交 `e0df6147da6a93b91fcd28eac1d055f057255cda`，三个 Job 全部成功；Android 12 / 5.10.209 / BakaSU 完成内核编译、链接、Image 及 AnyKernel3 上传，另有 BakaSU Manager 和 SUSFS 模块产物。
+- **编译一致性：**日志真实显示 `CONFIG_LTO_CLANG_FULL=y`，进入并通过 `LTO vmlinux.o`；启用 16 GiB swap，`JOBS=2`，磁盘剩余充足。新增修复保留既有 LTO 模式，不依赖禁用 Root、SUSFS 或 BBG 来规避编译失败。
+- **未宣称的验收：**#5 是**编译验证成功**，并没有 #5 对应的新真机刷入记录。仓库 `generic-custom-route.json` 中的 `validated_kernel_run_id=41239924766` 仍指向此前已通过红米 K50 Pro 真机验证的版本；不因 #5 的 CI 成功而覆盖。
+- **监控兼容性：**#5 宿主未暴露预期的 cgroup v2 `memory.current` 等文件，旧版监控因此留下 `unknown`。收尾补丁改为识别 v1/v2 并在不可用时使用**标注来源的宿主级 /proc 数据**，不会把宿主内存信息冒充为 Job 内存峰值；该改动仅增强诊断，不触及 kernel/编译输入。
+- **仍待仓库授权：**[上游自动同步 #23](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/43904050708) 因缺少仓库 Secret `UPSTREAM_SYNC_PAT` 而失败。该权限只能由仓库拥有者安全配置；没有 Token 就不能保证后续无人值守同步成功，也不能把失败记为已修复。
 
 ## 自动跟进上游（首次必须授权，之后无人值守）
 

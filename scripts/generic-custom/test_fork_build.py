@@ -87,6 +87,67 @@ class ForkBuildChecks(unittest.TestCase):
                     capture_output=True, text=True)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_monitor_handles_cgroup_v2_v1_and_explicit_proc_fallback(self):
+        monitor = ROOT / "scripts/generic-custom/monitor-lto-build.sh"
+        for mode in ("v2", "v1", "proc"):
+            with self.subTest(mode=mode):
+                root = Path(self.temp.name) / f"monitor-{mode}"
+                cg = root / "cgroup"
+                proc = root / "proc"
+                logs = root / "logs"
+                cg.mkdir(parents=True)
+                proc.mkdir(parents=True)
+                (proc / "meminfo").write_text(
+                    "MemTotal: 8192000 kB\nMemAvailable: 4096000 kB\n"
+                    "SwapFree: 2048000 kB\n")
+                (proc / "vmstat").write_text("oom_kill 3\n")
+                if mode == "v2":
+                    for name, value in {
+                        "memory.current": "1234\n",
+                        "memory.peak": "4567\n",
+                        "memory.max": "8192\n",
+                        "memory.events": "low 0\noom_kill 0\n",
+                        "memory.swap.current": "200\n",
+                    }.items():
+                        (cg / name).write_text(value)
+                elif mode == "v1":
+                    mem = cg / "memory"
+                    mem.mkdir()
+                    for name, value in {
+                        "memory.usage_in_bytes": "2048\n",
+                        "memory.max_usage_in_bytes": "4096\n",
+                        "memory.limit_in_bytes": "8192\n",
+                        "memory.failcnt": "0\n",
+                        "memory.memsw.usage_in_bytes": "2100\n",
+                    }.items():
+                        (mem / name).write_text(value)
+                env = dict(os.environ,
+                           GKI_MONITOR_CGROUP_ROOT=str(cg),
+                           GKI_MONITOR_PROC_ROOT=str(proc),
+                           RUNNER_TEMP=str(root))
+                result = subprocess.run(
+                    ["bash", str(monitor), str(logs), "--once"],
+                    env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected_source = {"v2": "cgroup_v2", "v1": "cgroup_v1",
+                                   "proc": "host_proc_only"}[mode]
+                self.assertIn(f"memory_source={expected_source}", result.stdout)
+                self.assertIn("host_mem_total_kb=8192000", result.stdout)
+                self.assertIn("host_mem_available_kb=4096000", result.stdout)
+                self.assertIn("host_oom_kill=3", result.stdout)
+                if mode == "v2":
+                    self.assertIn("memory_current_bytes=1234", result.stdout)
+                    self.assertIn("memory_peak_bytes=4567", result.stdout)
+                    self.assertIn("memory_events=[low 0 oom_kill 0 ", result.stdout)
+                elif mode == "v1":
+                    self.assertIn("memory_current_bytes=2048", result.stdout)
+                    self.assertIn("memory_peak_bytes=4096", result.stdout)
+                    self.assertIn("memory_events=[failcnt=0]", result.stdout)
+                else:
+                    self.assertIn("memory_current_bytes=unavailable", result.stdout)
+                self.assertEqual((logs / "resource-samples.log").read_text().strip(),
+                                 result.stdout.strip())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -94,7 +155,7 @@ class ForkBuildChecks(unittest.TestCase):
         self.bin = self.gki / "build/build-tools/path/linux-x86"
         self.bin.mkdir(parents=True)
         self.ld = Path(self.temp.name) / "host-ld"
-        self.ld.write_text("#!/bin/sh\nprintf 'mock GNU ld\\n'\n")
+        self.ld.write_text("#!/bin/sh\nprintf 'mock GNU ld\n'\n")
         self.ld.chmod(0o755)
 
     def run_script(self, *, ld_override=None):
