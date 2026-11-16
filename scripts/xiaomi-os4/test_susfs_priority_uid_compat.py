@@ -77,6 +77,32 @@ class PriorityUidFilterCompatibilityTests(unittest.TestCase):
         self.assertEqual(result.count("orig_cred = susfs_switch_to_ksu_domain();"), 3)
         self.assertEqual(result.count("susfs_restore_creds(orig_cred);"), 3)
 
+    def test_sus_path_and_priority_uid_share_feature_union_guard(self):
+        source = example().replace(
+            "/* sus_path */\n",
+            "/* sus_path */\n"
+            "#ifdef CONFIG_KSU_SUSFS_SUS_PATH\n"
+            "void protected_sus_path(void) {\n"
+            "    orig_cred = susfs_switch_to_ksu_domain();\n"
+            "    susfs_restore_creds(orig_cred);\n"
+            "}\n"
+            "#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH\n")
+        result, status = compat.transform(source)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertIn(compat.COMBINED_IFDEF + "\n" + compat.HELPER_SWITCH, result)
+        self.assertIn(compat.COMBINED_ENDIF + "\n\n/* sus_path */", result)
+        repeated, status = compat.transform(result)
+        self.assertEqual(status, "ALREADY_GUARDED")
+        self.assertEqual(repeated, result)
+
+    def test_unprotected_sus_path_helper_use_must_still_fail(self):
+        source = example().replace(
+            "/* sus_path */\n",
+            "/* sus_path */\n"
+            "void unsafe_path(void) { susfs_switch_to_ksu_domain(); }\n")
+        with self.assertRaises(compat.CompatibilityError):
+            compat.transform(source)
+
     def test_comments_and_literals_must_not_count_as_live_calls(self):
         expanded = example().replace(
             "void list_filter(void) {}",
