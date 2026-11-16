@@ -19,7 +19,7 @@ jobs:
       - name: "检查分支名单、最后提交及活动 PR，然后清理旧分支"
         shell: bash
         env:
-          GH_TOKEN: {{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" && "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
