@@ -2,19 +2,16 @@ name: Update Data & Deploy Pages
 
 on:
   schedule:
-    - cron: '0 8 1,16 * *'  # 每半月（每月 1 日和 16 日）UTC 8:00
+    - cron: '0 8 */3 * *'  # 每 3 天 UTC 8:00
   workflow_dispatch:
   push:
     branches: [dev]
     paths:
       - 'data/**'
       - 'web/**'
-      # 仅数据更新所依赖的脚本变化才需要刷新版本数据。
-      # Xiaomi OS4 开发脚本、构建补丁等不应触发额外的 Pages 构建。
-      - 'scripts/update_data.py'
-      - 'scripts/update_lts.py'
-      - 'scripts/fetch_all.py'
-      - 'scripts/gki_fetch.py'
+      - 'scripts/**'
+      # scripts/susfs_fixes/ 是构建期由 build.yml 调用的补丁修复脚本，与版本数据抓取无关
+      - '!scripts/susfs_fixes/**'
 
 permissions:
   contents: write

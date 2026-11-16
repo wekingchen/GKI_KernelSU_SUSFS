@@ -22,11 +22,29 @@ class ForkBuildChecks(unittest.TestCase):
                 "name: Android 内核构建-自定义",
                 "name: Android 内核构建-自定义（本仓隔离修复版）").replace(
                 "    uses: ./.github/workflows/build.yml",
-                "    uses: ./.github/workflows/build-fork-custom.yml"))
+                "    uses: ./.github/workflows/build-fork-custom.yml").replace(
+                "    uses: ./.github/workflows/get-manager.yml",
+                "    uses: ./.github/workflows/get-manager-fork.yml"))
         # Once native upstream has been restored, its menu may evolve
         # independently of the frozen emergency fallback selector.
         self.assertIn("uses: ./.github/workflows/build.yml", upstream)
         self.assertIn("uses: ./.github/workflows/build-fork-custom.yml", fork)
+
+    def test_private_manager_is_exact_upstream_plus_patch(self):
+        upstream = (WF / "get-manager.yml").read_text()
+        private = (WF / "get-manager-fork.yml").read_text()
+        self.assertIn("BAKASU_APKS", private)
+        self.assertNotIn("BAKASU_APKS", upstream)
+        check = subprocess.run(
+            ["python3", str(ROOT / "scripts/generic-custom/sync_fork_manager.py"), "--check"],
+            capture_output=True, text=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+    def test_susfs_compatibility_only_in_private_build(self):
+        private = (WF / "build-fork-custom.yml").read_text()
+        upstream = (WF / "build.yml").read_text()
+        self.assertIn("generic-custom/susfs-compat-overlay.sh", private)
+        self.assertNotIn("generic-custom/susfs-compat-overlay.sh", upstream)
 
     def test_fork_only_build_has_bounded_resources_and_real_timeout(self):
         original = (WF / "build.yml").read_text()

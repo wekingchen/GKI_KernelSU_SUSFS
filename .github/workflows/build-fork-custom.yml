@@ -828,7 +828,7 @@ jobs:
           KSU_VARIANT: ${{ inputs.ksu_variant }}
           OS_PATCH_LEVEL: ${{ inputs.os_patch_level }}
           SUB_LEVEL: ${{ inputs.sub_level }}
-        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh"
+        run: bash "$GITHUB_WORKSPACE/scripts/susfs_fixes/apply.sh" && bash "$GITHUB_WORKSPACE/scripts/generic-custom/susfs-compat-overlay.sh"
 
       - name: 生成 SUSFS 集成补丁
         if: env.SUSFS_PATCH_EXPORT == 'true'
