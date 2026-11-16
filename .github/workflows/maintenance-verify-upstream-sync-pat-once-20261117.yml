@@ -1,0 +1,62 @@
+name: "仓库维护 / 验证 UPSTREAM_SYNC_PAT 权限并启动同步"
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/maintenance-verify-upstream-sync-pat-once-20261117.yml"
+permissions:
+  contents: read
+jobs:
+  verify-and-dispatch:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: "检出代码并使用新配置的专用 PAT"
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 1
+          token: ${{ secrets.UPSTREAM_SYNC_PAT }}
+      - name: "真实验证仓库、工作流文件写入和 Actions 调度权限"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_PAT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::UPSTREAM_SYNC_PAT 为空"; exit 1; }
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.full_name')" == "$GITHUB_REPOSITORY" ]] ||
+            { echo "::error::PAT 无法读取本仓"; exit 1; }
+          branch="auto/pat-workflow-probe-${GITHUB_RUN_ID}"
+          cleanup() {
+            ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ -n "$ref" ]]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null ||
+                echo "::warning::临时测试分支需人工清理: $branch"
+            fi
+          }
+          trap cleanup EXIT
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          # 只有真正写入 .github/workflows 文件才能证明 PAT 的 Workflow 写权限。
+          cat > .github/workflows/pat-capability-probe.yml <<'EOF'
+          name: "临时权限检查（不会在 dev 上运行）"
+          on:
+            workflow_dispatch:
+          jobs:
+            noop:
+              runs-on: ubuntu-24.04
+              steps:
+                - run: echo "temporary token permission probe"
+          EOF
+          git add .github/workflows/pat-capability-probe.yml
+          git commit -m "test: temporary verification of fine-grained PAT workflow permission"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "PAT 已通过仓库内容及 Actions 工作流文件的实际写入测试"
+          # GitHub Actions 创建属于异步作业，具体编译结果由子 Run 决定。
+          gh workflow run upstream-exact-auto-sync.yml --repo "$GITHUB_REPOSITORY" --ref dev
+          echo "上游原件同步工作流调度成功" >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run generic-custom-auto-sync.yml --repo "$GITHUB_REPOSITORY" --ref dev
+          echo "K50 Pro 隔离版上游同步工作流调度成功" >> "$GITHUB_STEP_SUMMARY"
+          echo "验证范围：仓库读取、临时分支写入 .github/workflows、两条 Actions workflow_dispatch 均成功。" >> "$GITHUB_STEP_SUMMARY"
