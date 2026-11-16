@@ -1,0 +1,38 @@
+name: "仓库维护 / 清理 K50 Pro 收尾合并分支（一次性）"
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/maintenance-prune-k50-closeout-once-20261117.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: "核验已合入 PR、分支 HEAD 与未关闭 PR 后删除"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch='fix/generic-custom-monitor-evidence-closeout-20261117'
+          sha='ca853078e9b381d497edfc359e2c1397da3943d3'
+          [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" && "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
+          merged_at="$(gh api "repos/$GITHUB_REPOSITORY/pulls/94" --jq '.merged_at')"
+          [[ -n "$merged_at" && "$merged_at" != "null" ]] || { echo "::error::PR #94 未合入"; exit 1; }
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq '.object.sha')"
+          [[ "$current" == "$sha" ]] || { echo "::error::临时分支已变更，拒绝删除"; exit 1; }
+          open_heads="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" --jq '.[] | select(.head.repo.full_name == "wekingchen/GKI_KernelSU_SUSFS") | .head.ref')"
+          if grep -Fxq "$branch" <<< "$open_heads"; then
+            echo "::error::该分支仍有未合并 PR，拒绝删除"
+            exit 1
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          echo "已安全删除一次性分支：$branch"
