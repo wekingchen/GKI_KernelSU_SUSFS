@@ -65,6 +65,36 @@ class PriorityUidFilterCompatibilityTests(unittest.TestCase):
         self.assertEqual(status, "ALREADY_GUARDED")
         self.assertEqual(once, twice)
 
+    def test_newer_upstream_multiple_balanced_guarded_calls(self):
+        # 不能假设 SUSFS 永远只有两对调用，新的受保护调用应可安全适配。
+        expanded = example().replace(
+            "    susfs_restore_creds(orig_cred);\n",
+            "    susfs_restore_creds(orig_cred);\n"
+            "    orig_cred = susfs_switch_to_ksu_domain();\n"
+            "    susfs_restore_creds(orig_cred);\n", 1)
+        result, status = compat.transform(expanded)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertEqual(result.count("orig_cred = susfs_switch_to_ksu_domain();"), 3)
+        self.assertEqual(result.count("susfs_restore_creds(orig_cred);"), 3)
+
+    def test_comments_and_literals_must_not_count_as_live_calls(self):
+        expanded = example().replace(
+            "void list_filter(void) {}",
+            '/* susfs_switch_to_ksu_domain(); susfs_restore_creds(cred); */\n'
+            'const char *example = "susfs_switch_to_ksu_domain();";\n'
+            "void list_filter(void) {}")
+        patched, status = compat.transform(expanded)
+        self.assertEqual(status, "WRAPPED_OPTIONAL_PRIORITY_UID_HELPERS")
+        self.assertIn('const char *example', patched)
+
+    def test_extra_unprotected_invocation_is_rejected(self):
+        drift = example().replace(
+            "/* sus_path */",
+            "/* sus_path */\n"
+            "void broken(void) { susfs_switch_to_ksu_domain(); }")
+        with self.assertRaisesRegex(compat.CompatibilityError, "outside|unexpected|diverged"):
+            compat.transform(drift)
+
     def test_upstream_callgraph_drift_is_rejected(self):
         drift = example().replace("    susfs_restore_creds(orig_cred);\n", "", 1)
         with self.assertRaises(compat.CompatibilityError):
