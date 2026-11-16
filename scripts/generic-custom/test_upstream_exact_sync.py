@@ -46,6 +46,14 @@ class ExactUpstreamSync(unittest.TestCase):
         self.assertNotIn("git push --force", s)
         self.assertNotIn("gh pr merge --admin", s)
 
+    def test_private_custom_entry_generator_is_reproducible(self):
+        helper = ROOT / "scripts/generic-custom/sync_fork_custom_entry.py"
+        result = subprocess.run(["python3", str(helper), "--check"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("sync_fork_custom_entry.py --write", SCRIPT.read_text())
+        self.assertIn("sync_fork_manager.py --write", SCRIPT.read_text())
+
     def test_shell_and_workflow_yaml_parse(self):
         bash = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(bash.returncode, 0, bash.stderr)

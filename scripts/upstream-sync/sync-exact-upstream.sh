@@ -46,6 +46,12 @@ if ! git merge --no-ff --no-commit "$UPSTREAM_SHA"; then
   exit 1
 fi
 
+# 本仓的私有入口从本次上游原件重新生成；只有固定补丁能够无歧义重放时才继续。
+# 如果上游 Manager / 自定义构建接口发生不可兼容变更，在此失败关闭，不覆盖旧 dev。
+python3 scripts/generic-custom/sync_fork_custom_entry.py --write
+python3 scripts/generic-custom/sync_fork_manager.py --write
+git add .github/workflows/kernel-custom-fork.yml .github/workflows/get-manager-fork.yml
+
 # 验证合并结果没有修改、删除或改变上游文件类型（新增私有路径允许）。
 mapfile -t unexpected < <(
   git diff --no-renames --cached --name-only --diff-filter=DMT "$UPSTREAM_SHA"

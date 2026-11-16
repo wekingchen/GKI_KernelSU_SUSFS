@@ -29,6 +29,10 @@ jobs:
             echo "::error::UPSTREAM_SYNC_PAT 未配置；请设置仅授权本仓、具有 Contents、Workflows、Pull requests、Actions 全部写入权限的专用 PAT。"
             exit 1
           fi
+          if ! GH_TOKEN="$SYNC_PAT" gh api "repos/$GITHUB_REPOSITORY" --jq '.full_name' >/dev/null; then
+            echo "::error::UPSTREAM_SYNC_PAT 无法访问本仓库，请检查 Token 有效期和授权。"
+            exit 1
+          fi
 
       - name: "检出本仓 dev（使用专用令牌）"
         uses: actions/checkout@v7
