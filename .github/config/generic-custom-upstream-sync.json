@@ -1,7 +1,7 @@
 {
-  "private_base_blob_sha": "de9633cd9c73dedb94b5724a1779cc4988e59720",
+  "private_base_blob_sha": "ec4f0ce415dd0a0fa8117f328acab3a87f65985b",
   "schema": 1,
-  "upstream_blob_sha": "00e13c381928e652ee82ca8a31d7d04aabc4df85",
+  "upstream_blob_sha": "39aa48f69a0234e51a13ef7a20207609e6911520",
   "upstream_ref": "dev",
   "upstream_repository": "zzh20188/GKI_KernelSU_SUSFS"
 }
