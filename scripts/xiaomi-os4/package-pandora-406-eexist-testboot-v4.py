@@ -61,14 +61,38 @@ def main():
     hv=struct.unpack_from("<I",boot,40)[0]
     sig=struct.unpack_from("<I",boot,1580)[0]
     if hv!=4 or hs!=1584 or rs!=0 or sig!=0: fail("unsupported boot-v4 layout")
-    if boot[-64:-60]==b"AVBf": fail("stock boot has AVB footer")
-    suffix=boot[PAGE+((ks+PAGE-1)//PAGE)*PAGE:]
-    if suffix.strip(b"\0"): fail("stock boot trailing data is nonzero")
+    stock_has_avb_footer=(len(boot)>=AVB_FOOTER_SIZE and
+                          boot[-AVB_FOOTER_SIZE:-AVB_FOOTER_SIZE+4]==b"AVBf")
+    if stock_has_avb_footer:
+        magic,major,minor,original_size,vbmeta_offset,vbmeta_size=struct.unpack(
+            ">4sIIQQQ",boot[-AVB_FOOTER_SIZE:-AVB_FOOTER_SIZE+36])
+        if magic!=b"AVBf" or major!=1 or minor>0:
+            fail("unsupported AVB footer version")
+        if not (PAGE<=original_size<=vbmeta_offset<len(boot)-AVB_FOOTER_SIZE):
+            fail("invalid AVB footer offsets")
+        if vbmeta_size<=0 or vbmeta_offset+vbmeta_size>len(boot)-AVB_FOOTER_SIZE:
+            fail("invalid AVB vbmeta bounds")
+        stock_payload=boot[:original_size]
+    else:
+        original_size=len(boot)
+        vbmeta_offset=0
+        vbmeta_size=0
+        stock_payload=boot
+    stock_kernel_end=PAGE+((ks+PAGE-1)//PAGE)*PAGE
+    if stock_kernel_end>len(stock_payload):
+        fail("stock kernel exceeds original boot payload")
+    # For boot-v4 with no ramdisk/signature, bytes after the aligned kernel in
+    # the pre-AVB image must be padding only. AVB vbmeta/footer are partition
+    # metadata and are intentionally not copied into a temporary fastboot boot.
+    if stock_payload[stock_kernel_end:].strip(b"\0"):
+        fail("pre-AVB stock boot trailing data is nonzero")
     image=a.candidate_image.read_bytes()
     if sha(image)!=meta.get("IMAGE_SHA256"): fail("experimental Image hash mismatch")
     release=stock["uname"].encode()
     if release not in image: fail("stock release marker absent from Image")
-    if PAGE+((len(image)+PAGE-1)//PAGE)*PAGE>len(boot): fail("Image too large for stock boot partition envelope")
+    candidate_payload_size=PAGE+((len(image)+PAGE-1)//PAGE)*PAGE
+    if candidate_payload_size>len(boot)-AVB_FOOTER_SIZE:
+        fail("Image too large for stock boot partition envelope")
     header=bytearray(boot[:PAGE])
     raw=bytes(header[CMD:CMD+CMD_LEN])
     if b"\0" not in raw: fail("cmdline field not terminated")
@@ -91,8 +115,13 @@ def main():
     header[CMD:CMD+CMD_LEN]=b"\0"*CMD_LEN
     header[CMD:CMD+len(cmd)]=cmd
     struct.pack_into("<I",header,8,len(image))
-    out=bytearray(header); out+=image; out+=b"\0"*(len(boot)-len(out))
-    if len(out)!=len(boot): fail("output boot size changed")
+    out=bytearray(header)
+    out+=image
+    out+=b"\0"*(candidate_payload_size-len(out))
+    if len(out)!=candidate_payload_size:
+        fail("logical fastboot boot size mismatch")
+    if len(out)>=AVB_FOOTER_SIZE and out[-AVB_FOOTER_SIZE:-AVB_FOOTER_SIZE+4]==b"AVBf":
+        fail("output unexpectedly retained AVB footer")
     outcmd=bytes(out[CMD:CMD+CMD_LEN]).split(b"\0",1)[0].split()
     if FLAG not in outcmd: fail("shim enable flag missing")
     if not any(x.startswith(b"module_blacklist=") and b"kernelsu" in x.split(b"=",1)[1].split(b",") for x in outcmd):
