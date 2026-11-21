@@ -1,5 +1,5 @@
 name: "临时诊断 / pandora 4.0.6 stock boot AVB 布局"
-# rerun after full-partition fastboot-boot capacity rule
+# rerun after collector executable-line regression fix
 on:
   push:
     branches:
