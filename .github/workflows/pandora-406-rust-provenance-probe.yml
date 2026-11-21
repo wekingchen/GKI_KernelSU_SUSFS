@@ -35,11 +35,70 @@ jobs:
           echo '=== CANDIDATE RUST EXPORTS ==='
           grep -Ec $'^0x[0-9a-f]+\\t_R[^\\t]+\\tvmlinux' "$RUNNER_TEMP/new/Module.symvers" || true
           echo 'READ ONLY, NO BOOT, NO UPLOAD OF PRIVATE DEVICE EVIDENCE' >> "$GITHUB_STEP_SUMMARY"
+      - name: "Compare R62 verified symbols with 4.0.6 stock Binder CRCs"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -I zstd -xOf "$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst" './Module.symvers' > "$RUNNER_TEMP/r62/Module.symvers"
+          tar -I zstd -xOf "$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst" './final.config' > "$RUNNER_TEMP/r62/final.config"
+          tar -I zstd -xOf "$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst" './build-metadata.txt' > "$RUNNER_TEMP/r62/build-metadata.txt"
+          mkdir -p "$RUNNER_TEMP/abi"
+          gh run download 44897936109 --repo "$GITHUB_REPOSITORY" --name pandora-406-full-vendorboot-gate-readonly --dir "$RUNNER_TEMP/abi"
+          python3 - <<'PY'
+          import collections,json,os,pathlib,re
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          report=json.loads((root/"abi/ota-abi-report-with-early.json").read_text())
+          missing=report["unresolved_kernel_imports"]
+          rust=[x for x in missing if "rust_binder.ko:" in x]
+          if len(missing)!=71 or len(rust)!=71:raise ValueError("unexpected original missing symbol evidence")
+          def exports(p):
+              out={}
+              total=0
+              for line in p.read_text().splitlines():
+                  x=line.split()
+                  if len(x)<3 or x[2]!="vmlinux":continue
+                  try: crc=int(x[0],16)
+                  except: continue
+                  total+=1
+                  out[x[1]]=crc
+              return out,total
+          r62,r62_total=exports(root/"r62/Module.symvers")
+          new,new_total=exports(root/"new/Module.symvers")
+          found=[x.rsplit(":",1)[-1] for x in rust if x.rsplit(":",1)[-1] in r62]
+          missing_r62=[x.rsplit(":",1)[-1] for x in rust if x.rsplit(":",1)[-1] not in r62]
+          xconf={}
+          for key in ("CONFIG_RUST","CONFIG_RUST_IS_AVAILABLE","CONFIG_EXTENDED_MODVERSIONS","CONFIG_ANDROID_BINDER_IPC"):
+              a=(root/"r62/final.config").read_text()
+              b=(root/"new/final.config").read_text()
+              xconf[key]={"r62":next((s for s in a.splitlines() if s.startswith(key+"=")),None),
+                          "new":next((s for s in b.splitlines() if s.startswith(key+"=")),None)}
+          metadata=(root/"r62/build-metadata.txt").read_text().splitlines()
+          interesting=[s for s in metadata if any(z in s.lower() for z in ("gki","commit","rust","clang","source_","kernel_release"))]
+          out={"diagnostic":"READ_ONLY_R62_VERIFIED_VS_NEW_GKI",
+               "verified_r62_vmlinux_export_count":r62_total,
+               "new_gki_vmlinux_export_count":new_total,
+               "verified_r62_mangled_export_count":sum(x.startswith("_R") for x in r62),
+               "new_gki_mangled_export_count":sum(x.startswith("_R") for x in new),
+               "rust_binder_stock_missing_in_new":len(rust),
+               "rust_binder_symbols_present_in_verified_r62":len(found),
+               "rust_binder_symbols_missing_in_verified_r62":len(missing_r62),
+               "matched_in_verified_r62_names":found[:30],
+               "not_found_in_verified_r62_names":missing_r62[:15],
+               "config":xconf,"metadata":interesting[:32],
+               "r62_same_rust_export_names_in_new":sum(x in new for x in r62 if x.startswith("_R"))}
+          (root/"r62/verified-r62-vs-new-gki.json").write_text(json.dumps(out,ensure_ascii=False,indent=2)+"\n")
+          print(json.dumps({k:v for k,v in out.items() if k not in ("matched_in_verified_r62_names","not_found_in_verified_r62_names")},ensure_ascii=False,indent=2))
+          print("R62_FOUND_STOCK_RUST_SYMBOL_EXAMPLES",found[:8])
+          print("R62_MISSING_STOCK_RUST_SYMBOL_EXAMPLES",missing_r62[:8])
+          PY
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-r62-verified-evidence-inventory
-          path: ${{ runner.temp }}/r62/file-list.txt
+          path: |
+            ${{ runner.temp }}/r62/file-list.txt
+            ${{ runner.temp }}/r62/verified-r62-vs-new-gki.json
           retention-days: 14
           if-no-files-found: warn
