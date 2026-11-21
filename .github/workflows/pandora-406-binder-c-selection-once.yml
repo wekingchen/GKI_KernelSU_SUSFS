@@ -48,9 +48,24 @@ jobs:
             grep -n -E "active_impl|binder_impl_param_get" "$B" | head -n 20 || true
             grep -n -A12 -B4 "binder_use_rust == 0" "$R" || true
           } | tee "$RUNNER_TEMP/r74-binder.txt"
+      - name: "锁定原厂采集包检查可用 boot/vendor_boot 证据"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern "*xm.zip" --dir "$RUNNER_TEMP/stock"
+          ZIP="$(find "$RUNNER_TEMP/stock" -maxdepth 1 -name "*xm.zip" -type f -print -quit)"
+          test -n "$ZIP"
+          test "$(sha256sum "$ZIP" | cut -d" " -f1)" = "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
+          unzip -l "$ZIP" | tee "$RUNNER_TEMP/stock-inventory.txt"
+          echo "--- boot-like entries ---" | tee -a "$RUNNER_TEMP/stock-inventory.txt"
+          unzip -Z1 "$ZIP" | grep -E "(^|/)(boot|vendor_boot|init_boot)(_[ab])?\.img$|(^|/).*\.rc$|(^|/)fstab" | tee -a "$RUNNER_TEMP/stock-inventory.txt" || true
       - name: "只归档文字证据"
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-r74-binder-c-readonly
-          path: ${{ runner.temp }}/r74-binder.txt
+          path: |
+            ${{ runner.temp }}/r74-binder.txt
+            ${{ runner.temp }}/stock-inventory.txt
           retention-days: 30
