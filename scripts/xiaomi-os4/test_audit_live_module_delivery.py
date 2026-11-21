@@ -32,6 +32,14 @@ class LiveLoaderCollector(unittest.TestCase):
         self.assertNotIn('cat /proc/kallsyms', text)
         self.assertIn('loaded-modules-redacted.txt', text)
 
+    def test_live_module_notes_only_hashed_from_sysfs(self):
+        text = "\n".join(COMMANDS)
+        for module in ("rust_binder", "zsmalloc", "zram", "node_cache"):
+            self.assertIn("/sys/module/" + module + "/notes/.note.gnu.build-id", text)
+        self.assertNotIn('adb shell su -c "insmod ', text)
+        self.assertNotIn('adb shell su -c "modprobe ', text)
+        self.assertNotIn('cat /sys/module/zsmalloc/notes/.note.gnu.build-id', text)
+
     def test_partition_paths_not_conflated(self):
         text = "\n".join(COMMANDS)
         self.assertIn('/system_dlkm/lib/modules/6.12.69-', text)
