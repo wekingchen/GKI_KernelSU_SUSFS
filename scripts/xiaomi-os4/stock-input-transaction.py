@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 REPO = 'wekingchen/GKI_KernelSU_SUSFS'
 TAG = 'pandora-os4-stock-input'
@@ -28,12 +29,31 @@ class GitHub:
                                         f'repos/{REPO}/releases/assets/{int(asset)}'])
 
     def upload(self, release, name, data):
-        with tempfile.NamedTemporaryFile() as f:
-            f.write(data); f.flush()
-            raw = subprocess.check_output(['gh', 'api', '--hostname', 'uploads.github.com', '-X', 'POST',
-                f'repos/{REPO}/releases/{int(release)}/assets?name={name}',
-                '-H', 'Content-Type: application/octet-stream', '--input', f.name])
-        asset = json.loads(raw)
+        # gh api --hostname uploads.github.com mistakenly targets api.uploads.github.com.
+        # Release asset uploads MUST POST directly to https://uploads.github.com.
+        if (not isinstance(release, int) or release <= 0
+                or not re.fullmatch(r'[A-Za-z0-9_.-]{1,160}', name)
+                or not isinstance(data, bytes)):
+            raise ValueError('invalid release upload arguments')
+        token = os.environ.get('GH_TOKEN')
+        if not token:
+            raise RuntimeError('GH_TOKEN required for release asset upload')
+        url = (f'https://uploads.github.com/repos/{REPO}/releases/{release}/assets'
+               f'?name={quote(name, safe="")}')
+        request = Request(url, data=data, headers={
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/octet-stream',
+        }, method='POST')
+        with urlopen(request, timeout=300) as response:
+            if response.status != 201:
+                raise ValueError(f'unexpected GitHub asset upload status: {response.status}')
+            asset = json.load(response)
+        if (not isinstance(asset, dict) or not isinstance(asset.get('id'), int)
+                or asset['id'] <= 0 or asset.get('name') != name
+                or asset.get('state') != 'uploaded' or asset.get('size') != len(data)):
+            raise ValueError('uploaded release asset metadata mismatch')
         if sha(self.download(asset['id'])) != sha(data):
             raise ValueError('uploaded backup/journal/asset failed download verification')
         return asset
