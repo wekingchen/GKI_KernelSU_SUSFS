@@ -98,3 +98,44 @@
   Linux common + OEM patch + Rust Binder / kernel crate 构建配置、工具链和模块源码。
   **本轮仅整理核验材料，未代表用户对外创建请求。**
 
+
+## 路线 B 真正实测结果：通过 GKI 配对但 OEM 继续 BLOCKED（2026-11-21）
+
+[SHA 锁定真实构建 Run #44901587883](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44901587883)
+已完成全部 job，结论 `success`；仅归档 JSON 证据
+`pandora-406-rust-binder-nonflash-evidence`（Artifact ID `14706691903`），不归档可刷包或 .ko。
+
+- 源码：官方 `android16-6.12-2026-03_r74`，commit
+  `b1d12d482d767c50cb792d988e4479d3f75c342a`。构建的是与该 GKI 同源的
+  `drivers/android/binder/rust_binder.ko`，没有更改上游内核源码或跳过模块构建。
+- 产物 `rust_binder.ko` SHA-256：
+  `37f916a09c0af9efab84d5962f6344a231f47d365864c5b80de0ba466183aaf5`。
+  240 个导入（其中 71 个 Rust mangled）全部与锁定的候选 GKI
+  `Module.symvers` 中真实 vmlinux 导出相符：**缺失导入 0，CRC 不匹配 0**；
+  `vermagic` 与固定候选 release 一致。
+- 被替代的 OEM `rust_binder.ko` SHA：
+  `ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c`，
+  原来的 **71 个 Rust 导入缺口仍然存在**。新旧模块**绝不是相同的二进制**；
+  当前只证明“新 GKI + 配套新 Binder 模块”的静态配对方案有可行性。
+- 原始 stock 重新审计仍是 38,998 次导入、71 条 OEM Binder 缺失、
+  24 条 zsmalloc 同 CRC 双来源与 3 条不同 CRC 双来源；已找到部分的 CRC 不匹配为 0。
+  尤其 `zs_malloc`：vendor 的 `node_cache` / `zram` 要求
+  `0x1804f5bc`，system 的 `zram` 要求 `0x36f39fe1`，
+  不能把两份 `zsmalloc.ko` 混用。
+- **发现非刷机独立注意事项**：这次重新编译的 `Image` SHA-256
+  `a846571a053e36e998d64720914f19e107d09b101dd71874321c7ffd17132804`
+  与先前固定候选 Release 的 `Image` SHA-256
+  `af955281efe49ef22cac3efd4072cfd683ee6ab3f48a173932fbb4442b8a1287`
+  **不相同**；但实际重新生成的 `final.config` 和 `Module.symvers`
+  经 `cmp` 与锁定候选文件字节完全一致。它仅支持当前静态 ABI 配对结论，
+  **不构成 Image 二进制复现通过**。如需进入真正启动测试，仍须追查非确定性来源，
+  不可据此把任何一个 Image 当作 OEM 精确重建。
+- 没有替换原厂 system_dlkm、没有修改手机、没有证明原厂实际 Binder 实现选择、
+  没有解决模块装载/签名/系统分区供给路径，也未完成 zsmalloc 两套实际加载来源的
+  文件级证明；因此 `gate=BLOCKED`、`flashable=false`、
+  `eligible_for_fastboot_boot=false` 继续保持。**不会进入快启或 LKG 晋升**。
+
+后续路线 B 进入“只读模块供给/签名/加载时序溯源”阶段；路线 A 继续追踪
+`g43b5ab7e247d` 对应的准确 6.12.69 OEM Rust/内核源码。
+任何替代模块方案必须显式保留完整 OTA 恢复和签名/AVB 约束，不允许通过
+删掉 Rust Binder、禁用校验、伪造 CRC 或合并两套 zsmalloc 来消除阻断。
