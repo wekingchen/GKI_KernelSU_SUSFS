@@ -215,3 +215,27 @@ insmod/modprobe、写分区、关闭校验、重启或刷机**。采集资料仅
 
 需要实际运行才可以判断动态加载源；此处只完成备测工具的 Windows 原生
 脱敏及只读流程验收，绝不以 mock PASS 代替手机证据。
+
+### 第八轮补充：vermagic 与未来真机证据的解释边界
+
+本轮从不可变原厂 ZIP 中解出的 ELF 还显示：
+- system `rust_binder` / `zsmalloc` / `zram` 的完整 `vermagic` 为
+  `6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`；
+- vendor `node_cache` / `zram` / `zsmalloc` 的 `vermagic`
+  是 `6.12.69-android16-6-4k`，不是可据此判定模块等价的同一 SHA 或 ABI。
+  两套 `zsmalloc` 导出 CRC 仍然不同，不能因 Android KMI 前缀相同就互换。
+
+未来从真机只读采集到的信息应按证据等级处理：
+- `binder.impl=rust` 参数仅证明读取到该启动参数；还需模块加载与 Binder
+  功能证据。**没有观察到该参数不能证明实际使用 C Binder**。
+- `/proc/modules` 有模块名证明当前加载了同名模块，但不包含加载时原始
+  ELF 文件 SHA、装载分区或代替模块的信任链证明。
+- `modules.load` / `modules.dep` 是文件系统中提供的装载配置/依赖关系，
+  不是任意时刻实际装载的不可伪造轨迹。
+- `sha256sum /system_dlkm/...` 只对**当前挂载文件**取 SHA，
+  不证明内存中的模块确实来自这个文件；vendor/system 两份 SHA 分开比较。
+- `ro.boot.verifiedbootstate` / `vbmeta.device_state` 是设备启动状态证据，
+  不能代替 system_dlkm AVB 链的核验，也不是解除签名规则的理由。
+
+任何缺失/错误/冲突的输出标记为 **PARTIAL／UNKNOWN，维持 BLOCKED**；
+此阶段不会改变现用分区，不会尝试 `insmod`/`modprobe` 等主动加载。
