@@ -36,11 +36,36 @@ jobs:
           set -euo pipefail
           python3 scripts/xiaomi-os4/triage-406-rust-zram-readonly.py
           echo '只读：不修改 ABI 判定、不生成测试包、不晋升 LKG' >> "$GITHUB_STEP_SUMMARY"
+      - name: "复验新版解释性 ABI 门禁（仍不生成 boot）"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_vendor_provider_graph.py' -v
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$RUNNER_TEMP/rust-zram/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --stock-report "$RUNNER_TEMP/rust-zram/gki/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/rust-zram/gki/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/rust-zram/gki/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/rust-zram/gki/Module.symvers" \
+            --output "$RUNNER_TEMP/rust-zram/ota-abi-detailed.json"
+          jq '{
+            gate,eligible_for_fastboot_boot,imports_checked,
+            rust_mangled_missing:.unresolved_rust_mangled,
+            rust_binder_missing:.unresolved_rust_binder,
+            candidate_rust_mangled_exports,
+            ambiguous_same_crc,ambiguous_split_crc,
+            crc_mismatches:(.crc_mismatches|length),
+            unresolved:(.unresolved_kernel_imports|length),
+            ambiguous:(.ambiguous_providers|length),
+            ambiguous_details:.ambiguous_provider_details[:5]
+          }' "$RUNNER_TEMP/rust-zram/ota-abi-detailed.json"
+          jq -e '.gate=="BLOCKED" and .eligible_for_fastboot_boot==false and .unresolved_rust_binder==71 and .ambiguous_same_crc==24 and .ambiguous_split_crc==3 and (.crc_mismatches|length)==0' "$RUNNER_TEMP/rust-zram/ota-abi-detailed.json" >/dev/null
       - name: "留存小型诊断证据"
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-rust-zram-evidence
-          path: ${{ runner.temp }}/rust-zram/rust-zram-report.json
+          path: |
+            ${{ runner.temp }}/rust-zram/rust-zram-report.json
+            ${{ runner.temp }}/rust-zram/ota-abi-detailed.json
           retention-days: 30
           if-no-files-found: warn
