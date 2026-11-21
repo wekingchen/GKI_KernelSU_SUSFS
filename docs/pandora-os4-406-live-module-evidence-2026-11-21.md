@@ -173,3 +173,138 @@ root-level 路径只保留为次要布局证据。
 
 本轮只收窄真实运行时来源，不通过删模块、合并两套 zsmalloc、
 伪造 CRC 或修改正式 ABI gate 来消除阻断。
+
+## 第二次补采：system_dlkm 真实加载清单与 Binder impl 已取得
+
+第二次用户真机只读采集包：
+`pandora-live-module-delivery-7599.zip`
+
+SHA-256：
+`75242f56b2d01372026bb6cf52144cc951aeb847c3396a22ce526772c9794917`
+
+身份、slot、uname、boot complete、verified boot state 与第一份一致。
+
+### system_dlkm 的真实版本目录 metadata
+
+修正路径后，真实文件为：
+
+```text
+/system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/modules.load
+/system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/modules.dep
+```
+
+`modules.load` 共 82 行，其中：
+
+```text
+3   kernel/mm/zsmalloc.ko
+13  kernel/drivers/block/zram/zram.ko
+47  kernel/drivers/android/binder/rust_binder.ko
+```
+
+`modules.dep` 共 103 行，相关条目：
+
+```text
+kernel/mm/zsmalloc.ko:
+kernel/drivers/block/zram/zram.ko: kernel/mm/zsmalloc.ko
+kernel/drivers/android/binder/rust_binder.ko:
+```
+
+因此已经确认 **system_dlkm 的正式加载清单明确包含 rust_binder.ko**，
+且该模块没有硬依赖记录。
+
+root-level：
+
+```text
+/system_dlkm/lib/modules/modules.load
+/system_dlkm/lib/modules/modules.dep
+```
+
+在本机为空；之前第一版采集器确实读取错层级。
+
+### system zram 文件也与原厂库存一致
+
+第二份补采新增：
+
+```text
+7a440b89b62385d1affc0dca25af32c75f6e03af1a884e3d2ae8e4e75402b3c3
+/system_dlkm/.../kernel/drivers/block/zram/zram.ko
+```
+
+与锁定 OTA 原厂 system zram SHA 完全一致。
+
+但当前运行时 zram 的 GNU Note 仍唯一匹配 vendor zram，
+进一步说明“位于 system modules.load”与“当前实际加载的是该 system ELF”
+不能画等号。
+
+### Binder impl：当前请求状态明确为 C
+
+第二份补采：
+
+```text
+/sys/module/binder/parameters/impl = c
+/sys/module/binder/parameters/active_impl = <不存在/空>
+binder.impl cmdline = <无>
+binder.impl bootconfig = <无>
+```
+
+同时此前事实继续成立：
+
+```text
+rust_binder in /proc/modules = yes
+rust_binder initstate = live
+rust_binder loaded GNU Note = stock system rust_binder unique match
+system modules.load includes rust_binder.ko = yes
+```
+
+Android common 2025 年的 Binder 实现选择逻辑中，
+`binder.impl` 的 sysfs getter 返回 `binder_use_rust ? "rust" : "c"`；
+而 Rust Binder 模块初始化时，如果 `binder_use_rust == 0`，
+会直接成功返回而不执行 `unload_binder()`，因此模块完全可以处于
+`Live` 状态但不接管 C Binder。
+
+2026-09 才新增的只读 `active_impl` 节点专门用于直接报告当前 active
+实现；本机没有该节点，说明不能得到这种更高等级的直接证据。
+
+据此，本机应记录为：
+
+```text
+CURRENT_BOOT_BINDER_IMPL_REQUESTED=c
+CURRENT_BOOT_RUST_BINDER_MODULE_LOADED=yes
+CURRENT_BOOT_RUST_BINDER_MODULE_SOURCE=system
+CURRENT_BOOT_BINDER_ACTIVE_IMPL_DIRECT=UNAVAILABLE
+CURRENT_BOOT_BINDER_ROLE=C_STRONGLY_SUPPORTED
+CURRENT_BOOT_RUST_BINDER_ROLE=LOADED_BUT_INERT_STRONGLY_SUPPORTED
+```
+
+这里刻意使用 **STRONGLY_SUPPORTED**，而不是
+`DIRECTLY_VERIFIED`：因为 Xiaomi 对应的精确 OEM Binder 源码 commit
+仍未取得，不能把 Android common 的行为无条件冒充为 OEM 二进制的逐行源码证明。
+
+### 对“71 个 Rust Binder 未解析导入”的重新分层
+
+这一轮的新证据改变的是**问题分类**，不是取消问题：
+
+1. 当前原厂系统的 Binder 主实现强证据指向 **C Binder**；
+2. `rust_binder.ko` 仍被 system `modules.load` 明确要求加载；
+3. 因此 OEM rust_binder 的 71 个 Rust 导入缺口属于
+   **候选 GKI 的 system_dlkm 模块装载兼容性阻断**；
+4. 它不再应被描述成“当前原厂 Binder 主链一定依赖这 71 个 Rust 符号”；
+5. 但是内核加载 .ko 时会先完成符号解析，即使模块逻辑最终保持 inert，
+   缺失导入仍可能使该 .ko 在候选 GKI 上无法插入。
+
+AOSP 对 system_dlkm 的定义也明确要求 GKI 与其 system_dlkm 模块配套；
+system_dlkm 挂载后，由 vendor 进程按 `modules.load` 加载模块。
+Android libmodprobe 在处理 modules.load 时，如果模块加载失败会返回失败；
+具体到 Xiaomi 的 vendor loader，这个失败是否直接阻断整机启动仍未取得
+OEM .rc / loader 行为证据。因此这里继续 fail-closed：
+
+```text
+OEM_RUST_BINDER_71_IMPORTS=MODULE_LOAD_COMPATIBILITY_BLOCKER
+CURRENT_BINDER_MAINLINE_RUST_DEPENDENCY=NOT_SUPPORTED_BY_LIVE_EVIDENCE
+CANDIDATE_BOOT_FATALITY_OF_RUST_BINDER_LOAD_FAILURE=UNKNOWN
+OEM_ABI_GATE=BLOCKED
+```
+
+后续应优先研究“如何在不修改 system_dlkm 的前提下，让候选 GKI 对
+system rust_binder 的加载请求安全处理”，而不是继续把精力放在
+“如何让 Rust Binder 成为当前 active 实现”这个已经与真机事实不符的方向。
