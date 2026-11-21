@@ -56,7 +56,7 @@ def main():
                                  len(n)-len(n.rstrip(b"\0")))
                         ext_shapes[str(shape)] += 1
                         keys = [x.decode("ascii", "replace") for x in
-                                n.rstrip(b"\\0").split(b"\\0")]
+                                n.rstrip(b"\0").split(b"\0")]
                         seen = set()
                         for key in keys:
                             if not abi.SYMBOL.fullmatch(key):
