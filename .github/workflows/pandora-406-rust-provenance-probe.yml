@@ -92,6 +92,27 @@ jobs:
           print("R62_FOUND_STOCK_RUST_SYMBOL_EXAMPLES",found[:8])
           print("R62_MISSING_STOCK_RUST_SYMBOL_EXAMPLES",missing_r62[:8])
           PY
+      - name: "Inspect verified AnyKernel3 module packaging and pinned GKI Rust Binder Kconfig"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends unzip curl >/dev/null
+          gh release download pandora-os4-lkg-gen5 --repo "$GITHUB_REPOSITORY" --pattern 'Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-USER-VERIFIED-AnyKernel3.zip' --dir "$RUNNER_TEMP/r62"
+          echo 'a88839c3f153b51cf6e8e254ecb9e47a4aacfa14b0c717c07df8de543b8afe4b  '"$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-USER-VERIFIED-AnyKernel3.zip" | sha256sum -c -
+          unzip -Z -1 "$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-USER-VERIFIED-AnyKernel3.zip" > "$RUNNER_TEMP/r62/anykernel3-files.txt"
+          echo '=== ANYKERNEL FILES ==='
+          cat "$RUNNER_TEMP/r62/anykernel3-files.txt" | head -n 55
+          echo '=== ANYKERNEL MODULE/INSTALL ROUTING ==='
+          grep -Ei '(\.ko$|rust|binder|module|system_dlkm|vendor_dlkm)' "$RUNNER_TEMP/r62/anykernel3-files.txt" | head -n 70 || true
+          curl -fsSL --retry 3 'https://android.googlesource.com/kernel/common/+/refs/tags/android16-6.12-2026-03_r74/drivers/android/binder/Kconfig?format=TEXT' -o "$RUNNER_TEMP/r62/rust-binder-kconfig.b64"
+          base64 -d "$RUNNER_TEMP/r62/rust-binder-kconfig.b64" > "$RUNNER_TEMP/r62/rust-binder-Kconfig"
+          curl -fsSL --retry 3 'https://android.googlesource.com/kernel/common/+/refs/tags/android16-6.12-2026-03_r74/drivers/android/binder/Makefile?format=TEXT' | base64 -d > "$RUNNER_TEMP/r62/rust-binder-Makefile"
+          echo '=== GKI BINDER KCONFIG ==='
+          head -n 130 "$RUNNER_TEMP/r62/rust-binder-Kconfig"
+          echo '=== GKI BINDER MAKEFILE ==='
+          head -n 110 "$RUNNER_TEMP/r62/rust-binder-Makefile"
+          echo 'READ ONLY: neither original R62 installer nor GKI files were modified' >> "$GITHUB_STEP_SUMMARY"
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
