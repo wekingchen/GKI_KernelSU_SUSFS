@@ -321,3 +321,55 @@ OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
 
 本轮工作流从隔离开发分支移除，仅永久保留这一证据及原有分析工具，
 以免遗留会重复进行全量编译的实验工作流。
+
+## 第十轮：从“磁盘文件”前进到“已加载模块的 GNU Note”（2026-11-21）
+
+### 固定 OEM 原厂模块的 GNU Build-ID 指纹
+
+[真实只读 Run #44907158941](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44907158941)
+使用 SHA256 锁定的 `OS4.0.6.0.XBLCNXM` stock-input `xm.zip`，
+从 505 个原厂 ELF 模块中分别提取六份 `.note.gnu.build-id`。
+[复测 Run #44907393069](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44907393069)
+通过全部失败关闭回归测试与相同 stock SHA 实物审计。
+只读工件名 `pandora-406-module-notes-stock-readonly`，初次 Artifact ID
+`14708556026`；不包含任何 .ko、Image 或刷机文件。
+
+| 原始来源 | GNU Build-ID（20 字节） | 原始 ELF Note SHA256（36 字节） |
+| --- | --- | --- |
+| system rust_binder | `46a149b63b1e0840be67a2149bdc7d289ad8e4a4` | `f495767e894fcfed7e9d05b9f04d847bcbe95b9ad79b40193e5795554bc62aa6` |
+| vendor zsmalloc | `480d7bfab5ee5d65f4031b0a4b4779d8e6dbe424` | `531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035` |
+| system zsmalloc | `8ffc2ff08b1473ac0c8a0950250276baa5536292` | `4d8f123bb80cc23169e27f29459957272f969f7e509495dc00639e514378d1fa` |
+| vendor zram | `5266cbf45af6482e4c41b46fd5801e54cb81832c` | `e6c5c0c4c3cfa4ad9f5ea4828391459b3c556dc80a77fd9bd005df2699dc0280` |
+| system zram | `aef2b1b17c49101f13e9890b1a813cb2b510dd5d` | `b381360dfde4835aca3ccca2a7c73576939bcea28478656281f636bc0092dfaf` |
+| vendor node_cache | `98ebcaeec156ef757c59be2fe5f064888ca5e539` | `24755a08ebe111a8c8b0bbf30e25a6b32c2a0527654efb68109265bd36ef2b02` |
+
+- six original GNU Note SHA are distinct; vendor/system `zsmalloc` 依旧
+  分别消费 `0x1804f5bc` / `0x36f39fe1` 的 CRC，
+  而不是按模块 basename 自动合并。
+- Linux 内核源码 [kernel/module/sysfs.c](https://github.com/torvalds/linux/blob/master/kernel/module/sysfs.c)
+  将已加载模块的 SHT_NOTE 暴露在 `/sys/module/<name>/notes/`，
+  **当内核启用且该路径可访问时**，可以只读 `sha256sum` 该 Note，
+  与原厂 ELF Note 哈希交叉比对。
+- 在 `scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd`
+  新增四项**可选只读** sysfs Note 哈希：rust_binder、zsmalloc、zram、
+  node_cache；找不到 sysfs Note 视为 UNKNOWN 而不是未加载证明。
+  Windows PC 本地自动生成 `pandora-live-module-delivery-*.zip`，
+  不再需要手动压缩整个目录。
+- `scripts/xiaomi-os4/review-live-module-delivery-readonly.py`
+  仅在 `/proc/modules` 也观察到相同模块名，且 sysfs Note 路径合法时，
+  对比固定 Note SHA。如果 `zsmalloc` **唯一**符合 vendor 或 system，
+  分别记录 `runtime_zsmalloc_unique_note_source=vendor/system`，
+  但保留 `runtime_loaded_binary_sha256=NOT_PROVEN`、
+  `module_delivery_verified=false`、
+  `system_dlkm_avb_chain_verified=false`、
+  `gate=BLOCKED`、`flashable=false`。
+- [Windows 原生 CMD 全链模拟 Run #44907479503](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44907479503)
+  验证了新的 sysfs Note 哈希探针、原始地址脱敏、隐私参数过滤、
+  完整证据目录自动压缩为 ZIP，**属于 Windows mock，不是手机真机结果**。
+  真机上 sysfs Note 是否实际存在、是否匹配，尚未采集。
+
+**证据等级**：若真机 Note 唯一对应某个 stock ELF，可以将该已加载模块的
+`GNU Note` 与原厂库存来源对应；它仍不能直接证明完整内存 ELF 字节、
+实际加载文件路径、AVB、模块签名策略或 Binder 服务切换。
+因此只收窄来源判断，不作为解锁 71 条 Rust ABI 或 27 条 zsmalloc 歧义
+的通行证。路线 A 精确 OEM 源码仍未得到。
