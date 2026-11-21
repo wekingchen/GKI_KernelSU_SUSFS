@@ -1,0 +1,46 @@
+name: "pandora OS4.0.6 Rust binder / zsmalloc only-read analysis"
+on:
+  push:
+    branches: ["pandora-406-rust-zram-evidence"]
+    paths: [".github/workflows/pandora-406-rust-zram-triage.yml"]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  investigate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: "安装仅供诊断的解压工具"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd lz4 jq
+      - name: "下载并校验与 4.0.6.0 绑定的固件和 GKI 配置"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/rust-zram/stock" "$RUNNER_TEMP/rust-zram/gki" "$RUNNER_TEMP/rust-zram/existing"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip' --dir "$RUNNER_TEMP/rust-zram/stock"
+          echo "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8  $RUNNER_TEMP/rust-zram/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" | sha256sum -c -
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/rust-zram/gki"
+          (cd "$RUNNER_TEMP/rust-zram/gki" && sha256sum -c RELEASE-SHA256SUMS.txt)
+          gh run download 44897936109 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-406-full-vendorboot-gate-readonly --dir "$RUNNER_TEMP/rust-zram/existing"
+          jq -e '.gate=="BLOCKED" and .stock_input_sha256=="bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8" and (.unresolved_kernel_imports|length)==71 and (.ambiguous_providers|length)==27' "$RUNNER_TEMP/rust-zram/existing/ota-abi-report-with-early.json" >/dev/null
+      - name: "独立核对 Rust 导出及 zsmalloc 真正启动列表"
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/triage-406-rust-zram-readonly.py
+          echo '只读：不修改 ABI 判定、不生成测试包、不晋升 LKG' >> "$GITHUB_STEP_SUMMARY"
+      - name: "留存小型诊断证据"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-rust-zram-evidence
+          path: ${{ runner.temp }}/rust-zram/rust-zram-report.json
+          retention-days: 30
+          if-no-files-found: warn
