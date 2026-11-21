@@ -9,7 +9,6 @@ on:
       - ".github/workflows/generic-custom-auto-sync.yml"
       - "scripts/generic-custom/run_auto_sync.sh"
       - "scripts/generic-custom/sync_fork_build.py"
-      - "scripts/generic-custom/try_native_upstream.sh"
       - "scripts/generic-custom/native_upstream_policy.py"
       - ".github/config/generic-custom-route.json"
       - ".github/config/generic-custom-upstream-sync.json"
