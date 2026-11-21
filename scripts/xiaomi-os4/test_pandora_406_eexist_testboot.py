@@ -59,7 +59,11 @@ class Packager(unittest.TestCase):
             boot=bytearray(z.read("boot.img"))
         partition=bytearray(96*1024)
         partition[:len(boot)]=boot
-        partition[-64:-60]=b"AVBf"
+        vbmeta_offset=len(partition)-4096
+        vbmeta_size=512
+        partition[vbmeta_offset:vbmeta_offset+4]=b"AVB0"
+        struct.pack_into(">4sIIQQQ28x",partition,len(partition)-64,
+                         b"AVBf",1,0,len(boot),vbmeta_offset,vbmeta_size)
         with zipfile.ZipFile(self.zip,"w") as z:
             z.writestr("boot.img",partition)
         s=json.loads(self.stock.read_text())
@@ -72,6 +76,37 @@ class Packager(unittest.TestCase):
         self.assertNotEqual(out[-64:-60],b"AVBf")
         self.assertLess(len(out),len(partition))
         self.assertIn("STOCK_PARTITION_AVB_FOOTER=PRESENT_STRIPPED",p.stdout)
+
+    def test_malformed_avb_footer_is_rejected(self):
+        with zipfile.ZipFile(self.zip) as z:
+            boot=bytearray(z.read("boot.img"))
+        partition=bytearray(96*1024)
+        partition[:len(boot)]=boot
+        struct.pack_into(">4sIIQQQ28x",partition,len(partition)-64,
+                         b"AVBf",1,0,len(partition)+1,len(partition)-4096,512)
+        with zipfile.ZipFile(self.zip,"w") as z:
+            z.writestr("boot.img",partition)
+        s=json.loads(self.stock.read_text())
+        s["ota_source_id"]=h(self.zip.read_bytes())
+        s["stock_boot_sha256"]=h(partition)
+        self.stock.write_text(json.dumps(s))
+        p=self.invoke()
+        self.assertNotEqual(p.returncode,0)
+        self.assertIn("invalid AVB footer offsets",p.stderr+p.stdout)
+
+    def test_pre_avb_nonzero_tail_is_rejected(self):
+        with zipfile.ZipFile(self.zip) as z:
+            boot=bytearray(z.read("boot.img"))
+        boot.extend(b"X")
+        with zipfile.ZipFile(self.zip,"w") as z:
+            z.writestr("boot.img",boot)
+        s=json.loads(self.stock.read_text())
+        s["ota_source_id"]=h(self.zip.read_bytes())
+        s["stock_boot_sha256"]=h(boot)
+        self.stock.write_text(json.dumps(s))
+        p=self.invoke()
+        self.assertNotEqual(p.returncode,0)
+        self.assertIn("pre-AVB stock boot trailing data is nonzero",p.stderr+p.stdout)
 
     def test_formal_gate_pass_is_rejected(self):
         g=json.loads(self.gate.read_text()); g["formal_oem_gate"]="CRC_AND_VERMAGIC_MATCH_CANDIDATE"
