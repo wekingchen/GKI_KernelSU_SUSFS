@@ -31,6 +31,8 @@ class EvidenceReviewer(unittest.TestCase):
             "node_cache size=789 users=0\n")
         (self.dir / "rust-binder-initstate.txt").write_text("live\n")
         (self.dir / "system-modules.load").write_text("kernel/drivers/android/binder/rust_binder.ko\n")
+        (self.dir / "system-modules.dep").write_text(
+            "kernel/drivers/android/binder/rust_binder.ko:\n")
         (self.dir / "vendor-modules.load").write_text(
             "zram.ko\nnode_cache.ko\nzsmalloc.ko\n")
         (self.dir / "vendor-modules.dep").write_text(
@@ -121,6 +123,51 @@ class EvidenceReviewer(unittest.TestCase):
         self.assertTrue(r["binder_implementation_verified"])
         self.assertEqual(r["binder_implementation_selection"], "rust")
         self.assertTrue(r["runtime_rust_binder_active_consistent"])
+        self.assertEqual(r["gate"], "BLOCKED")
+
+    def test_real_7599_binder_c_is_strong_not_direct_active_impl_evidence(self):
+        (self.dir / "binder-impl-cmdline.txt").write_text("")
+        (self.dir / "binder-impl-sysfs.txt").write_text("c\n")
+        for module, source in (
+                ("rust_binder", "system"),
+                ("zsmalloc", "vendor"),
+                ("zram", "vendor"),
+                ("node_cache", "vendor")):
+            self.loaded_note(module, review.EXPECTED_GNU_NOTE_SHA[module][source])
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["overall_status"],
+                         "ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF")
+        self.assertTrue(r["system_load_mentions_rust_binder"])
+        self.assertTrue(r["system_rust_binder_has_no_hard_deps"])
+        self.assertTrue(r["runtime_rust_binder_loaded_by_system_manifest"])
+        self.assertFalse(r["binder_implementation_verified"])
+        self.assertEqual(r["binder_active_impl_sysfs"], "UNKNOWN")
+        self.assertEqual(r["binder_impl_sysfs_requested_state"], "c")
+        self.assertEqual(r["binder_implementation_selection"],
+                         "C_STRONGLY_SUPPORTED")
+        self.assertEqual(r["binder_implementation_evidence_level"],
+                         "LEGACY_IMPL_C_PLUS_LOADED_RUST_MODULE")
+        self.assertEqual(r["binder_runtime_role"],
+                         "C_STRONGLY_SUPPORTED_RUST_MODULE_LOADED_INERT")
+        self.assertEqual(
+            r["runtime_evidence_status"],
+            "CURRENT_BOOT_VENDOR_ZSMALLOC_AND_BINDER_C_STRONGLY_SUPPORTED")
+        self.assertTrue(r["runtime_vendor_memory_stack_consistent"])
+        self.assertEqual(r["gate"], "BLOCKED")
+        self.assertFalse(r["flashable"])
+        self.assertFalse(r["eligible_for_fastboot_boot"])
+
+    def test_direct_active_impl_c_overrides_legacy_strength_label(self):
+        (self.dir / "binder-impl-sysfs.txt").write_text("c\n")
+        (self.dir / "binder-active-impl-sysfs.txt").write_text("c\n")
+        self.loaded_note("rust_binder",
+                         review.EXPECTED_GNU_NOTE_SHA["rust_binder"]["system"])
+        r = review.evaluate(self.dir)
+        self.assertTrue(r["binder_implementation_verified"])
+        self.assertEqual(r["binder_implementation_selection"], "c")
+        self.assertEqual(r["binder_implementation_evidence_level"],
+                         "DIRECT_ACTIVE_IMPL_SYSFS")
+        self.assertEqual(r["binder_runtime_role"], "C_ACTIVE_DIRECTLY_VERIFIED")
         self.assertEqual(r["gate"], "BLOCKED")
 
     def test_real_30667_runtime_selection_remains_gate_blocked(self):
