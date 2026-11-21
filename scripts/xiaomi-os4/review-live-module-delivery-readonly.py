@@ -176,11 +176,62 @@ def evaluate(folder: Path) -> dict:
         report["on_disk_source_qualified_modules"] = results
         report["on_disk_discrepancies"] = discrepancies
         report["on_disk_unknowns"] = unknown
-        report["mounts_observed"] = bool((safe_text(folder, "dlkm-mounts.txt") or "").strip())
+        mounts = safe_text(folder, "dlkm-mounts.txt") or ""
+        system_load = safe_text(folder, "system-modules.load") or ""
+        vendor_load = safe_text(folder, "vendor-modules.load") or ""
+        vendor_dep = safe_text(folder, "vendor-modules.dep", 200000) or ""
+        report["mounts_observed"] = bool(mounts.strip())
+        report["dlkm_mounts_read_only"] = (
+            "/system_dlkm" in mounts and "/vendor_dlkm" in mounts
+            and all(" ro," in line or " ro " in line
+                    for line in mounts.splitlines() if "_dlkm" in line))
         report["modules_load_observed"] = {
-            "system": bool((safe_text(folder, "system-modules.load") or "").strip()),
-            "vendor": bool((safe_text(folder, "vendor-modules.load") or "").strip()),
+            "system": bool(system_load.strip()),
+            "vendor": bool(vendor_load.strip()),
         }
+        report["system_load_mentions_rust_binder"] = "rust_binder.ko" in system_load
+        report["vendor_load_mentions"] = {
+            "zsmalloc": "zsmalloc.ko" in vendor_load,
+            "zram": "zram.ko" in vendor_load,
+            "node_cache": "node_cache.ko" in vendor_load,
+        }
+        report["vendor_dependency_evidence"] = {
+            "zram_to_zsmalloc": bool(re.search(
+                r"zram\.ko:\s+.*zsmalloc\.ko", vendor_dep)),
+            "node_cache_to_zsmalloc": bool(re.search(
+                r"node_cache\.ko:\s+.*zsmalloc\.ko", vendor_dep)),
+        }
+        zsmalloc_users = None
+        for line in loaded.splitlines():
+            m = re.fullmatch(r"zsmalloc\s+size=\d+\s+users=(\d+)", line.strip())
+            if m:
+                zsmalloc_users = int(m.group(1))
+                break
+        report["zsmalloc_proc_users"] = zsmalloc_users
+        report["runtime_current_boot_zsmalloc_provider_resolved"] = (
+            unique_sources["zsmalloc"] in ("vendor", "system"))
+        report["runtime_vendor_memory_stack_consistent"] = (
+            unique_sources.get("zsmalloc") == "vendor"
+            and unique_sources.get("zram") == "vendor"
+            and unique_sources.get("node_cache") == "vendor"
+            and report["vendor_dependency_evidence"]["zram_to_zsmalloc"]
+            and report["vendor_dependency_evidence"]["node_cache_to_zsmalloc"]
+            and zsmalloc_users is not None and zsmalloc_users >= 2)
+        report["runtime_rust_binder_stock_system_note_consistent"] = (
+            unique_sources.get("rust_binder") == "system"
+            and report["rust_binder_initstate"] == "live")
+        report["runtime_rust_binder_active_consistent"] = (
+            report["runtime_rust_binder_stock_system_note_consistent"]
+            and report["binder_active_impl_sysfs"] == "rust")
+
+        verified = (safe_text(folder, "verified-boot-state.txt", 128) or "").splitlines()
+        report["verified_boot_state"] = verified[0].strip() if verified else "UNKNOWN"
+        report["vbmeta_device_state"] = verified[1].strip() if len(verified) > 1 else "UNKNOWN"
+        report["system_dlkm_avb_chain_verified"] = False
+        report["runtime_evidence_status"] = (
+            "CURRENT_BOOT_VENDOR_ZSMALLOC_SOURCE_RESOLVED"
+            if report["runtime_vendor_memory_stack_consistent"]
+            else "CURRENT_BOOT_PARTIAL")
         report["overall_status"] = ("ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF"
              if not unknown and not discrepancies else
              "ON_DISK_DISCREPANCY_NO_LOADER_PROOF" if discrepancies else "PARTIAL")
