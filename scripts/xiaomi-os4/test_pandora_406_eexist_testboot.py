@@ -54,6 +54,25 @@ class Packager(unittest.TestCase):
         self.assertNotIn(b"module_blacklist=rust_binder",cmd)
         self.assertEqual(len(data),12288)
 
+    def test_stock_avb_footer_is_not_copied_into_fastboot_boot_payload(self):
+        with zipfile.ZipFile(self.zip) as z:
+            boot=bytearray(z.read("boot.img"))
+        partition=bytearray(96*1024)
+        partition[:len(boot)]=boot
+        partition[-64:-60]=b"AVBf"
+        with zipfile.ZipFile(self.zip,"w") as z:
+            z.writestr("boot.img",partition)
+        s=json.loads(self.stock.read_text())
+        s["ota_source_id"]=h(self.zip.read_bytes())
+        s["stock_boot_sha256"]=h(partition)
+        self.stock.write_text(json.dumps(s))
+        p=self.invoke()
+        self.assertEqual(p.returncode,0,p.stderr+p.stdout)
+        out=self.out.read_bytes()
+        self.assertNotEqual(out[-64:-60],b"AVBf")
+        self.assertLess(len(out),len(partition))
+        self.assertIn("STOCK_PARTITION_AVB_FOOTER=PRESENT_STRIPPED",p.stdout)
+
     def test_formal_gate_pass_is_rejected(self):
         g=json.loads(self.gate.read_text()); g["formal_oem_gate"]="CRC_AND_VERMAGIC_MATCH_CANDIDATE"
         self.gate.write_text(json.dumps(g))
