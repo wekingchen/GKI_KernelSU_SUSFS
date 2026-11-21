@@ -147,3 +147,33 @@
 另外 27 条 zsmalloc 歧义来自真实的两套 vendor/system 模块：需要模块来源、加载顺序和 CRC 相互匹配的独立证据，不能以“名字一样”将不同二进制合并。
 
 此轮只读复测不生成 fastboot boot / AnyKernel3，不修改原始 OTA 输入 Release、不刷机，也不晋升 OS4.0.6.0 LKG。
+
+
+## 第五轮：Rust Binder 符号身份与 zsmalloc 加载来源（2026-11-21）
+
+[只读 Rust / zram 审计 Run #44898287199](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44898287199)，产物 pandora-406-rust-zram-evidence，复用了已固定原厂 OS4.0.6.0 ZIP、GKI 候选 final.config、Module.symvers 和上一步 38,998 条依赖报告。
+
+### Rust Binder 问题并非简单没启用 Rust
+
+- 候选完整配置确实为 CONFIG_RUST=y、CONFIG_RUST_IS_AVAILABLE=y、CONFIG_EXTENDED_MODVERSIONS=y、CONFIG_ANDROID_BINDER_IPC=y。
+- 候选使用 Android Rust 工具链 rustc 1.82.0-dev (f6e511eec 2024-10-15)，产生 1,745 个以 _R 开头的 vmlinux Rust 导出符号。
+- 原厂 system_dlkm 中 rust_binder.ko 实际有 240 个导入，其中 **71 个 Rust mangled 符号找不到候选的同名导出**；所有 71 个残留缺口都来自这一个 .ko。
+- 原厂 Rust core crate 标识含 Cs3o2tGsuHyou；候选 GKI 的 core 标识含 CscKZuwGeZtqh。二者的 Rust crate 身份不同，而非没开 CONFIG_RUST。
+- 在已有 build-r62-features.sh 中，OS4 R62 自定义编译会实际编译并校验 rust_binder.ko，还特别处理 bindgen 对 task_struct / SYSVIPC 的 ABI 影响；这些修复不是纯原版 GKI 基线自带的。下一步应结合真实 OEM Rust 工具链与源码，复核候选生成的 rust_binder 与原厂系统启动所用模块是否可兼容，**不得修改/伪造 Rust mangled 名或 CRC，不能静默移除 binder**。
+
+### 两套 zsmalloc 的运行时证据
+
+同一个 OTA 内存在两套二进制并且 CRC 不相同：
+
+| 来源 | zsmalloc.ko SHA-256 | zs_malloc 导出 CRC |
+| --- | --- | --- |
+| vendor_boot / vendor_dlkm（字节完全相同） | 350f7127f0a8cda912eea8dfe6d93dbf30e5b31832969aa44ee6161424eaed3e | 0x1804f5bc |
+| system_dlkm | b54598bea0a162cd2578f9d1490095fef148014de0c7dbaf012036b6adcbc465 | 0x36f39fe1 |
+
+- vendor node_cache.ko 和 vendor zram.ko 的依赖字段都是 zsmalloc，消费 zs_malloc CRC 是 0x1804f5bc，匹配 vendor 提供者。其早期 ramdisk 文件与 vendor_dlkm 文件 SHA 一致。
+- system_dlkm zram.ko 则消费 0x36f39fe1，匹配 system 的 zsmalloc。
+- vendor_boot lib/modules/modules.dep 明确列有 zram、node_cache 依赖 zsmalloc，**普通启动**的 modules.load 共 172 行，不含 zram/zsmalloc；modules.load.recovery 则包含这些模块。真机另一个 vendor_dlkm 加载列表包含 zram/zsmalloc/node_cache。
+- 真机 /proc/modules 已看到 node_cache、zram、zsmalloc 三者加载，结合依赖 CRC 强烈指向 vendor 版本；但 /proc/modules 无法单独证明模块原始 ELF 文件路径和 SHA，更不能断定 system_dlkm 替代版本在未来构建中永不使用。
+- 因此正式门禁继续对 27 条重复提供者维持阻断，不根据 basename、单个相同 CRC 或缺少完整加载来源时自动选择模块。后续报告将分别展示同 CRC 与不同 CRC 重复提供者，帮助跨 OTA 维护人员调查，不暗改放行标准。
+
+**安全结论**：未解决 Rust crate 符号身份、未证明替代模块加载选择之前，GKI 仍只允许只读构建与检查；禁止 fastboot flash、持久 AnyKernel3 或自动晋升 LKG。
