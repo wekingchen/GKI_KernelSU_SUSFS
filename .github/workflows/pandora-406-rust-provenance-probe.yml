@@ -197,6 +197,34 @@ jobs:
           else
             echo 'VERIFIED_R62_VMLINUX_NOT_IN_ARCHIVE'
           fi
+      - name: "Real 4.0.6 Rust Binder module source provenance gate rehearsal"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends lz4 jq >/dev/null
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" --pattern 'stock-report.json' \
+            --pattern 'gki-candidate.json' --dir "$RUNNER_TEMP/new"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$RUNNER_TEMP/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --stock-report "$RUNNER_TEMP/new/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/new/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/new/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/new/Module.symvers" \
+            --output "$RUNNER_TEMP/r62/ota-abi-provenance.json"
+          jq -e '.gate == "BLOCKED"
+                  and .eligible_for_fastboot_boot == false
+                  and .stock_rust_binder_scmversion == "g43b5ab7e247d"
+                  and .unresolved_rust_binder == 71
+                  and .ambiguous_same_crc == 24
+                  and .ambiguous_split_crc == 3
+                  and (.crc_mismatches | length) == 0' "$RUNNER_TEMP/r62/ota-abi-provenance.json" >/dev/null
+          jq '{gate,stock_rust_binder_scmversion,stock_rust_binder_sha256,
+               stock_rust_binder_imports,unresolved_rust_binder,
+               candidate_rust_mangled_exports,ambiguous_same_crc,ambiguous_split_crc}' \
+            "$RUNNER_TEMP/r62/ota-abi-provenance.json"
+          echo 'New provenance report remained BLOCKED, no boot was produced' >> "$GITHUB_STEP_SUMMARY"
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
@@ -206,5 +234,6 @@ jobs:
             ${{ runner.temp }}/r62/file-list.txt
             ${{ runner.temp }}/r62/verified-r62-vs-new-gki.json
             ${{ runner.temp }}/r62/binder-boot-conditions.json
+            ${{ runner.temp }}/r62/ota-abi-provenance.json
           retention-days: 14
           if-no-files-found: warn
