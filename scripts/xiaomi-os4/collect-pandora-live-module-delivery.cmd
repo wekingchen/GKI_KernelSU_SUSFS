@@ -91,6 +91,14 @@ adb shell su -c "cat /proc/mounts" 2>nul | findstr /I /C:"system_dlkm" /C:"vendo
   echo No partition, module, root, boot or AVB settings were changed.
 ) > "%OUT%\README.txt"
 echo.
+rem Packaging is PC-local only, so users can upload one ZIP without manual steps.
+rem If local archive creation fails, the evidence folder remains available.
+powershell.exe -NoProfile -NonInteractive -Command "Compress-Archive -LiteralPath '%OUT%' -DestinationPath '%OUT%.zip' -Force" >nul 2>&1
+if errorlevel 1 (
+  echo WARNING: Local ZIP could not be created. Use the folder "%OUT%".
+) else (
+  echo Evidence archive: "%OUT%.zip"
+)
 echo READ-ONLY snapshot saved in "%OUT%".
 echo File hashes are not proof of actual loaded ELF contents.
 echo No phone writes. No flash or reboot.
