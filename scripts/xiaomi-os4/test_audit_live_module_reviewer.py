@@ -25,10 +25,21 @@ class EvidenceReviewer(unittest.TestCase):
         (self.dir / "binder-impl-cmdline.txt").write_text(
             "binder.impl=rust\n")
         (self.dir / "loaded-modules-redacted.txt").write_text(
-            "rust_binder size=1234 users=0\nzsmalloc size=321 users=2\n")
-        (self.dir / "system-modules.load").write_text("rust_binder.ko\n")
-        (self.dir / "vendor-modules.load").write_text("zsmalloc.ko\n")
-        (self.dir / "dlkm-mounts.txt").write_text("system_dlkm ro\n")
+            "rust_binder size=1234 users=0\n"
+            "zram size=456 users=1\n"
+            "zsmalloc size=321 users=2\n"
+            "node_cache size=789 users=0\n")
+        (self.dir / "rust-binder-initstate.txt").write_text("live\n")
+        (self.dir / "system-modules.load").write_text("kernel/drivers/android/binder/rust_binder.ko\n")
+        (self.dir / "vendor-modules.load").write_text(
+            "zram.ko\nnode_cache.ko\nzsmalloc.ko\n")
+        (self.dir / "vendor-modules.dep").write_text(
+            "/vendor/lib/modules/node_cache.ko: /vendor/lib/modules/zsmalloc.ko\n"
+            "/vendor/lib/modules/zram.ko: /vendor/lib/modules/zsmalloc.ko\n")
+        (self.dir / "dlkm-mounts.txt").write_text(
+            "/dev/dm-1 /vendor_dlkm erofs ro,seclabel 0 0\n"
+            "/dev/dm-2 /system_dlkm erofs ro,seclabel 0 0\n")
+        (self.dir / "verified-boot-state.txt").write_text("green\nlocked\n")
 
     def loaded_note(self, module, note_sha, path=None):
         name = "loaded-" + module.replace("_", "-") + "-note-sha.txt"
@@ -78,6 +89,40 @@ class EvidenceReviewer(unittest.TestCase):
                          "NOT_OBSERVED_IN_PROC_MODULES")
         self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "UNPROVEN")
 
+    def test_current_boot_vendor_memory_stack_can_be_resolved_without_gate_pass(self):
+        self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["vendor"])
+        self.loaded_note("zram", review.EXPECTED_GNU_NOTE_SHA["zram"]["vendor"])
+        self.loaded_note("node_cache", review.EXPECTED_GNU_NOTE_SHA["node_cache"]["vendor"])
+        r = review.evaluate(self.dir)
+        self.assertTrue(r["runtime_current_boot_zsmalloc_provider_resolved"])
+        self.assertTrue(r["runtime_vendor_memory_stack_consistent"])
+        self.assertEqual(r["runtime_evidence_status"],
+                         "CURRENT_BOOT_VENDOR_ZSMALLOC_SOURCE_RESOLVED")
+        self.assertEqual(r["runtime_unique_note_sources"]["zsmalloc"], "vendor")
+        self.assertEqual(r["runtime_unique_note_sources"]["zram"], "vendor")
+        self.assertEqual(r["runtime_unique_note_sources"]["node_cache"], "vendor")
+        self.assertEqual(r["zsmalloc_proc_users"], 2)
+        self.assertEqual(r["gate"], "BLOCKED")
+        self.assertFalse(r["flashable"])
+
+    def test_rust_binder_active_impl_requires_explicit_active_sysfs(self):
+        self.loaded_note("rust_binder",
+                         review.EXPECTED_GNU_NOTE_SHA["rust_binder"]["system"])
+        (self.dir / "binder-impl-sysfs.txt").write_text("rust\n")
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_rust_binder_unique_note_source"], "system")
+        self.assertTrue(r["runtime_rust_binder_stock_system_note_consistent"])
+        self.assertFalse(r["binder_implementation_verified"])
+        self.assertEqual(r["binder_implementation_selection"], "UNPROVEN")
+        self.assertFalse(r["runtime_rust_binder_active_consistent"])
+
+        (self.dir / "binder-active-impl-sysfs.txt").write_text("rust\n")
+        r = review.evaluate(self.dir)
+        self.assertTrue(r["binder_implementation_verified"])
+        self.assertEqual(r["binder_implementation_selection"], "rust")
+        self.assertTrue(r["runtime_rust_binder_active_consistent"])
+        self.assertEqual(r["gate"], "BLOCKED")
+
     def test_matched_on_disk_is_never_runtime_abi_pass(self):
         r = review.evaluate(self.dir)
         self.assertEqual(r["overall_status"], "ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF")
@@ -90,7 +135,7 @@ class EvidenceReviewer(unittest.TestCase):
         self.assertEqual(r["runtime_loaded_binary_sha256"], "NOT_PROVEN")
         self.assertTrue(r["zsmalloc_source_separation"])
         self.assertEqual(r["observed_binder_cmdline_tokens"], ["binder.impl=rust"])
-        self.assertEqual(len(r["on_disk_source_qualified_modules"]), 3)
+        self.assertEqual(len(r["on_disk_source_qualified_modules"]), 6)
 
     def test_vendor_system_hashes_never_conflated(self):
         path = self.dir / "system-zsmalloc-file-sha.txt"
