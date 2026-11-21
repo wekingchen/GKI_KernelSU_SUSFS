@@ -107,10 +107,17 @@ def imported_versions(sections: dict[str, bytes]) -> dict[str, int]:
         keys = [n.decode("ascii", "strict") for n in fields]
         if len(keys) != len(raw) // 4:
             raise ValueError("extended names and CRC counts differ")
+        ext_seen = set()
         for i, name in enumerate(keys):
-            if not SYMBOL.fullmatch(name) or name in found:
+            if not SYMBOL.fullmatch(name) or name in ext_seen:
                 raise ValueError("invalid or duplicate extended CRC symbol")
-            found[name] = struct.unpack_from("<I", raw, i * 4)[0]
+            ext_seen.add(name)
+            crc = struct.unpack_from("<I", raw, i * 4)[0]
+            # Linux may include the same symbol in both basic and extended
+            # tables. Accept it only if its CRC is byte-for-byte identical.
+            if name in found and found[name] != crc:
+                raise ValueError("conflicting basic/extended CRC for " + name)
+            found[name] = crc
     if not found:
         raise ValueError("module has no basic or extended modversions")
     return found
