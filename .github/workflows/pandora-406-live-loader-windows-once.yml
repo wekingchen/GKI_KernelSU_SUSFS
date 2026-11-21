@@ -23,39 +23,48 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $mock = Join-Path $env:RUNNER_TEMP 'pandora-adb-mock'
           New-Item -ItemType Directory -Force -Path $mock | Out-Null
-          $stub = @'
-          @echo off
-          setlocal EnableExtensions EnableDelayedExpansion
-          if /I "%~1"=="shell" if /I "%~2"=="getprop" (
-            if /I "%~3"=="ro.product.device" echo pandora
-            if /I "%~3"=="ro.mi.os.version.incremental" echo OS4.0.6.0.XBLCNXM
-            if /I "%~3"=="ro.boot.slot_suffix" echo _b
-            if /I "%~3"=="sys.boot_completed" echo 1
-            if /I "%~3"=="ro.boot.verifiedbootstate" echo orange
-            if /I "%~3"=="ro.boot.vbmeta.device_state" echo unlocked
-            exit /b 0
-          )
-          if /I "%~1"=="shell" if /I "%~2"=="uname" echo 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k
-          if /I "%~1"=="shell" if /I "%~2"=="su" (
-            set "ARG=%~4"
-            if "!ARG!"=="id" echo uid=0^(root^) gid=0^(root^)
-            if "!ARG!"=="cat /proc/cmdline" echo foo=bar serialno=SENSITIVE binder.impl=rust token=SECRET
-            if "!ARG!"=="cat /proc/bootconfig" echo binder.impl = "rust"
-            if "!ARG!"=="cat /proc/modules" echo rust_binder 12345 0 - Live 0xDEADBEEF
-            if "!ARG!"=="cat /proc/modules" echo zsmalloc 20480 2 - Live 0xDEADBEEF
-            if "!ARG!"=="cat /proc/sys/kernel/modules_disabled" echo 0
-            if "!ARG!"=="cat /sys/module/rust_binder/initstate" echo live
-            if "!ARG!"=="cat /proc/mounts" echo /dev/block/dm-1 /system_dlkm ext4 ro 0 0
-            if "!ARG!"=="cat /system_dlkm/lib/modules/modules.load" echo rust_binder.ko
-            if "!ARG!"=="cat /vendor_dlkm/lib/modules/modules.load" echo zsmalloc.ko
-            if "!ARG!"=="cat /system_dlkm/lib/modules/modules.dep" echo rust_binder.ko:
-            if "!ARG!"=="cat /vendor_dlkm/lib/modules/modules.dep" echo zram.ko: zsmalloc.ko
-            if "!ARG:~0,9!"=="sha256sum" echo 0123456789abcdef  !ARG!
-            exit /b 0
-          )
-          exit /b 0
+          $csharp = @'
+          using System;
+          public static class Program {
+            public static int Main(string[] args) {
+              if (args.Length >= 3 && args[0] == "shell" && args[1] == "getprop") {
+                switch (args[2]) {
+                  case "ro.product.device": Console.WriteLine("pandora"); break;
+                  case "ro.mi.os.version.incremental": Console.WriteLine("OS4.0.6.0.XBLCNXM"); break;
+                  case "ro.boot.slot_suffix": Console.WriteLine("_b"); break;
+                  case "sys.boot_completed": Console.WriteLine("1"); break;
+                  case "ro.boot.verifiedbootstate": Console.WriteLine("orange"); break;
+                  case "ro.boot.vbmeta.device_state": Console.WriteLine("unlocked"); break;
+                }
+                return 0;
+              }
+              if (args.Length >= 3 && args[0] == "shell" && args[1] == "uname") {
+                Console.WriteLine("6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k");
+                return 0;
+              }
+              if (args.Length >= 4 && args[0] == "shell" && args[1] == "su" && args[2] == "-c") {
+                string command = args[3];
+                if (command == "id") Console.WriteLine("uid=0(root) gid=0(root)");
+                else if (command == "cat /proc/cmdline") Console.WriteLine("foo=bar serialno=SENSITIVE binder.impl=rust token=SECRET");
+                else if (command == "cat /proc/bootconfig") Console.WriteLine("binder.impl = rust");
+                else if (command == "cat /proc/modules") {
+                  Console.WriteLine("rust_binder 12345 0 - Live 0xDEADBEEF");
+                  Console.WriteLine("zsmalloc 20480 2 - Live 0xDEADBEEF");
+                } else if (command == "cat /proc/sys/kernel/modules_disabled") Console.WriteLine("0");
+                else if (command == "cat /sys/module/rust_binder/initstate") Console.WriteLine("live");
+                else if (command == "cat /proc/mounts") Console.WriteLine("/dev/block/dm-1 /system_dlkm ext4 ro 0 0");
+                else if (command == "cat /system_dlkm/lib/modules/modules.load") Console.WriteLine("rust_binder.ko");
+                else if (command == "cat /vendor_dlkm/lib/modules/modules.load") Console.WriteLine("zsmalloc.ko");
+                else if (command == "cat /system_dlkm/lib/modules/modules.dep") Console.WriteLine("rust_binder.ko:");
+                else if (command == "cat /vendor_dlkm/lib/modules/modules.dep") Console.WriteLine("zram.ko: zsmalloc.ko");
+                else if (command.StartsWith("sha256sum ")) Console.WriteLine("0123456789abcdef  " + command.Substring(10));
+                return 0;
+              }
+              return 0;
+            }
+          }
           '@
-          Set-Content -Path (Join-Path $mock 'adb.bat') -Value $stub -Encoding ascii
+          Add-Type -TypeDefinition $csharp -OutputAssembly (Join-Path $mock 'adb.exe') -OutputType ConsoleApplication
           $env:PATH = "$mock;$env:PATH"
           Push-Location $env:RUNNER_TEMP
           try {
