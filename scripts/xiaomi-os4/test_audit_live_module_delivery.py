@@ -22,6 +22,7 @@ class LiveLoaderCollector(unittest.TestCase):
     def test_source_identity_required(self):
         self.assertIn('if /i not "%device%"=="pandora"', "\n".join(COMMANDS))
         self.assertIn('if /i not "%osbuild%"=="os4.0.6.0.xblcnxm"', "\n".join(COMMANDS))
+        self.assertIn('if /i not "%krel%"=="6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"', "\n".join(COMMANDS))
         self.assertIn('uid=0(root)', "\n".join(COMMANDS))
 
     def test_no_raw_cmdline_or_kallsyms_written(self):
@@ -47,9 +48,18 @@ class LiveLoaderCollector(unittest.TestCase):
         self.assertIn('evidence archive:', text)
         self.assertNotIn('adb push', text)
 
+    def test_binder_runtime_state_is_read_only(self):
+        text = "\n".join(COMMANDS)
+        self.assertIn('/sys/module/binder/parameters/impl', text)
+        self.assertIn('/sys/module/binder/parameters/active_impl', text)
+        self.assertNotIn('echo rust > /sys/module/binder', text)
+        self.assertNotIn('echo c > /sys/module/binder', text)
+
     def test_partition_paths_not_conflated(self):
         text = "\n".join(COMMANDS)
-        self.assertIn('/system_dlkm/lib/modules/6.12.69-', text)
+        self.assertIn('/system_dlkm/lib/modules/%krel%/modules.load', text)
+        self.assertIn('/system_dlkm/lib/modules/%krel%/modules.dep', text)
+        self.assertIn('/system_dlkm/lib/modules/%krel%/kernel/mm/zsmalloc.ko', text)
         self.assertIn('/vendor_dlkm/lib/modules/zsmalloc.ko', text)
         self.assertIn('/system_dlkm/lib/modules/modules.load', text)
         self.assertIn('/vendor_dlkm/lib/modules/modules.load', text)
