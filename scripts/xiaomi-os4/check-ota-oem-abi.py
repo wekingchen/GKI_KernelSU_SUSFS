@@ -95,7 +95,16 @@ def imported_versions(sections: dict[str, bytes]) -> dict[str, int]:
         raw = sections["__version_ext_crcs"]
         if not names.endswith(b"\0") or len(raw) % 4:
             raise ValueError("invalid extended modversions data")
-        keys = [n.decode("ascii", "strict") for n in names[:-1].split(b"\0")]
+        # The extended names section may include NUL alignment padding after
+        # its final terminated name. Padding is not a phantom CRC symbol.
+        unpadded = names.rstrip(b"\0")
+        padding = len(names) - len(unpadded)
+        if not unpadded or not 1 <= padding <= 8:
+            raise ValueError("invalid extended modversions names padding")
+        fields = unpadded.split(b"\0")
+        if not all(fields):
+            raise ValueError("empty extended CRC symbol")
+        keys = [n.decode("ascii", "strict") for n in fields]
         if len(keys) != len(raw) // 4:
             raise ValueError("extended names and CRC counts differ")
         for i, name in enumerate(keys):
