@@ -237,28 +237,3 @@
 **结论仍为 OEM ABI BLOCKED；禁用 fastboot boot、AnyKernel3、持久刷机、
 LKG 晋升。下一阶段必须取得独立的原厂 system_dlkm 加载链/模块来源证据，
 路线 A 的准确 OEM Rust 源码也尚未找到。**
-
-## 第八、九轮：system/vendor 模块供给与 GKI Image 原因定位（2026-11-21）
-
-本轮可复核详细数据及后续真机只读采集指引，统一放在
-[路线 A/B 持续审计文档](pandora-os4-406-rust-binder-routes-2026-11-21.md)。
-
-- [Run #44903615504](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903615504)：
-  SHA 锁定的原厂 ZIP 中 505 个模块清单验证通过。
-  `system_dlkm` Rust Binder 与 vendor/system 两套 zsmalloc 的文件 SHA、
-  依赖和 CRC 各自一致；未发现标准 Linux 模块签名尾标，但这**不证明**
-  模块可在现用内核下任意加载；采集包没有完整 `system_dlkm.img` 及
-  system `modules.load`，实际加载选择及 AVB 仍未知。
-- [Windows Run #44904322851](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904322851)：
-  新的 `collect-pandora-live-module-delivery.cmd` 只读采集脚本通过原生 CMD +
-  模拟 ADB 完整脱敏验收，**尚未在用户真机运行**。
-- [Run #44903724196](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903724196)：
-  重新构建 r74 GKI `Image` 与原归档 `Image` 原始 SHA 不同，
-  仅 1,093 字节不同，分布两个 4KiB 块。将生成的 GNU Build-ID 和
-  自动生成的 1,324 字节证书区域归零后，两份 Image **剩余全部字节一致**，
-  共同归一化 SHA256：
-  `cbda5e08033fd03b88cab50bd6220232ebfb559e87ad790c8cbb66e340dc35b9`。
-  这仅证明这两份候选 GKI Image 的受限可复现性，不是 OEM 精确重建。
-
-三项都没有替换手机任何文件、引入可刷包、修改 OEM ABI 门禁或晋升 LKG；
-**OEM 71 项 Rust Binder 缺口 + 27 项 zsmalloc 来源歧义继续 BLOCKED**。
