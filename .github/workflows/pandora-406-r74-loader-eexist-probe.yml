@@ -1,0 +1,38 @@
+name: "临时诊断 / pandora r74 模块加载 EEXIST 顺序"
+on:
+  push:
+    branches:
+      - experiment/pandora-406-rust-binder-blacklist-testboot
+    paths:
+      - .github/workflows/pandora-406-r74-loader-eexist-probe.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: "抓取精确 r74 module loader 与 Android16 libmodprobe"
+        run: |
+          set -euo pipefail
+          R74=b1d12d482d767c50cb792d988e4479d3f75c342a
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fsSL "https://android.googlesource.com/kernel/common/+/$R74/kernel/module/main.c?format=TEXT" | base64 -d > "$RUNNER_TEMP/main.c"
+          curl -fsSL "https://android.googlesource.com/platform/system/core/+/android16-release/libmodprobe/libmodprobe_ext.cpp?format=TEXT" | base64 -d > "$RUNNER_TEMP/libmodprobe_ext.cpp"
+          {
+            echo "=== r74 layout_and_allocate / blacklist ordering ==="
+            grep -n -A45 -B10 "layout_and_allocate" "$RUNNER_TEMP/main.c" | head -n 100
+            echo
+            echo "=== r74 load_module duplicate-name path ==="
+            grep -n -A35 -B10 -E "already loaded|EEXIST|find_module_all|finished_loading" "$RUNNER_TEMP/main.c" | head -n 160
+            echo
+            echo "=== Android16 libmodprobe EEXIST handling ==="
+            grep -n -A20 -B8 "errno == EEXIST" "$RUNNER_TEMP/libmodprobe_ext.cpp"
+          } | tee "$RUNNER_TEMP/evidence/loader-eexist.txt"
+          grep -q "errno == EEXIST" "$RUNNER_TEMP/libmodprobe_ext.cpp"
+          grep -q "layout_and_allocate" "$RUNNER_TEMP/main.c"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-loader-eexist-readonly
+          path: ${{ runner.temp }}/evidence/loader-eexist.txt
+          retention-days: 30
