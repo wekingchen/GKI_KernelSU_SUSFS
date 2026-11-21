@@ -1,0 +1,199 @@
+name: "临时构建 / pandora 4.0.6 r74 Rust Binder EEXIST fastboot-boot 实验"
+on:
+  push:
+    branches:
+      - experiment/pandora-406-rust-binder-blacklist-testboot
+    paths:
+      - .github/workflows/pandora-406-eexist-testboot-once.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: "运行 shadow gate / shim / boot packager 单测"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_runtime_selected_testboot.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_rust_binder_eexist_shim.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_406_eexist_testboot.py' -v
+      - name: "下载 SHA 锁定 stock 与正式 r74 候选证据"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/base" "$RUNNER_TEMP/result"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern "*xm.zip" --dir "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM --repo "$GITHUB_REPOSITORY" \
+            --pattern "stock-report.json" --pattern "gki-candidate.json" --pattern "build-metadata.txt" \
+            --pattern "Module.symvers" --pattern "final.config" --dir "$RUNNER_TEMP/base"
+          STOCK="$(find "$RUNNER_TEMP/stock" -maxdepth 1 -name "*xm.zip" -type f -print -quit)"
+          test "$(sha256sum "$STOCK" | cut -d' ' -f1)" = "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
+          jq -e '.candidate_commit=="b1d12d482d767c50cb792d988e4479d3f75c342a"' "$RUNNER_TEMP/base/gki-candidate.json"
+          echo "STOCK_ZIP=$STOCK" >> "$GITHUB_ENV"
+      - name: "重新生成正式 OEM ABI 与 exact runtime-selected 影子门禁"
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd >/dev/null
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$RUNNER_TEMP/base/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/base/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/base/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/base/Module.symvers" \
+            --output "$RUNNER_TEMP/result/formal-oem-abi.json"
+          jq -e '.gate=="BLOCKED" and .eligible_for_fastboot_boot==false and
+                 (.failed_modules|length)==0 and (.crc_mismatches|length)==0 and
+                 (.unresolved_kernel_imports|length)==71 and
+                 (.ambiguous_providers|length)==27' "$RUNNER_TEMP/result/formal-oem-abi.json"
+          python3 scripts/xiaomi-os4/assess-runtime-selected-testboot.py \
+            --abi-report "$RUNNER_TEMP/result/formal-oem-abi.json" \
+            --runtime-selection .github/config/pandora-os4-406-runtime-selection.json \
+            --output "$RUNNER_TEMP/result/shadow-gate.json"
+          jq -e '.experimental_gate=="RUNTIME_SELECTED_EEXIST_SHIM_TEST_ELIGIBLE" and
+                 .eligible_for_fastboot_boot_experiment==true and
+                 .formal_oem_gate=="BLOCKED" and .flashable==false' "$RUNNER_TEMP/result/shadow-gate.json"
+      - name: "取得 exact r74 源码并只应用 opt-in rust_binder EEXIST shim"
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/common"
+          git init -q "$SRC"
+          git -C "$SRC" remote add origin https://android.googlesource.com/kernel/common
+          git -C "$SRC" fetch -q --depth=1 --no-tags origin refs/tags/android16-6.12-2026-03_r74
+          git -C "$SRC" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$SRC" rev-parse HEAD)" = "b1d12d482d767c50cb792d988e4479d3f75c342a"
+          python3 scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py --source "$SRC"
+          git -C "$SRC" diff --check
+          git -C "$SRC" diff -- kernel/module/main.c > "$RUNNER_TEMP/result/eexist-shim.patch"
+          test "$(grep -c '^+.*pandora_rust_binder_eexist' "$RUNNER_TEMP/result/eexist-shim.patch")" -ge 2
+          ! grep -q '^+.*module_blacklist=rust_binder' "$RUNNER_TEMP/result/eexist-shim.patch"
+      - name: "安装项目锁定 Clang/Rust/build-tools"
+        run: |
+          set -euo pipefail
+          TOOL="$RUNNER_TEMP/toolchain"
+          BASE=https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225
+          mkdir -p "$TOOL/clang19" "$TOOL/rust"
+          curl -fLsS --retry 3 "$BASE/clang-r536225.zip" -o "$TOOL/clang.zip"
+          curl -fLsS --retry 3 "$BASE/rust.zip" -o "$TOOL/rust.zip"
+          curl -fLsS --retry 3 "$BASE/build-tools.zip" -o "$TOOL/build-tools.zip"
+          echo '574ef505fa9222c24bb75a9c6592fd62ca546bd86267f73b5533ec38a239f0ea  '"$TOOL/clang.zip" | sha256sum -c -
+          echo '4adf5f226cd4ac4840f454955b52b07e99a198a859efe635194e89e7c35c3f41  '"$TOOL/rust.zip" | sha256sum -c -
+          echo '821babb745321981222d0cb42af5c1214e4efc908b159ae82dbd8113d978c7dd  '"$TOOL/build-tools.zip" | sha256sum -c -
+          unzip -q "$TOOL/clang.zip" -d "$TOOL/clang19"
+          unzip -q "$TOOL/rust.zip" -d "$TOOL/rust"
+          unzip -q "$TOOL/build-tools.zip" -d "$TOOL"
+          echo "TOOL=$TOOL" >> "$GITHUB_ENV"
+      - name: "以正式候选 final.config 重编 exact r74 shim Image"
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/common"; OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
+          export PATH="$TOOL/clang19/bin:$TOOL/build-tools/bin:$TOOL/rust/bin:$PATH"
+          export RUSTC=rustc BINDGEN=bindgen LIBCLANG_PATH="$TOOL/clang19/lib"
+          export ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang HOSTCC=clang LD=ld.lld HOSTLD=ld.lld
+          export CROSS_COMPILE=aarch64-linux-gnu- KBUILD_GENDWARFKSYMS_STABLE=1 LOCALVERSION=""
+          export AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy STRIP=llvm-strip
+          export KBUILD_BUILD_USER=android-build KBUILD_BUILD_HOST=ota-candidate-ci KBUILD_BUILD_VERSION=1
+          SOURCE_DATE_EPOCH="$(git -C "$SRC" show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%a %b %d %T UTC %Y')"
+          cp "$RUNNER_TEMP/base/final.config" "$OUT/.config"
+          make -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 olddefconfig
+          cmp "$OUT/.config" "$RUNNER_TEMP/base/final.config"
+          JOBS="$(nproc)"; if [ "$JOBS" -gt 8 ]; then JOBS=8; fi
+          make -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 -j"$JOBS" Image modules > "$RUNNER_TEMP/result/build.log" 2>&1
+          test -s "$OUT/arch/arm64/boot/Image" -a -s "$OUT/Module.symvers"
+          RELEASE="$(make --no-print-directory -s -C "$SRC" O="$OUT" ARCH=arm64 LLVM=1 kernelrelease)"
+          test "$RELEASE" = "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
+          # Shim adds no exported symbol; KMI export CRC table must stay identical.
+          cmp "$OUT/Module.symvers" "$RUNNER_TEMP/base/Module.symvers"
+          cp "$OUT/arch/arm64/boot/Image" "$RUNNER_TEMP/result/Image"
+          cp "$OUT/Module.symvers" "$RUNNER_TEMP/result/Module.symvers"
+          {
+            echo "EXPERIMENT=PANDORA_RUST_BINDER_EEXIST_SHIM"
+            echo "SOURCE_GKI_COMMIT=b1d12d482d767c50cb792d988e4479d3f75c342a"
+            echo "SOURCE_GKI_TAG=android16-6.12-2026-03_r74"
+            echo "KERNEL_RELEASE=$RELEASE"
+            echo "IMAGE_SHA256=$(sha256sum "$RUNNER_TEMP/result/Image" | cut -d' ' -f1)"
+            echo "MODULE_SYMVERS_SHA256=$(sha256sum "$RUNNER_TEMP/result/Module.symvers" | cut -d' ' -f1)"
+            echo "SHIM_PATCH_SHA256=$(sha256sum "$RUNNER_TEMP/result/eexist-shim.patch" | cut -d' ' -f1)"
+            echo "FORMAL_OEM_GATE=BLOCKED"
+            echo "EXPERIMENTAL_GATE=RUNTIME_SELECTED_EEXIST_SHIM_TEST_ELIGIBLE"
+            echo "FLASHABLE=NO"
+            echo "LKG_PROMOTION=NO"
+          } > "$RUNNER_TEMP/result/experiment-metadata.txt"
+          cat "$RUNNER_TEMP/result/experiment-metadata.txt"
+      - name: "用 patched Image 再跑正式 ABI 报告并确认仍 BLOCKED"
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/base/gki-candidate.json" "$RUNNER_TEMP/result/gki-candidate.json"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$RUNNER_TEMP/base/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/result/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/result/experiment-metadata.txt" \
+            --symvers "$RUNNER_TEMP/result/Module.symvers" \
+            --output "$RUNNER_TEMP/result/formal-oem-abi-patched.json"
+          jq -e '.gate=="BLOCKED" and .eligible_for_fastboot_boot==false and
+                 (.failed_modules|length)==0 and (.crc_mismatches|length)==0 and
+                 (.unresolved_kernel_imports|length)==71 and
+                 (.ambiguous_providers|length)==27' "$RUNNER_TEMP/result/formal-oem-abi-patched.json"
+          python3 scripts/xiaomi-os4/assess-runtime-selected-testboot.py \
+            --abi-report "$RUNNER_TEMP/result/formal-oem-abi-patched.json" \
+            --runtime-selection .github/config/pandora-os4-406-runtime-selection.json \
+            --output "$RUNNER_TEMP/result/shadow-gate-patched.json"
+      - name: "生成同 OTA boot-v4，仅供 fastboot boot"
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/result/PANDORA-OS4.0.6.0-R74-RUST-BINDER-EEXIST-EXPERIMENT-FASTBOOT-BOOT-ONLY.img"
+          python3 scripts/xiaomi-os4/package-pandora-406-eexist-testboot-v4.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$RUNNER_TEMP/base/stock-report.json" \
+            --shadow-gate "$RUNNER_TEMP/result/shadow-gate-patched.json" \
+            --metadata "$RUNNER_TEMP/result/experiment-metadata.txt" \
+            --candidate-image "$RUNNER_TEMP/result/Image" \
+            --output "$OUT"
+          sha256sum "$OUT" > "$RUNNER_TEMP/result/TESTBOOT-SHA256SUMS.txt"
+          python3 - "$OUT" <<'PY'
+          import hashlib,struct,sys
+          p=sys.argv[1]; b=open(p,'rb').read()
+          assert b[:8]==b"ANDROID!"
+          assert struct.unpack_from("<I",b,40)[0]==4
+          assert struct.unpack_from("<I",b,12)[0]==0
+          assert struct.unpack_from("<I",b,1580)[0]==0
+          cmd=b[44:44+1536].split(b"\0",1)[0].split()
+          assert b"pandora_rust_binder_eexist=1" in cmd
+          assert not any(b"rust_binder" in x for x in cmd if x.startswith(b"module_blacklist="))
+          assert any(x.startswith(b"module_blacklist=") and b"kernelsu" in x for x in cmd)
+          print("BOOT_V4_EEXIST_EXPERIMENT_AUDIT=PASS")
+          print("sha256="+hashlib.sha256(b).hexdigest())
+          PY
+          cat > "$RUNNER_TEMP/result/READ-ME-FIRST.txt" <<'EOF'
+          PANDORA OS4.0.6.0 / r74 RUST_BINDER EEXIST EXPERIMENT
+          FASTBOOT BOOT ONLY. NEVER FASTBOOT FLASH.
+          Formal OEM ABI gate remains BLOCKED.
+          This boot contains one opt-in kernel loader shim enabled only by:
+            pandora_rust_binder_eexist=1
+          It returns EEXIST only for a userspace insertion request named rust_binder,
+          before old OEM Rust ABI symbol resolution. Current stock live evidence
+          strongly supports C Binder and vendor zsmalloc provider selection.
+          No system_dlkm, vendor_boot or init_boot bytes are modified.
+          Real-device boot/runtime behavior is still UNVERIFIED.
+          EOF
+      - name: "上传实验待测包与完整门禁证据"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-eexist-FASTBOOT-BOOT-ONLY
+          path: |
+            ${{ runner.temp }}/result/PANDORA-OS4.0.6.0-R74-RUST-BINDER-EEXIST-EXPERIMENT-FASTBOOT-BOOT-ONLY.img
+            ${{ runner.temp }}/result/TESTBOOT-SHA256SUMS.txt
+            ${{ runner.temp }}/result/READ-ME-FIRST.txt
+            ${{ runner.temp }}/result/experiment-metadata.txt
+            ${{ runner.temp }}/result/eexist-shim.patch
+            ${{ runner.temp }}/result/formal-oem-abi-patched.json
+            ${{ runner.temp }}/result/shadow-gate-patched.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
