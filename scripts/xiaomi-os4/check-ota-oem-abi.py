@@ -331,6 +331,20 @@ def main() -> int:
                         full_vermagic_modules += 1
                     imported = imported_versions(sections)
                     provided = module_export_crcs(data)
+                    if name.rsplit("/", 1)[-1] == "rust_binder.ko":
+                        if "stock_rust_binder_sha256" in report:
+                            raise ValueError("duplicate independent stock rust_binder.ko")
+                        fields = [x[len(b"scmversion="):] for x in
+                                  sections.get(".modinfo", b"").split(b"\0")
+                                  if x.startswith(b"scmversion=")]
+                        if len(fields) > 1:
+                            raise ValueError("ambiguous Rust Binder scmversion field")
+                        revision = fields[0].decode("ascii", "strict") if fields else ""
+                        if revision and not re.fullmatch(r"g?[0-9a-f]{12,40}", revision):
+                            raise ValueError("invalid Rust Binder source revision marker")
+                        report["stock_rust_binder_sha256"] = sha(data)
+                        report["stock_rust_binder_scmversion"] = revision or "NOT_RECORDED"
+                        report["stock_rust_binder_imports"] = len(imported)
                     records.append((name, imported))
                     for symbol, crc in provided.items():
                         providers.setdefault(symbol, []).append((name, crc))
