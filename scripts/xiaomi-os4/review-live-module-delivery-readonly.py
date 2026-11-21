@@ -111,7 +111,7 @@ def evaluate(folder: Path) -> dict:
             note_path = "/sys/module/" + module + "/notes/.note.gnu.build-id"
             raw_note = (safe_text(folder, note_filename, 256) or "").strip()
             parsed_note = re.fullmatch(
-                r"([a-fA-F0-9]{64})\\s+\\*?(/\\S+)", raw_note)
+                r"([a-fA-F0-9]{64})\s+\*?(/\S+)", raw_note)
             if module not in names:
                 status = "NOT_OBSERVED_IN_PROC_MODULES"
                 sources = []
