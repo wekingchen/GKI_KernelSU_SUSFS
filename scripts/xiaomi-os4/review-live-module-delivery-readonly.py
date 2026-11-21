@@ -116,7 +116,7 @@ def main() -> int:
     a.output.write_text(json.dumps(report, ensure_ascii=False, indent=2,
                                    sort_keys=True) + "\n")
     print(report["overall_status"] + " / OEM ABI BLOCKED / NO FLASH")
-    return 0 if report["overall_status"] != "PARTIAL" else 1
+    return 0 if report["overall_status"] == "ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF" else 1
 
 
 if __name__ == "__main__":
