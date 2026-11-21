@@ -77,3 +77,24 @@
 
 **不可变安全边界：** 不解除 OTA OEM gate、不发布 fastboot boot/AnyKernel3、不持久刷机、不晋升
 4.0.6 LKG、不改现用 4.0.6.0 + LKM Root，不覆盖原有 4.0.5.0 已验证 LKG。
+
+## 路线 A 追加追踪：公开同源线索与真实性级别
+
+- 公开案例中，pandora / pudding / nezha 使用过同一个 `g43b5ab7e247d` 前缀与
+  `abogki561813157` 构建号；popsicle 的相关运行记录显示同一前缀，
+  但构建号为 `abogki558343811`。这些是**固件运行标识**，不是独立下载可重建源码的证据。
+- 检索 GitHub 的 Android Common Kernel 镜像、MiCode 已索引代码以及 MiCode commit 搜索，
+  未取得该 12 位版本前缀所对应的公开可访问源码提交；不能因此假设源码不存在，也不能假定
+  `g43b5ab7e247d` 是可在任意公开 Git 仓库解析的全 SHA。
+- MiCode 上已有针对 Xiaomi 17 Pro Max 源码的泛化请求
+  [#40786](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/issues/40786)，
+  但它未提供本机 OS4.0.6.0 的精确内核/模块 SHA 证据，不能当作问题已解决。
+- 同平台 Redmi K90 Pro Max 的
+  [#41092](https://github.com/MiCode/Xiaomi_Kernel_OpenSource/issues/41092)
+  是**另一个内核来源** `gb1493ec68d4a` 的源码请求，不可借用。
+- 后续若需要向原厂提交源码对应关系请求，应具体指明本机 `OS4.0.6.0.XBLCNXM`、
+  `pandora`、完整 `uname -r`、`scmversion=g43b5ab7e247d`、
+  模块 ELF SHA、Rust ABI 71 条无法匹配的事实，明确需要能匹配该版本的
+  Linux common + OEM patch + Rust Binder / kernel crate 构建配置、工具链和模块源码。
+  **本轮仅整理核验材料，未代表用户对外创建请求。**
+
