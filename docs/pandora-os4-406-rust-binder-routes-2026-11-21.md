@@ -392,3 +392,37 @@ OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
 下一步应研究候选 GKI 如何在不修改 system_dlkm、不破坏 C Binder 主链的
 前提下安全满足/处理该 `rust_binder.ko` 加载请求，以及 Xiaomi loader
 对单个 system_dlkm 模块失败的实际容错边界。
+
+
+### r74 精确源码复核：不能走官方 dummy，C 模式 inert 语义成立
+
+锁定候选 commit `b1d12d482d767c50cb792d988e4479d3f75c342a`
+在只读 Run #44912345351 中直接从 Gitiles 取源码并检查
+`drivers/android` 整个子树：
+
+```text
+rust_dummy_tree=absent
+active_impl=present
+rust_module_inert_when_c=yes
+```
+
+具体：
+- r74 的 `binder.c` 已包含只读 `active_impl` module parameter；
+- r74 `rust_binder_main.rs` 在 `binder_use_rust == 0` 时直接返回成功，
+  不调用 `unload_binder()`；
+- r74 整个 `drivers/android` 子树不存在
+  `ANDROID_BINDER_IPC_RUST_DUMMY`，因此不能依赖“官方 dummy rust_binder”
+  消除 system_dlkm 的同名模块加载请求。
+
+这与真机 `impl=c` 的证据吻合，也说明更合理的候选方向不是把 Rust
+Binder 强制切为 active，而是研究：**是否能在 system loader 之前加载
+与 r74 Image 同源、已验证 0 missing / 0 CRC mismatch 的
+`rust_binder.ko`**。AOSP libmodprobe 对 `finit_module()` 返回
+`EEXIST` 的情况明确按“模块已经加载”处理为成功，因此如果 Xiaomi
+使用相同机制，后续 system_dlkm 再遇到 OEM 同名 rust_binder 时可能不需要
+真正装入旧二进制。
+
+该方案当前仅是待验证架构假设：
+- 尚未确认 Xiaomi 实际 system_dlkm loader 命令及其错误策略；
+- 尚未确认候选 r74 模块可在 system loader 之前从哪一受信任位置加载；
+- 不修改 system_dlkm、不刷机、不解除 OEM gate。
