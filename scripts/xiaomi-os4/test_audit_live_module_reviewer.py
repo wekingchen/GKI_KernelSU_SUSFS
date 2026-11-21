@@ -30,6 +30,54 @@ class EvidenceReviewer(unittest.TestCase):
         (self.dir / "vendor-modules.load").write_text("zsmalloc.ko\n")
         (self.dir / "dlkm-mounts.txt").write_text("system_dlkm ro\n")
 
+    def loaded_note(self, module, note_sha, path=None):
+        name = "loaded-" + module.replace("_", "-") + "-note-sha.txt"
+        path = path or "/sys/module/" + module + "/notes/.note.gnu.build-id"
+        (self.dir / name).write_text(note_sha + "  " + path + "\n")
+
+    def test_actual_loaded_note_can_distinguish_vendor_zsmalloc(self):
+        self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["vendor"])
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "vendor")
+        self.assertEqual(r["runtime_module_note_evidence"]["zsmalloc"]["status"],
+                         "UNIQUE_STOCK_GNU_NOTE_MATCH")
+        self.assertFalse(r["module_delivery_verified"])
+        self.assertEqual(r["runtime_loaded_binary_sha256"], "NOT_PROVEN")
+        self.assertEqual(r["gate"], "BLOCKED")
+
+    def test_actual_loaded_note_can_distinguish_system_zsmalloc(self):
+        self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["system"])
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "system")
+        self.assertEqual(r["gate"], "BLOCKED")
+
+    def test_missing_note_is_unknown_not_loaded_binary_claim(self):
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "UNPROVEN")
+        self.assertEqual(r["runtime_module_note_evidence"]["zsmalloc"]["status"],
+                         "MISSING_OR_MALFORMED_SYSFS_NOTE")
+
+    def test_unknown_or_wrong_path_note_never_selects_stock_source(self):
+        self.loaded_note("zsmalloc", "f" * 64)
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "UNPROVEN")
+        self.assertEqual(r["runtime_module_note_evidence"]["zsmalloc"]["status"],
+                         "UNKNOWN_GNU_NOTE_NOT_IN_PINNED_STOCK")
+        self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["vendor"],
+                         path="/data/local/tmp/fake-note")
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_module_note_evidence"]["zsmalloc"]["status"],
+                         "WRONG_NOTE_PATH")
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "UNPROVEN")
+
+    def test_proc_modules_absence_prevents_note_attribution(self):
+        (self.dir / "loaded-modules-redacted.txt").write_text("")
+        self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["vendor"])
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["runtime_module_note_evidence"]["zsmalloc"]["status"],
+                         "NOT_OBSERVED_IN_PROC_MODULES")
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "UNPROVEN")
+
     def test_matched_on_disk_is_never_runtime_abi_pass(self):
         r = review.evaluate(self.dir)
         self.assertEqual(r["overall_status"], "ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF")

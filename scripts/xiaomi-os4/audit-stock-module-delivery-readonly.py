@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import struct
 import re
 import sys
 import zipfile
@@ -76,6 +77,34 @@ def module_fields(sections: dict[str, bytes]) -> dict[str, str]:
     return result
 
 
+def gnu_build_id_note(sections: dict[str, bytes]) -> dict:
+    """Identify ELF module SHT_NOTE bytes, not the loaded binary's full identity.
+
+    Linux /sys/module/<name>/notes/.note.gnu.build-id may expose these bytes
+    for an *actually loaded* module. Missing/unsupported notes are UNKNOWN.
+    """
+    raw = sections.get(".note.gnu.build-id", b"")
+    if not raw:
+        return {"status": "NOT_PRESENT", "note_sha256": None,
+                "build_id_hex": None}
+    if len(raw) < 16 or len(raw) > 4096:
+        return {"status": "INVALID", "note_sha256": None,
+                "build_id_hex": None}
+    namesz, descsz, kind = struct.unpack_from("<III", raw)
+    name_end = 12 + namesz
+    desc_off = (name_end + 3) & ~3
+    desc_end = desc_off + descsz
+    if (namesz != 4 or descsz not in (16, 20, 32)
+            or kind != 3 or name_end > len(raw)
+            or raw[12:name_end] != bytes((71, 78, 85, 0))
+            or desc_end > len(raw)):
+        return {"status": "INVALID", "note_sha256": None,
+                "build_id_hex": None}
+    return {"status": "ELF_GNU_BUILD_ID_PRESENT", "note_sha256": sha(raw),
+            "note_length": len(raw),
+            "build_id_hex": raw[desc_off:desc_end].hex()}
+
+
 def inspect_module(path: str, data: bytes) -> dict:
     sections = _abi.elf_sections(data)
     info = module_fields(sections)
@@ -96,6 +125,7 @@ def inspect_module(path: str, data: bytes) -> dict:
         "sig_key_modinfo": info.get("sig_key", "NOT_RECORDED"),
         "sig_hashalgo_modinfo": info.get("sig_hashalgo", "NOT_RECORDED"),
         "signing_trust_verified": False,
+        "gnu_build_id_note": gnu_build_id_note(sections),
     }
     return result
 

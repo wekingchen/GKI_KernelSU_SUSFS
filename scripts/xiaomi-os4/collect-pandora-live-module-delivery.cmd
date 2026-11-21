@@ -65,6 +65,15 @@ adb shell su -c "sha256sum /vendor_dlkm/lib/modules/zsmalloc.ko" > "%OUT%\vendor
 adb shell su -c "sha256sum /vendor_dlkm/lib/modules/zram.ko" > "%OUT%\vendor-zram-file-sha.txt" 2>nul
 adb shell su -c "sha256sum /vendor_dlkm/lib/modules/node_cache.ko" > "%OUT%\vendor-node-cache-file-sha.txt" 2>nul
 
+rem Kernel sysfs exposes GNU build-id ELF Note bytes for some loaded modules.
+rem Hash only the binary note; do not save addresses or raw note contents.
+rem A matching note is NOT a proof of the full in-memory ELF or its source path.
+rem Missing sysfs note must remain UNKNOWN; no module load/unload is attempted.
+adb shell su -c "sha256sum /sys/module/rust_binder/notes/.note.gnu.build-id" > "%OUT%\\loaded-rust-binder-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/zsmalloc/notes/.note.gnu.build-id" > "%OUT%\\loaded-zsmalloc-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/zram/notes/.note.gnu.build-id" > "%OUT%\\loaded-zram-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/node_cache/notes/.note.gnu.build-id" > "%OUT%\\loaded-node-cache-note-sha.txt" 2>nul
+
 rem Separate source manifests; never merge vendor and system selection files.
 adb shell su -c "cat /system_dlkm/lib/modules/modules.load" > "%OUT%\system-modules.load" 2>nul
 adb shell su -c "cat /system_dlkm/lib/modules/modules.dep" > "%OUT%\system-modules.dep" 2>nul
@@ -78,10 +87,18 @@ adb shell su -c "cat /proc/mounts" 2>nul | findstr /I /C:"system_dlkm" /C:"vendo
   echo Vendor/system zsmalloc sources are intentionally separated.
   echo Empty modules.load or SHA output can indicate inaccessible locations.
   echo Empty binder-impl-cmdline means no matching token was observed, NOT a proven C implementation.
-  echo No raw kernel addresses or raw /proc/cmdline are stored.
+  echo Optional loaded module build-id NOTE hashes are NOT complete binary identity.\n  echo Missing sysfs notes remain UNKNOWN and are not errors.\n  echo No raw kernel addresses or raw /proc/cmdline are stored.
   echo No partition, module, root, boot or AVB settings were changed.
 ) > "%OUT%\README.txt"
 echo.
+rem Packaging is PC-local only, so users can upload one ZIP without manual steps.
+rem If local archive creation fails, the evidence folder remains available.
+powershell.exe -NoProfile -NonInteractive -Command "Compress-Archive -LiteralPath '%OUT%' -DestinationPath '%OUT%.zip' -Force" >nul 2>&1
+if errorlevel 1 (
+  echo WARNING: Local ZIP could not be created. Use the folder "%OUT%".
+) else (
+  echo Evidence archive: "%OUT%.zip"
+)
 echo READ-ONLY snapshot saved in "%OUT%".
 echo File hashes are not proof of actual loaded ELF contents.
 echo No phone writes. No flash or reboot.

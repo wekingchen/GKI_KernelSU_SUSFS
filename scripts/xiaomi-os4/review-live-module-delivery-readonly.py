@@ -22,6 +22,21 @@ EXPECTED = {
         "/vendor_dlkm/lib/modules/zsmalloc.ko"),
 }
 
+EXPECTED_GNU_NOTE_SHA = {
+    # SHA256 of raw 36-byte ELF .note.gnu.build-id, not of full ELF.
+    # Verified against pinned stock OTA Run #44907158941, Artifact #14708556026.
+    "rust_binder": {"system": "f495767e894fcfed7e9d05b9f04d847bcbe95b9ad79b40193e5795554bc62aa6"},
+    "zsmalloc": {
+        "vendor": "531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035",
+        "system": "4d8f123bb80cc23169e27f29459957272f969f7e509495dc00639e514378d1fa",
+    },
+    "zram": {
+        "vendor": "e6c5c0c4c3cfa4ad9f5ea4828391459b3c556dc80a77fd9bd005df2699dc0280",
+        "system": "b381360dfde4835aca3ccca2a7c73576939bcea28478656281f636bc0092dfaf",
+    },
+    "node_cache": {"vendor": "24755a08ebe111a8c8b0bbf30e25a6b32c2a0527654efb68109265bd36ef2b02"},
+}
+
 def safe_text(folder: Path, name: str, limit: int=100000) -> str | None:
     path = folder / name
     if path.is_symlink() or not path.is_file():
@@ -86,6 +101,51 @@ def evaluate(folder: Path) -> dict:
         binder_tokens = sorted({x.strip() for x in cmd if
                                 re.fullmatch(r"binder\.impl=[A-Za-z0-9_-]+", x.strip())})
         report["observed_binder_cmdline_tokens"] = binder_tokens
+
+        # The sysfs notes content belongs to a module actually present in the
+        # kernel's module namespace. A unique GNU Note match narrows the origin,
+        # but neither proves a loaded full-ELF SHA nor authorizes replacement.
+        note_observations = {}
+        for module, expected_sources in EXPECTED_GNU_NOTE_SHA.items():
+            note_filename = "loaded-" + module.replace("_", "-") + "-note-sha.txt"
+            note_path = "/sys/module/" + module + "/notes/.note.gnu.build-id"
+            raw_note = (safe_text(folder, note_filename, 256) or "").strip()
+            parsed_note = re.fullmatch(
+                r"([a-fA-F0-9]{64})\s+\*?(/\S+)", raw_note)
+            if module not in names:
+                status = "NOT_OBSERVED_IN_PROC_MODULES"
+                sources = []
+            elif not parsed_note:
+                status = "MISSING_OR_MALFORMED_SYSFS_NOTE"
+                sources = []
+            elif parsed_note.group(2) != note_path:
+                status = "WRONG_NOTE_PATH"
+                sources = []
+            else:
+                actual_note = parsed_note.group(1).lower()
+                sources = sorted(
+                    source for source, digest in expected_sources.items()
+                    if digest == actual_note)
+                if len(sources) == 1:
+                    status = "UNIQUE_STOCK_GNU_NOTE_MATCH"
+                elif len(sources) > 1:
+                    status = "AMBIGUOUS_GNU_NOTE_MATCH"
+                else:
+                    status = "UNKNOWN_GNU_NOTE_NOT_IN_PINNED_STOCK"
+            note_observations[module] = {
+                "status": status,
+                "matched_stock_sources": sources,
+                "sysfs_note_path": note_path,
+                "loaded_binary_sha256": "NOT_PROVEN",
+                "module_delivery_verified": False,
+                "verified_boot_chain": False,
+            }
+        report["runtime_module_note_evidence"] = note_observations
+        report["runtime_zsmalloc_unique_note_source"] = (
+            note_observations["zsmalloc"]["matched_stock_sources"][0]
+            if note_observations["zsmalloc"]["status"] == "UNIQUE_STOCK_GNU_NOTE_MATCH"
+            else "UNPROVEN")
+        report["runtime_note_identity_scope"] = "GNU_NOTE_ONLY_NOT_FULL_ELF"
         report["binder_implementation_verified"] = False
         report["binder_implementation_selection"] = "UNPROVEN"
         report["on_disk_source_qualified_modules"] = results

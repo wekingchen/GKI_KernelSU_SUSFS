@@ -119,6 +119,22 @@ class ModuleDelivery(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "identity"):
             audit.module_fields(sections)
 
+    def test_build_id_note_parser_valid_and_unavailable(self):
+        import struct
+        raw = struct.pack("<III", 4, 20, 3) + bytes((71, 78, 85, 0)) + bytes(range(20))
+        result = audit.gnu_build_id_note({".note.gnu.build-id": raw})
+        self.assertEqual(result["status"], "ELF_GNU_BUILD_ID_PRESENT")
+        self.assertEqual(result["note_sha256"], audit.sha(raw))
+        self.assertEqual(result["build_id_hex"], bytes(range(20)).hex())
+        self.assertEqual(audit.gnu_build_id_note({})["status"], "NOT_PRESENT")
+
+    def test_build_id_note_malformed_cannot_be_claimed_as_match(self):
+        import struct
+        raw = struct.pack("<III", 4, 20, 3) + b"EVIL" + bytes(range(20))
+        result = audit.gnu_build_id_note({".note.gnu.build-id": raw})
+        self.assertEqual(result["status"], "INVALID")
+        self.assertIsNone(result["note_sha256"])
+
     def test_modinfo_and_signature_marker_not_trust_verification(self):
         binary = fixture.elf(imports={"core_export": 0x12345678})
         mod = audit.inspect_module("system_dlkm/lib/modules/rust_binder.ko", binary)
