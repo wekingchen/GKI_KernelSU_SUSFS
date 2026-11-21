@@ -373,3 +373,22 @@ OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
 实际加载文件路径、AVB、模块签名策略或 Binder 服务切换。
 因此只收窄来源判断，不作为解锁 71 条 Rust ABI 或 27 条 zsmalloc 歧义
 的通行证。路线 A 精确 OEM 源码仍未得到。
+
+
+## 第十一轮：真机表明 C Binder 是当前主实现强证据（2026-11-21）
+
+第二份补采已经取得 `/sys/module/binder/parameters/impl=c`，
+而 system `modules.load` 又明确包含原厂 `rust_binder.ko`。
+结合当前 Android common Rust Binder init 行为，`rust_binder.ko`
+在 `binder_use_rust == 0` 时可以加载为 Live 但不接管 C Binder。
+
+因此路线 B 的问题重新拆成两条：
+
+1. **当前 Binder 实现选择**：C 为强证据；Rust active 不受真机证据支持。
+2. **候选 GKI 模块兼容**：system 仍要求加载 OEM rust_binder；
+   r74 对其 71 个 Rust 导入仍无法解析，因此装载兼容继续 BLOCKED。
+
+这使“必须重现 OEM Rust Binder 作为 active Binder”不再是合理目标；
+下一步应研究候选 GKI 如何在不修改 system_dlkm、不破坏 C Binder 主链的
+前提下安全满足/处理该 `rust_binder.ko` 加载请求，以及 Xiaomi loader
+对单个 system_dlkm 模块失败的实际容错边界。
