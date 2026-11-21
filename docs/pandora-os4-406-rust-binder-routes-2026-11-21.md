@@ -259,3 +259,26 @@ call collect-pandora-live-module-delivery.cmd
 
 此采集只用于下一轮 `RUNTIME_OBSERVATION_PARTIAL` 分析，绝非实机
 `flash`、`fastboot boot`、`insmod` 或 `system_dlkm` 替换授权。
+
+### 实机快照离线解释器（只评估磁盘文件，不推断内核模块内存镜像）
+
+新增 `scripts/xiaomi-os4/review-live-module-delivery-readonly.py`：
+接收上述 Windows CMD 采集目录作为 `--evidence-dir`，严格核实 pandora、
+OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
+从 system Binder、system zsmalloc、vendor zsmalloc 各自的
+`sha256sum` 文件中识别原始路径并逐个比较固定原厂 SHA。
+任何缺项、路径不符、哈希差异，都单独输出 `UNKNOWN` 或
+`DIFFERS_FROM_PINNED_STOCK`；**不会以 basename 合并分区**。
+
+即便全部磁盘 SHA 与已归档 OTA 相符，输出也只是
+`ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF`：
+`module_delivery_verified=false`、
+`runtime_loaded_binary_sha256=NOT_PROVEN`、
+`binder_implementation_verified=false`、
+`signing_trust_verified=false`、
+`system_dlkm_avb_chain_verified=false`、
+`gate=BLOCKED`、`flashable=false`。
+
+[解释器只读正反例 Run #44904943896](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904943896)
+已通过 6 项测试（包括 system/vendor 互换、缺少哈希、错误 uname、
+缺失启动参数和错误文件路径），不涉及设备或改写模块。
