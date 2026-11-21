@@ -1,0 +1,45 @@
+name: "pandora OS4 Rust provenance compare (temporary, read-only)"
+on:
+  push:
+    branches: ["pandora-406-rust-source-provenance"]
+    paths: [".github/workflows/pandora-406-rust-provenance-probe.yml"]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: "Download pinned verified R62 evidence and GKI candidate"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r62" "$RUNNER_TEMP/new"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd
+          gh release download pandora-os4-lkg-gen5 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst' --dir "$RUNNER_TEMP/r62"
+          echo 'd53626c9258708f24d3de65fe7167a7f3ac8c2560359138a764a7b7f907d80b4  '"$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst" | sha256sum -c -
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Module.symvers' --pattern 'final.config' --pattern 'build-metadata.txt' --dir "$RUNNER_TEMP/new"
+          echo '242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25  '"$RUNNER_TEMP/new/Module.symvers" | sha256sum -c -
+          tar -I zstd -tf "$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst" > "$RUNNER_TEMP/r62/file-list.txt"
+          echo '=== AVAILABLE VERIFIED R62 EVIDENCE FILES ==='
+          grep -Ei 'symvers|rust.binder|metadata|config|manifest|build-info|\.ko' "$RUNNER_TEMP/r62/file-list.txt" | head -n 70 || true
+          echo '=== R62 EVIDENCE COUNTS ==='
+          wc -l "$RUNNER_TEMP/r62/file-list.txt"
+          grep -ci 'symvers' "$RUNNER_TEMP/r62/file-list.txt" || true
+          grep -ci 'rust.binder' "$RUNNER_TEMP/r62/file-list.txt" || true
+          echo '=== CANDIDATE RUST EXPORTS ==='
+          grep -Ec $'^0x[0-9a-f]+\\t_R[^\\t]+\\tvmlinux' "$RUNNER_TEMP/new/Module.symvers" || true
+          echo 'READ ONLY, NO BOOT, NO UPLOAD OF PRIVATE DEVICE EVIDENCE' >> "$GITHUB_STEP_SUMMARY"
+      - name: "Store file inventory only"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r62-verified-evidence-inventory
+          path: ${{ runner.temp }}/r62/file-list.txt
+          retention-days: 14
+          if-no-files-found: warn
