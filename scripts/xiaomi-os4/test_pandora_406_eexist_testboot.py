@@ -108,6 +108,20 @@ class Packager(unittest.TestCase):
         self.assertNotEqual(p.returncode,0)
         self.assertIn("pre-AVB stock boot trailing data is nonzero",p.stderr+p.stdout)
 
+    def test_unknown_inner_avb0_tail_is_rejected(self):
+        with zipfile.ZipFile(self.zip) as z:
+            boot=bytearray(z.read("boot.img"))
+        boot.extend(b"AVB0"+b"Z"*4092)
+        with zipfile.ZipFile(self.zip,"w") as z:
+            z.writestr("boot.img",boot)
+        s=json.loads(self.stock.read_text())
+        s["ota_source_id"]=h(self.zip.read_bytes())
+        s["stock_boot_sha256"]=h(boot)
+        self.stock.write_text(json.dumps(s))
+        p=self.invoke()
+        self.assertNotEqual(p.returncode,0)
+        self.assertIn("pre-AVB stock boot trailing data is nonzero",p.stderr+p.stdout)
+
     def test_formal_gate_pass_is_rejected(self):
         g=json.loads(self.gate.read_text()); g["formal_oem_gate"]="CRC_AND_VERMAGIC_MATCH_CANDIDATE"
         self.gate.write_text(json.dumps(g))
