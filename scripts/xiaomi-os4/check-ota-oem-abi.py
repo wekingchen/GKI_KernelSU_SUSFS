@@ -367,6 +367,9 @@ def main() -> int:
             core_imports = 0
             oem_imports = 0
             ambiguous = []
+            ambiguous_details = []
+            ambiguous_same_crc = 0
+            ambiguous_split_crc = 0
             dependencies = {}
             for name, imported in records:
                 total_imports += len(imported)
@@ -391,10 +394,39 @@ def main() -> int:
                         if crc != expected_crc:
                             report["crc_mismatches"].append(f"{name}:{symbol}:{provider}")
                     elif len(candidates) > 1:
+                        # A matching CRC proves a *signature*, NOT which of
+                        # multiple module binaries the real loader selected.
+                        # Never promote or silently choose one provider here.
                         ambiguous.append(f"{name}:{symbol}:multiple-OEM-providers")
+                        versions = {crc for _provider, crc in candidates}
+                        if len(versions) == 1:
+                            ambiguous_same_crc += 1
+                        else:
+                            ambiguous_split_crc += 1
+                        if len(ambiguous_details) < 50:
+                            ambiguous_details.append({
+                                "consumer": name, "symbol": symbol,
+                                "expected_crc": f"0x{expected_crc:08x}",
+                                "providers": [{"module": provider,
+                                               "actual_crc": f"0x{crc:08x}",
+                                               "crc_matches": crc == expected_crc}
+                                              for provider, crc in candidates[:12]],
+                                "provider_crc_variants": len(versions)
+                            })
                     else:
                         report["unresolved_kernel_imports"].append(f"{name}:{symbol}")
             report["ambiguous_providers"] = ambiguous
+            report["ambiguous_provider_details"] = ambiguous_details
+            report["ambiguous_same_crc"] = ambiguous_same_crc
+            report["ambiguous_split_crc"] = ambiguous_split_crc
+            report["unresolved_rust_mangled"] = sum(
+                symbol.rsplit(":", 1)[-1].startswith("_R")
+                for symbol in report["unresolved_kernel_imports"])
+            report["unresolved_rust_binder"] = sum(
+                "rust_binder.ko:" in symbol
+                for symbol in report["unresolved_kernel_imports"])
+            report["candidate_rust_mangled_exports"] = sum(
+                symbol.startswith("_R") for symbol in exports)
             report["provider_graph_edge_count"] = len(dependencies)
             report["provider_graph_example_edges"] = [
                 {"edge": edge, "imports": count}
