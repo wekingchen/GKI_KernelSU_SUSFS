@@ -1,0 +1,58 @@
+name: "临时诊断 / pandora 已加载模块 GNU Note 来源（只读）"
+on:
+  push:
+    branches:
+      - audit/pandora-406-runtime-module-note
+    paths:
+      - .github/workflows/pandora-406-module-note-once.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  note-probe:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/audit/pandora-406-runtime-module-note'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: "先运行失败关闭的 Note 解析与 source-qualified ELF 正反例"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_stock_module_delivery.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_live_module_delivery.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_live_module_reviewer.py' -v
+      - name: "只下载已锁定 OTA 原始 505 模块库存"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pandora-stock" "$RUNNER_TEMP/pandora-note"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern '*xm.zip' --dir "$RUNNER_TEMP/pandora-stock"
+          mapfile -t ZIPS < <(find "$RUNNER_TEMP/pandora-stock" -maxdepth 1 -name '*xm.zip' -type f)
+          [[ ${#ZIPS[@]} == 1 ]]
+          echo 'bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8' > "$RUNNER_TEMP/pandora-note/expected-sha.txt"
+          [[ "$(sha256sum "${ZIPS[0]}" | cut -d' ' -f1)" == "$(cat "$RUNNER_TEMP/pandora-note/expected-sha.txt")" ]]
+          echo "${ZIPS[0]}" > "$RUNNER_TEMP/pandora-note/zip-path.txt"
+      - name: "核对原厂 rust_binder 与两套 zsmalloc ELF Note；保留未知状态"
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/audit-stock-module-delivery-readonly.py \
+             --stock-zip "$(cat "$RUNNER_TEMP/pandora-note/zip-path.txt")" \
+             --output "$RUNNER_TEMP/pandora-note/raw-full-report.json"
+          jq -e '.inventory_provenance_checked == true and .gate == "BLOCKED" and .inventory_module_count == 505 and .vendor_system_zsmalloc_interchangeable == false' "$RUNNER_TEMP/pandora-note/raw-full-report.json"
+          jq '{schema:2, stock_zip_sha256, inventory_provenance_checked,
+               gate, flashable, eligible_for_fastboot_boot,
+               actual_loaded_zsmalloc_sha256, module_delivery_verified,
+               modules: (.selected_source_qualified_modules | with_entries(.value |=
+                 {collected_source, basename, sha256, gnu_build_id_note}))}' \
+            "$RUNNER_TEMP/pandora-note/raw-full-report.json" > "$RUNNER_TEMP/pandora-note/module-notes.json"
+          cat "$RUNNER_TEMP/pandora-note/module-notes.json"
+          echo "OEM ABI remains BLOCKED; no claim about loaded module file SHA"
+      - name: "仅归档 JSON Note 证据，不上传 .ko / boot"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-module-notes-stock-readonly
+          path: ${{ runner.temp }}/pandora-note/module-notes.json
+          if-no-files-found: warn
+          retention-days: 30
