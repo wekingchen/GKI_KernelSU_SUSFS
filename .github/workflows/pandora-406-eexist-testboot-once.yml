@@ -1,4 +1,5 @@
 name: "临时构建 / pandora 4.0.6 r74 Rust Binder EEXIST fastboot-boot 实验"
+# rerun after correcting unittest harness; all safety gates remain fail-closed
 on:
   push:
     branches:
