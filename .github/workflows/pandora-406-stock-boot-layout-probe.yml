@@ -45,6 +45,69 @@ jobs:
           cat "$RUNNER_TEMP/outer-avb-info.txt"
           echo "=== INNER AVB ==="
           cat "$RUNNER_TEMP/inner-avb-info.txt"
+      - name: "用正式 r74 Image 对真实 stock 只验证打包布局，不保留待测镜像"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidate"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM --repo "$GITHUB_REPOSITORY" \
+            --pattern "Image" --pattern "build-metadata.txt" --pattern "stock-report.json" \
+            --dir "$RUNNER_TEMP/candidate"
+          cat > "$RUNNER_TEMP/shadow-layout-only.json" <<'EOF'
+          {
+            "formal_oem_gate": "BLOCKED",
+            "formal_oem_gate_unchanged": true,
+            "experimental_gate": "RUNTIME_SELECTED_EEXIST_SHIM_TEST_ELIGIBLE",
+            "eligible_for_fastboot_boot_experiment": true,
+            "flashable": false,
+            "lkg_promotion": false
+          }
+          EOF
+          cp "$RUNNER_TEMP/candidate/build-metadata.txt" "$RUNNER_TEMP/layout-meta.txt"
+          {
+            echo "EXPERIMENT=PANDORA_RUST_BINDER_EEXIST_SHIM"
+            echo "FORMAL_OEM_GATE=BLOCKED"
+            echo "FLASHABLE=NO"
+          } >> "$RUNNER_TEMP/layout-meta.txt"
+          python3 scripts/xiaomi-os4/package-pandora-406-eexist-testboot-v4.py \
+            --stock-zip "$ZIP" \
+            --stock-report "$RUNNER_TEMP/candidate/stock-report.json" \
+            --shadow-gate "$RUNNER_TEMP/shadow-layout-only.json" \
+            --metadata "$RUNNER_TEMP/layout-meta.txt" \
+            --candidate-image "$RUNNER_TEMP/candidate/Image" \
+            --output "$RUNNER_TEMP/layout-only.img" \
+            | tee "$RUNNER_TEMP/real-stock-packager.txt"
+          grep -q '^STOCK_PARTITION_AVB_FOOTER=PRESENT_STRIPPED        with:
+          name: pandora-406-stock-boot-layout-readonly
+          path: |
+            ${{ runner.temp }}/stock-boot-layout.txt
+            ${{ runner.temp }}/outer-avb-info.txt
+            ${{ runner.temp }}/inner-avb-info.txt
+            ${{ runner.temp }}/real-stock-packager.txt
+          retention-days: 30
+ "$RUNNER_TEMP/real-stock-packager.txt"
+          grep -q '^STOCK_INNER_GKI_AVB=PRESENT_VERIFIED_STRIPPED        with:
+          name: pandora-406-stock-boot-layout-readonly
+          path: |
+            ${{ runner.temp }}/stock-boot-layout.txt
+            ${{ runner.temp }}/outer-avb-info.txt
+            ${{ runner.temp }}/inner-avb-info.txt
+          retention-days: 30
+ "$RUNNER_TEMP/real-stock-packager.txt"
+          python3 - "$RUNNER_TEMP/layout-only.img" "$RUNNER_TEMP/candidate/Image" <<'PY'
+          import struct,sys
+          out=open(sys.argv[1],"rb").read()
+          image=open(sys.argv[2],"rb").read()
+          page=4096
+          expect=page+((len(image)+page-1)//page)*page
+          assert len(out)==expect
+          assert out[:8]==b"ANDROID!"
+          assert out[-64:-60]!=b"AVBf"
+          assert struct.unpack_from("<I",out,8)[0]==len(image)
+          print("REAL_STOCK_LOGICAL_PACKAGING=PASS")
+          PY
+          rm -f "$RUNNER_TEMP/layout-only.img"
       - uses: actions/upload-artifact@v6
         with:
           name: pandora-406-stock-boot-layout-readonly
