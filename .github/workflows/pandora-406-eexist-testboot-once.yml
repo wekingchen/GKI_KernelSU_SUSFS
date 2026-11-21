@@ -1,5 +1,5 @@
 name: "临时构建 / pandora 4.0.6 r74 Rust Binder EEXIST fastboot-boot 实验"
-# rerun after validated AVB footer parsing/stripping fix; all safety gates remain fail-closed
+# rerun after AVB parser constant/capacity fix; all safety gates remain fail-closed
 on:
   push:
     branches:
