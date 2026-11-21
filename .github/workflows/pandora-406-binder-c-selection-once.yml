@@ -61,6 +61,42 @@ jobs:
           unzip -l "$ZIP" | tee "$RUNNER_TEMP/stock-inventory.txt"
           echo "--- boot-like entries ---" | tee -a "$RUNNER_TEMP/stock-inventory.txt"
           unzip -Z1 "$ZIP" | grep -E "(^|/)(boot|vendor_boot|init_boot)(_[ab])?\.img$|(^|/).*\.rc$|(^|/)fstab" | tee -a "$RUNNER_TEMP/stock-inventory.txt" || true
+      - name: "离线拆原厂 vendor_boot 查 Xiaomi system_dlkm loader"
+        run: |
+          set -euo pipefail
+          ZIP="$(find "$RUNNER_TEMP/stock" -maxdepth 1 -name "*xm.zip" -type f -print -quit)"
+          unzip -p "$ZIP" vendor_boot.img > "$RUNNER_TEMP/vendor_boot.img"
+          test "$(stat -c %s "$RUNNER_TEMP/vendor_boot.img")" = "100663296"
+          curl -fsSL "https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main/unpack_bootimg.py?format=TEXT" | base64 -d > "$RUNNER_TEMP/unpack_bootimg.py"
+          python3 "$RUNNER_TEMP/unpack_bootimg.py" --boot_img "$RUNNER_TEMP/vendor_boot.img" --out "$RUNNER_TEMP/vendor_boot_out" > "$RUNNER_TEMP/vendor-boot-unpack.log"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lz4 cpio file >/dev/null
+          : > "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+          echo "=== unpack outputs ===" >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+          find "$RUNNER_TEMP/vendor_boot_out" -maxdepth 2 -type f -printf "%P %s bytes\n" | sort >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+          i=0
+          while IFS= read -r ram; do
+            i=$((i+1))
+            work="$RUNNER_TEMP/ramdisk-$i"
+            mkdir -p "$work/root"
+            desc="$(file -b "$ram")"
+            echo "=== ramdisk $i: $(basename "$ram") :: $desc ===" >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+            if echo "$desc" | grep -qi "LZ4"; then
+              lz4 -dc "$ram" > "$work/ramdisk.cpio"
+            elif echo "$desc" | grep -qi "gzip"; then
+              gzip -dc "$ram" > "$work/ramdisk.cpio"
+            else
+              cp "$ram" "$work/ramdisk.cpio"
+            fi
+            (cd "$work/root" && cpio -idm --no-absolute-filenames < "$work/ramdisk.cpio" >/dev/null 2>&1) || true
+            echo "--- files of interest ---" >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+            find "$work/root" -type f \( -name "*.rc" -o -name "fstab*" -o -name "modules.load*" -o -name "modules.dep*" -o -name "*dlkm*" \) -printf "%P\n" | sort >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt" || true
+            echo "--- loader references ---" >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
+            grep -R -n -I -E "system_dlkm|vendor_dlkm|modules\.load|modprobe|insmod|rust_binder|dlkm_loader" "$work/root" \
+              --include="*.rc" --include="fstab*" --include="*.sh" --include="modules.load*" --include="modules.dep*" \
+              >> "$RUNNER_TEMP/vendor-boot-loader-evidence.txt" || true
+          done < <(find "$RUNNER_TEMP/vendor_boot_out" -maxdepth 1 -type f -name "vendor_ramdisk*" | sort)
+          cat "$RUNNER_TEMP/vendor-boot-loader-evidence.txt"
       - name: "只归档文字证据"
         uses: actions/upload-artifact@v6
         with:
