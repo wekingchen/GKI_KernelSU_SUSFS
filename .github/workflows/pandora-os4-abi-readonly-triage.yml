@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/pandora-os4-abi-readonly-triage.yml"
       - "scripts/xiaomi-os4/triage-oem-abi-readonly.py"
+      - "scripts/xiaomi-os4/check-ota-oem-abi.py"
   workflow_dispatch:
 
 permissions:
