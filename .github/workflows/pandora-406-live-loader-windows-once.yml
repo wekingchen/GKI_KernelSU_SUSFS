@@ -1,0 +1,79 @@
+name: "临时验收 / pandora Android 17 模块来源 Windows 只读采集"
+on:
+  push:
+    branches:
+      - audit/pandora-406-module-delivery-repro
+    paths:
+      - .github/workflows/pandora-406-live-loader-windows-once.yml
+permissions:
+  contents: read
+jobs:
+  cmd-smoke:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/audit/pandora-406-module-delivery-repro'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: "静态检查只读命令边界与来源隔离"
+        shell: pwsh
+        run: python -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_live_module_delivery.py' -v
+      - name: "用 Windows 原生 CMD 和模拟 adb 走完整读取/脱敏流程"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mock = Join-Path $env:RUNNER_TEMP 'pandora-adb-mock'
+          New-Item -ItemType Directory -Force -Path $mock | Out-Null
+          $stub = @'
+          @echo off
+          setlocal EnableExtensions EnableDelayedExpansion
+          if /I "%~1"=="shell" if /I "%~2"=="getprop" (
+            if /I "%~3"=="ro.product.device" echo pandora
+            if /I "%~3"=="ro.mi.os.version.incremental" echo OS4.0.6.0.XBLCNXM
+            if /I "%~3"=="ro.boot.slot_suffix" echo _b
+            if /I "%~3"=="sys.boot_completed" echo 1
+            if /I "%~3"=="ro.boot.verifiedbootstate" echo orange
+            if /I "%~3"=="ro.boot.vbmeta.device_state" echo unlocked
+            exit /b 0
+          )
+          if /I "%~1"=="shell" if /I "%~2"=="uname" echo 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k
+          if /I "%~1"=="shell" if /I "%~2"=="su" (
+            set "ARG=%~4"
+            if "!ARG!"=="id" echo uid=0(root) gid=0(root)
+            if "!ARG!"=="cat /proc/cmdline" echo foo=bar serialno=SENSITIVE binder.impl=rust token=SECRET
+            if "!ARG!"=="cat /proc/bootconfig" echo binder.impl = "rust"
+            if "!ARG!"=="cat /proc/modules" echo rust_binder 12345 0 - Live 0xDEADBEEF
+            if "!ARG!"=="cat /proc/modules" echo zsmalloc 20480 2 - Live 0xDEADBEEF
+            if "!ARG!"=="cat /proc/sys/kernel/modules_disabled" echo 0
+            if "!ARG!"=="cat /sys/module/rust_binder/initstate" echo live
+            if "!ARG!"=="cat /proc/mounts" echo /dev/block/dm-1 /system_dlkm ext4 ro 0 0
+            if "!ARG!"=="cat /system_dlkm/lib/modules/modules.load" echo rust_binder.ko
+            if "!ARG!"=="cat /vendor_dlkm/lib/modules/modules.load" echo zsmalloc.ko
+            if "!ARG!"=="cat /system_dlkm/lib/modules/modules.dep" echo rust_binder.ko:
+            if "!ARG!"=="cat /vendor_dlkm/lib/modules/modules.dep" echo zram.ko: zsmalloc.ko
+            if "!ARG:~0,9!"=="sha256sum" echo 0123456789abcdef  !ARG!
+            exit /b 0
+          )
+          exit /b 0
+          '@
+          Set-Content -Path (Join-Path $mock 'adb.bat') -Value $stub -Encoding ascii
+          $env:PATH = "$mock;$env:PATH"
+          Push-Location $env:RUNNER_TEMP
+          try {
+            $cmdFile = Join-Path $env:GITHUB_WORKSPACE 'scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd'
+            & cmd.exe /c $cmdFile
+            if ($LASTEXITCODE -ne 0) { throw "Windows CMD collector failed with exit $LASTEXITCODE" }
+            $dirs = @(Get-ChildItem -Directory -Filter 'pandora-live-module-delivery-*')
+            if ($dirs.Count -ne 1) { throw "Expected one local evidence directory" }
+            $out = $dirs[0].FullName
+            $cmd = Get-Content (Join-Path $out 'binder-impl-cmdline.txt') -Raw
+            $loaded = Get-Content (Join-Path $out 'loaded-modules-redacted.txt') -Raw
+            $sha = Get-Content (Join-Path $out 'system-rust-binder-file-sha.txt') -Raw
+            if ($cmd -notmatch 'binder.impl=rust' -or $cmd -match 'SENSITIVE|SECRET') { throw 'Boot args leaked or dropped binder choice' }
+            if ($loaded -notmatch 'rust_binder' -or $loaded -match '0xDEADBEEF') { throw 'Module address redaction failed' }
+            if ($sha -notmatch '0123456789abcdef') { throw 'Module path SHA probe not executed' }
+            if (-not (Test-Path (Join-Path $out 'vendor-modules.load'))) { throw 'Missing vendor source list' }
+            if (-not (Test-Path (Join-Path $out 'system-modules.load'))) { throw 'Missing system source list' }
+            Write-Host 'Windows native CMD read-only collector mock PASS'
+          } finally {
+            Pop-Location
+          }
