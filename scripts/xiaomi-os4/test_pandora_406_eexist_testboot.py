@@ -77,6 +77,36 @@ class Packager(unittest.TestCase):
         self.assertLess(len(out),len(partition))
         self.assertIn("STOCK_PARTITION_AVB_FOOTER=PRESENT_STRIPPED",p.stdout)
 
+    def test_candidate_may_grow_past_old_vbmeta_offset_but_fit_partition(self):
+        with zipfile.ZipFile(self.zip) as z:
+            boot=bytearray(z.read("boot.img"))
+        original_size=len(boot)
+        partition=bytearray(96*1024)
+        partition[:len(boot)]=boot
+        vbmeta_offset=len(partition)-4096
+        vbmeta_size=512
+        partition[vbmeta_offset:vbmeta_offset+4]=b"AVB0"
+        struct.pack_into(">4sIIQQQ28x",partition,len(partition)-64,
+                         b"AVBf",1,0,original_size,vbmeta_offset,vbmeta_size)
+        with zipfile.ZipFile(self.zip,"w") as z:
+            z.writestr("boot.img",partition)
+        s=json.loads(self.stock.read_text())
+        s["ota_source_id"]=h(self.zip.read_bytes())
+        s["stock_boot_sha256"]=h(partition)
+        self.stock.write_text(json.dumps(s))
+        image=(b"A"*15000)+RELEASE.encode()+b"B"*1000
+        self.image.write_bytes(image)
+        lines=[]
+        for line in self.meta.read_text().splitlines():
+            lines.append("IMAGE_SHA256="+h(image) if line.startswith("IMAGE_SHA256=") else line)
+        self.meta.write_text("\n".join(lines)+"\n")
+        p=self.invoke()
+        self.assertEqual(p.returncode,0,p.stderr+p.stdout)
+        out=self.out.read_bytes()
+        self.assertGreater(len(out),original_size)
+        self.assertLess(len(out),len(partition))
+        self.assertNotEqual(out[-64:-60],b"AVBf")
+
     def test_malformed_avb_footer_is_rejected(self):
         with zipfile.ZipFile(self.zip) as z:
             boot=bytearray(z.read("boot.img"))
