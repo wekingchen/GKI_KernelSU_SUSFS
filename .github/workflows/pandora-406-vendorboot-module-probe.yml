@@ -93,11 +93,46 @@ jobs:
             --stock "$RUNNER_TEMP/vendorboot/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
             --abi-report "$RUNNER_TEMP/abi-result/ota-abi-report.json" \
             --output "$RUNNER_TEMP/abi-result/vendorboot-provider-report.json"
+      - name: "真实 4.0.6.0 ABI 门禁预演（只读，不生成 boot）"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_vendorboot_modules.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_vendor_provider_graph.py' -v
+          mkdir -p "$RUNNER_TEMP/vendorboot-candidate"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Module.symvers' --pattern 'stock-report.json' \
+            --pattern 'gki-candidate.json' --pattern 'build-metadata.txt' \
+            --dir "$RUNNER_TEMP/vendorboot-candidate"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$RUNNER_TEMP/vendorboot/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --stock-report "$RUNNER_TEMP/vendorboot-candidate/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/vendorboot-candidate/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/vendorboot-candidate/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/vendorboot-candidate/Module.symvers" \
+            --output "$RUNNER_TEMP/abi-result/ota-abi-report-with-vendorboot.json"
+          jq '{
+            gate, eligible_for_fastboot_boot, module_count, imports_checked,
+            vendor_boot_modules_seen, vendor_boot_additional_modules,
+            vendor_boot_additional_imports, core_imports_checked, oem_imports_checked,
+            failed_modules_count:(.failed_modules|length),
+            crc_mismatches_count:(.crc_mismatches|length),
+            unresolved_count:(.unresolved_kernel_imports|length),
+            ambiguous_count:(.ambiguous_providers|length),
+            missing_examples:.unresolved_kernel_imports[:8],
+            failure_examples:.failed_modules[:8],
+            ambiguous_examples:.ambiguous_providers[:8]
+          }' "$RUNNER_TEMP/abi-result/ota-abi-report-with-vendorboot.json"
+          echo 'READ ONLY: Eligibility remains enforced; no boot generated or LKG changed' >> "$GITHUB_STEP_SUMMARY"
       - name: "归档只读证据"
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-vendorboot-provider-crc
-          path: ${{ runner.temp }}/abi-result/vendorboot-provider-report.json
+          path: |
+            ${{ runner.temp }}/abi-result/vendorboot-provider-report.json
+            ${{ runner.temp }}/abi-result/ota-abi-report-with-vendorboot.json
           if-no-files-found: warn
           retention-days: 30
