@@ -9,6 +9,10 @@ CMD=44
 CMD_LEN=1536
 MAX_BOOT=200*1024*1024
 AVB_FOOTER_SIZE=64
+EXACT_STOCK_ZIP_SHA256="bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
+EXACT_STOCK_BOOT_SHA256="a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b"
+EXACT_STOCK_INNER_GKI_AVB_LEN=16384
+EXACT_STOCK_INNER_GKI_AVB_SHA256="824bf63be36ecd15c0f049d73c4a925efc6fda85dd6901e0f38c9a91ed740d77"
 BOOT_RE=re.compile(r"boot(?:_[^/]*)?\.img$",re.I)
 FLAG=b"pandora_rust_binder_eexist=1"
 
@@ -82,10 +86,24 @@ def main():
     stock_kernel_end=PAGE+((ks+PAGE-1)//PAGE)*PAGE
     if stock_kernel_end>len(stock_payload):
         fail("stock kernel exceeds original boot payload")
-    # For boot-v4 with no ramdisk/signature, bytes after the aligned kernel in
-    # the pre-AVB image must be padding only. AVB vbmeta/footer are partition
-    # metadata and are intentionally not copied into a temporary fastboot boot.
-    if stock_payload[stock_kernel_end:].strip(b"\0"):
+    # Exact OS4.0.6 stock has a 16K GKI boot signature immediately after
+    # the aligned kernel. Its AVB hash descriptor signs the STOCK kernel, so it
+    # must never be copied onto a replacement Image. Accept only the pinned
+    # exact signature blob; any other nonzero pre-outer-AVB tail fails closed.
+    inner_tail=stock_payload[stock_kernel_end:]
+    exact_stock=(stock.get("ota_source_id")==EXACT_STOCK_ZIP_SHA256)
+    stock_inner_gki_avb="ABSENT"
+    if exact_stock:
+        if sha(boot)!=EXACT_STOCK_BOOT_SHA256:
+            fail("exact stock boot SHA mismatch")
+        if not stock_has_avb_footer:
+            fail("exact stock boot lost outer AVB footer")
+        if (len(inner_tail)!=EXACT_STOCK_INNER_GKI_AVB_LEN or
+                not inner_tail.startswith(b"AVB0") or
+                sha(inner_tail)!=EXACT_STOCK_INNER_GKI_AVB_SHA256):
+            fail("exact stock inner GKI AVB signature drift")
+        stock_inner_gki_avb="PRESENT_VERIFIED_STRIPPED"
+    elif inner_tail.strip(b"\0"):
         fail("pre-AVB stock boot trailing data is nonzero")
     image=a.candidate_image.read_bytes()
     if sha(image)!=meta.get("IMAGE_SHA256"): fail("experimental Image hash mismatch")
@@ -136,6 +154,7 @@ def main():
     print("STOCK_ORIGINAL_BOOT_SIZE="+str(original_size))
     print("STOCK_AVB_VBMETA_OFFSET="+str(vbmeta_offset))
     print("STOCK_AVB_VBMETA_SIZE="+str(vbmeta_size))
+    print("STOCK_INNER_GKI_AVB="+stock_inner_gki_avb)
     print("FASTBOOT_BOOT_LOGICAL_SIZE="+str(len(out)))
     print("FLASHABLE=NO")
     print("USE=fastboot boot ONLY")
