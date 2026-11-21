@@ -177,3 +177,23 @@
 - 因此正式门禁继续对 27 条重复提供者维持阻断，不根据 basename、单个相同 CRC 或缺少完整加载来源时自动选择模块。后续报告将分别展示同 CRC 与不同 CRC 重复提供者，帮助跨 OTA 维护人员调查，不暗改放行标准。
 
 **安全结论**：未解决 Rust crate 符号身份、未证明替代模块加载选择之前，GKI 仍只允许只读构建与检查；禁止 fastboot flash、持久 AnyKernel3 或自动晋升 LKG。
+
+
+## 第六轮：已验证 R62 vs 新 OTA 的 Rust Binder 源码身份检查（2026-11-21）
+
+为避免重复盲目编译/复用旧版本，本轮只读复核了长期归档 Release pandora-os4-lkg-gen5 的 ORIGINAL-evidence.tar.zst（SHA-256 d53626c9258708f24d3de65fe7167a7f3ac8c2560359138a764a7b7f907d80b4）、真实已刷 R62 构建 #43551917368 的 Artifact、原始 AnyKernel3 zip、4.0.6.0 OEM rust_binder.ko 及已锁定 GKI 候选。
+
+- [Run #44899135590](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44899135590)：R62 的 Module.symvers 有 1,745 个 Rust mangled vmlinux 导出，与新 GKI 候选的 1,745 个 Rust 导出**名称全部相同**；但 OEM 4.0.6.0 Rust Binder 所需、候选缺少的 71 个符号，在 R62 的导出表中也**一个都不存在**。已验证 R62 源码提交为 e2b8ca7c8d0551a6124b1a7322f5ae532845f1b5。
+- [Run #44899227585](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44899227585)：原始 Gen5 AnyKernel3 只有 Image 等通用工具，不包含 rust_binder.ko 或任何系统/厂商分区模块替换。因此“旧 R62 成功启动”**不能证明**它可以驱动新 OTA 的原厂 Rust Binder。
+- Android 官方 tag android16-6.12-2026-03_r74 中 CONFIG_ANDROID_BINDER_IPC_RUST 是 tristate：Rust Binder 是传统 C Binder 的另一实现，文档称默认 C，内核命令行设 binder.impl=rust 才选择 Rust。请注意这是源码定义，不等于已经证明当前真机运行时选择情况。
+- [Run #44899319807](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44899319807)：原厂 rust_binder.ko SHA-256 ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c；ELF .modinfo 表示 scmversion=g43b5ab7e247d、vermagic 为原厂 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k。
+- 原厂模块 ELF .comment 表明 Clang 19.0.1（r536225）及 rustc 1.82.0-dev（f6e511eec，Android Rust Toolchain linux-glibc-15545352）。这与候选工具链的 **主版本和 Rust commit 名称**一致，但不能仅凭版本号证明二进制工具链、Rust crate 源码或编译参数完全一致。
+- stock boot 与 vendor_boot 头部没有检测到 binder.impl=rust；bootloader 最终注入的 cmdline/bootconfig 未由这一离线检查证明。
+- R62 原始长期 evidence 归档与原生原始构建 Artifact 均没有直接保存 rust_binder-R62.ko 作为独立可提取文件；虽然旧构建日志曾显示成功编译了该模块，不能声称已验证可以无损替换新 OEM 模块。
+- [Run #44900070853](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44900070853)：正式 ABI 门禁现在从原厂 rust_binder.ko 的 .modinfo 中保留 scmversion 和模块字节 SHA 作为证据；对真实 4.0.6.0 原始 ZIP 实测：240 个 Rust Binder 导入、71 个未解析、24 个同 CRC 重复来源和 3 个不同 CRC 来源，**仍 BLOCKED**，没有生成 boot。
+
+### 路线取舍
+
+明确不采用：复用旧 R62 导出、重新编译同一份纯 GKI 并期待 Rust 名称自己变化、伪造 Rust mangled 名称/CRC、静默忽略 rust_binder、把未验证的系统模块替换写入真实设备。
+
+需要真正完成的下一步是获取/复原与 g43b5ab7e247d 对应的 Rust kernel/core 源码及构建参数，或者在候选 GKI 内构建并验证匹配该候选内核 Rust exports 的 Binder 模块，再**单独设计可恢复的运行时模块供给和加载证明**。它不能靠只替换 boot.img 的旧式 AnyKernel3 自动实现。必须保留可回滚路径并继续隔离上游源码。若缺乏这些源和加载证据，ABI gate 保持 BLOCKED；不生成新 OTA fastboot boot，不晋升 LKG。
