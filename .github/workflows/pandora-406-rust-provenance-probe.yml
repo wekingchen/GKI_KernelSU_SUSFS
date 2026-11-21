@@ -113,6 +113,54 @@ jobs:
           echo '=== GKI BINDER MAKEFILE ==='
           head -n 110 "$RUNNER_TEMP/r62/rust-binder-Makefile"
           echo 'READ ONLY: neither original R62 installer nor GKI files were modified' >> "$GITHUB_STEP_SUMMARY"
+      - name: "Inspect OEM Binder module metadata and stock boot command line"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip' --dir "$RUNNER_TEMP/stock"
+          echo 'bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8  '"$RUNNER_TEMP/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" | sha256sum -c -
+          python3 - <<'PY'
+          import hashlib,io,os,pathlib,struct,tempfile,zipfile,subprocess,json
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          x=root/"stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip"
+          with zipfile.ZipFile(x) as f:
+              boot=f.read("boot.img")
+              vb=f.read("vendor_boot.img")
+              oem=zipfile.ZipFile(io.BytesIO(f.read("oem-modules.zip")))
+              files=[n for n in oem.namelist() if n.endswith("/rust_binder.ko")]
+              if len(files)!=1:raise ValueError("unexpected Binder module inventory")
+              raw=oem.read(files[0])
+          print("RUST_BINDER_ZIP_ENTRY",files[0],"bytes",len(raw),"sha256",hashlib.sha256(raw).hexdigest())
+          # No writes to any phone, only ephemeral temporary file.
+          with tempfile.NamedTemporaryFile(suffix=".ko") as tmp:
+              tmp.write(raw);tmp.flush()
+              for args in (["readelf","-p",".comment",tmp.name],["readelf","-n",tmp.name],
+                           ["readelf","-p",".modinfo",tmp.name]):
+                  p=subprocess.run(args,capture_output=True,text=True)
+                  print("METADATA_COMMAND",args[:-1],"exit",p.returncode)
+                  print(p.stdout[:2400].replace("\x00"," "))
+          boot_cmdline=boot[44:44+1536].split(b"\x00",1)[0].decode("utf8","replace")
+          vendor_cmdline=vb[28:28+2048].split(b"\x00",1)[0].decode("utf8","replace")
+          print("BOOT_HEADER_CMDLINE_BINDER", [s for s in boot_cmdline.split() if "binder" in s.lower()])
+          print("VENDOR_BOOT_CMDLINE_BINDER",[s for s in vendor_cmdline.split() if "binder" in s.lower()])
+          if vb[:8]!=b"VNDRBOOT":raise ValueError("invalid stock vendorboot")
+          page,rs,head,dtb_size,table_size,bc_size=(struct.unpack_from("<I",vb,12)[0],
+              struct.unpack_from("<I",vb,24)[0],struct.unpack_from("<I",vb,2096)[0],
+              struct.unpack_from("<I",vb,2100)[0],struct.unpack_from("<I",vb,2112)[0],
+              struct.unpack_from("<I",vb,2124)[0])
+          align=lambda a:(a+page-1)//page*page
+          bc_at=align(align(align(head)+rs)+dtb_size)+align(table_size)
+          bc=vb[bc_at:bc_at+bc_size].decode("utf8","replace")
+          print("VENDOR_BOOT_BOOTCONFIG_BYTES",bc_size,"BINDER_LINES",[l for l in bc.splitlines() if "binder" in l.lower()])
+          out=dict(boot_header_binder=[s for s in boot_cmdline.split() if "binder" in s.lower()],
+                   vendor_header_binder=[s for s in vendor_cmdline.split() if "binder" in s.lower()],
+                   stock_vendor_bootconfig_binder=[l for l in bc.splitlines() if "binder" in l.lower()],
+                   rust_binder_oem_module_sha256=hashlib.sha256(raw).hexdigest())
+          (root/"r62/binder-boot-conditions.json").write_text(json.dumps(out,indent=2)+"\n")
+          PY
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
@@ -121,5 +169,6 @@ jobs:
           path: |
             ${{ runner.temp }}/r62/file-list.txt
             ${{ runner.temp }}/r62/verified-r62-vs-new-gki.json
+            ${{ runner.temp }}/r62/binder-boot-conditions.json
           retention-days: 14
           if-no-files-found: warn
