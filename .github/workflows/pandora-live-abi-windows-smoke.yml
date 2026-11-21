@@ -19,38 +19,46 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'mockadb'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           @'
-          import sys
-          a=sys.argv[1:]
-          if a==['shell','getprop','ro.product.device']: print('pandora')
-          elif a==['shell','getprop','ro.mi.os.version.incremental']: print('OS4.0.6.0.XBLCNXM')
-          elif a==['shell','getprop','ro.boot.slot_suffix']: print('_b')
-          elif a==['shell','getprop','sys.boot_completed']: print('1')
-          elif a==['shell','uname','-r']: print('6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k')
-          elif a==['shell','su','-c','id']: print('uid=0(root) gid=0(root) context=u:r:ksu:s0')
-          elif a==['shell','su','-c','cat /proc/modules']:
-              print('zram 159744 1 - Live 0x0000000000000000 (O)')
-              print('zsmalloc 45056 2 node_cache,zram, Live 0x0000000000000000 (O)')
-              print('rust_binder 462848 0 - Live 0x0000000000000000 (O)')
-          elif a==['shell','su','-c','cat /vendor_dlkm/lib/modules/modules.load']:
-              print('zram.ko')
-              print('zsmalloc.ko')
-              print('node_cache.ko')
-          elif a==['shell','su','-c','cat /system_dlkm/lib/modules/modules.load']:
-              print('kernel/mm/zsmalloc.ko')
-              print('kernel/drivers/android/rust_binder.ko')
-          elif a==['shell','su','-c','cat /proc/kallsyms']:
-              print('0000000000000000 T qcom_smem_get')
-              print('0000000000000000 T __ksymtab_qcom_smem_get')
-              print('0000000000000000 T ipc_log_string')
-              print('0000000000000000 T should_be_filtered')
-          else:
-              print('unknown or device-mutating adb command: '+repr(a),file=sys.stderr)
-              sys.exit(7)
-          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'fake_adb.py')
-          @'
-          @echo off
-          python "%~dp0fake_adb.py" %*
-          '@ | Set-Content -Encoding ascii (Join-Path $dir 'adb.cmd')
+          using System;
+          class MockAdb {
+              static int Main(string[] a) {
+                  string cmd = String.Join(" ", a);
+                  switch (cmd) {
+                      case "shell getprop ro.product.device":
+                          Console.WriteLine("pandora"); return 0;
+                      case "shell getprop ro.mi.os.version.incremental":
+                          Console.WriteLine("OS4.0.6.0.XBLCNXM"); return 0;
+                      case "shell getprop ro.boot.slot_suffix":
+                          Console.WriteLine("_b"); return 0;
+                      case "shell getprop sys.boot_completed":
+                          Console.WriteLine("1"); return 0;
+                      case "shell uname -r":
+                          Console.WriteLine("6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"); return 0;
+                      case "shell su -c id":
+                          Console.WriteLine("uid=0(root) gid=0(root) context=u:r:ksu:s0"); return 0;
+                      case "shell su -c cat /proc/modules":
+                          Console.WriteLine("zram 159744 1 - Live 0x0000000000000000 (O)");
+                          Console.WriteLine("zsmalloc 45056 2 node_cache,zram, Live 0x0000000000000000 (O)");
+                          Console.WriteLine("rust_binder 462848 0 - Live 0x0000000000000000 (O)");
+                          return 0;
+                      case "shell su -c cat /vendor_dlkm/lib/modules/modules.load":
+                          Console.WriteLine("zram.ko\nzsmalloc.ko\nnode_cache.ko"); return 0;
+                      case "shell su -c cat /system_dlkm/lib/modules/modules.load":
+                          Console.WriteLine("kernel/mm/zsmalloc.ko\nkernel/drivers/android/rust_binder.ko"); return 0;
+                      case "shell su -c cat /proc/kallsyms":
+                          Console.WriteLine("0000000000000000 T qcom_smem_get");
+                          Console.WriteLine("0000000000000000 T __ksymtab_qcom_smem_get");
+                          Console.WriteLine("0000000000000000 T ipc_log_string");
+                          Console.WriteLine("0000000000000000 T should_be_filtered");
+                          return 0;
+                      default:
+                          Console.Error.WriteLine("Unexpected or device-changing adb call: " + cmd);
+                          return 7;
+                  }
+              }
+          }
+          '@ | Set-Variable -Name mockCode
+          Add-Type -TypeDefinition $mockCode -OutputType ConsoleApplication -OutputAssembly (Join-Path $dir 'adb.exe')
           Add-Content -Path $env:GITHUB_PATH -Value $dir
       - name: Actual CMD batch run
         shell: cmd
