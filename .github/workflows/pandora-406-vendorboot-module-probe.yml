@@ -80,3 +80,24 @@ jobs:
                   print('VENDOR_CPIO_LOOKUP',x,[(p,z) for p,z in modules if p.rsplit('/',1)[-1]==x][:12])
           PY
           echo "READ_ONLY_NO_BOOT: no ABI gate altered, no images generated" >> "$GITHUB_STEP_SUMMARY"
+      - name: "对 923 条缺失导入逐条核对启动 ramdisk 的真实 CRC"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/abi-result"
+          gh run download 44891447936 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-406-provider-graph-diagnostic --dir "$RUNNER_TEMP/abi-result"
+          jq -e '.gate == "BLOCKED" and .stock_input_sha256 == "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8" and (.unresolved_kernel_imports | length)==923' "$RUNNER_TEMP/abi-result/ota-abi-report.json"
+          python3 scripts/xiaomi-os4/triage-406-vendorboot-providers.py \
+            --stock "$RUNNER_TEMP/vendorboot/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --abi-report "$RUNNER_TEMP/abi-result/ota-abi-report.json" \
+            --output "$RUNNER_TEMP/abi-result/vendorboot-provider-report.json"
+      - name: "归档只读证据"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-vendorboot-provider-crc
+          path: ${{ runner.temp }}/abi-result/vendorboot-provider-report.json
+          if-no-files-found: warn
+          retention-days: 30
