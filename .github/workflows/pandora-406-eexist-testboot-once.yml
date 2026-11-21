@@ -1,5 +1,5 @@
 name: "临时构建 / pandora 4.0.6 r74 Rust Binder EEXIST fastboot-boot 实验"
-# rerun after AVB parser constant/capacity fix; all safety gates remain fail-closed
+# final rerun after real-stock inner/outer AVB classification and logical fastboot-boot validation
 on:
   push:
     branches:
@@ -20,6 +20,7 @@ jobs:
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_runtime_selected_testboot.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_rust_binder_eexist_shim.py' -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_406_eexist_testboot.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_406_eexist_live_collector.py' -v
       - name: "下载 SHA 锁定 stock 与正式 r74 候选证据"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -168,7 +169,135 @@ jobs:
             --shadow-gate "$RUNNER_TEMP/result/shadow-gate-patched.json" \
             --metadata "$RUNNER_TEMP/result/experiment-metadata.txt" \
             --candidate-image "$RUNNER_TEMP/result/Image" \
-            --output "$OUT"
+            --output "$OUT" \
+            | tee "$RUNNER_TEMP/result/package-audit.txt"
+          grep -q '^STOCK_PARTITION_AVB_FOOTER=PRESENT_STRIPPED          python3 - "$OUT" <<'PY'
+          import hashlib,struct,sys
+          p=sys.argv[1]; b=open(p,'rb').read()
+          assert b[:8]==b"ANDROID!"
+          assert struct.unpack_from("<I",b,40)[0]==4
+          assert struct.unpack_from("<I",b,12)[0]==0
+          assert struct.unpack_from("<I",b,1580)[0]==0
+          cmd=b[44:44+1536].split(b"\0",1)[0].split()
+          assert b"pandora_rust_binder_eexist=1" in cmd
+          assert not any(b"rust_binder" in x for x in cmd if x.startswith(b"module_blacklist="))
+          assert any(x.startswith(b"module_blacklist=") and b"kernelsu" in x for x in cmd)
+          print("BOOT_V4_EEXIST_EXPERIMENT_AUDIT=PASS")
+          print("sha256="+hashlib.sha256(b).hexdigest())
+          PY
+          cat > "$RUNNER_TEMP/result/READ-ME-FIRST.txt" <<'EOF'
+          PANDORA OS4.0.6.0 / r74 RUST_BINDER EEXIST EXPERIMENT
+          FASTBOOT BOOT ONLY. NEVER FASTBOOT FLASH.
+          Formal OEM ABI gate remains BLOCKED.
+          This boot contains one opt-in kernel loader shim enabled only by:
+            pandora_rust_binder_eexist=1
+          It returns EEXIST only for a userspace insertion request named rust_binder,
+          before old OEM Rust ABI symbol resolution. Current stock live evidence
+          strongly supports C Binder and vendor zsmalloc provider selection.
+          No system_dlkm, vendor_boot or init_boot bytes are modified.
+          Real-device boot/runtime behavior is still UNVERIFIED.
+          EOF
+      - name: "上传实验待测包与完整门禁证据"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-eexist-FASTBOOT-BOOT-ONLY
+          path: |
+            ${{ runner.temp }}/result/PANDORA-OS4.0.6.0-R74-RUST-BINDER-EEXIST-EXPERIMENT-FASTBOOT-BOOT-ONLY.img
+            ${{ runner.temp }}/result/TESTBOOT-SHA256SUMS.txt
+            ${{ runner.temp }}/result/READ-ME-FIRST.txt
+            ${{ runner.temp }}/result/experiment-metadata.txt
+            ${{ runner.temp }}/result/eexist-shim.patch
+            ${{ runner.temp }}/result/formal-oem-abi-patched.json
+            ${{ runner.temp }}/result/shadow-gate-patched.json
+            ${{ runner.temp }}/result/package-audit.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+ "$RUNNER_TEMP/result/package-audit.txt"
+          grep -q '^STOCK_INNER_GKI_AVB=PRESENT_VERIFIED_STRIPPED          python3 - "$OUT" <<'PY'
+          import hashlib,struct,sys
+          p=sys.argv[1]; b=open(p,'rb').read()
+          assert b[:8]==b"ANDROID!"
+          assert struct.unpack_from("<I",b,40)[0]==4
+          assert struct.unpack_from("<I",b,12)[0]==0
+          assert struct.unpack_from("<I",b,1580)[0]==0
+          cmd=b[44:44+1536].split(b"\0",1)[0].split()
+          assert b"pandora_rust_binder_eexist=1" in cmd
+          assert not any(b"rust_binder" in x for x in cmd if x.startswith(b"module_blacklist="))
+          assert any(x.startswith(b"module_blacklist=") and b"kernelsu" in x for x in cmd)
+          print("BOOT_V4_EEXIST_EXPERIMENT_AUDIT=PASS")
+          print("sha256="+hashlib.sha256(b).hexdigest())
+          PY
+          cat > "$RUNNER_TEMP/result/READ-ME-FIRST.txt" <<'EOF'
+          PANDORA OS4.0.6.0 / r74 RUST_BINDER EEXIST EXPERIMENT
+          FASTBOOT BOOT ONLY. NEVER FASTBOOT FLASH.
+          Formal OEM ABI gate remains BLOCKED.
+          This boot contains one opt-in kernel loader shim enabled only by:
+            pandora_rust_binder_eexist=1
+          It returns EEXIST only for a userspace insertion request named rust_binder,
+          before old OEM Rust ABI symbol resolution. Current stock live evidence
+          strongly supports C Binder and vendor zsmalloc provider selection.
+          No system_dlkm, vendor_boot or init_boot bytes are modified.
+          Real-device boot/runtime behavior is still UNVERIFIED.
+          EOF
+      - name: "上传实验待测包与完整门禁证据"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-eexist-FASTBOOT-BOOT-ONLY
+          path: |
+            ${{ runner.temp }}/result/PANDORA-OS4.0.6.0-R74-RUST-BINDER-EEXIST-EXPERIMENT-FASTBOOT-BOOT-ONLY.img
+            ${{ runner.temp }}/result/TESTBOOT-SHA256SUMS.txt
+            ${{ runner.temp }}/result/READ-ME-FIRST.txt
+            ${{ runner.temp }}/result/experiment-metadata.txt
+            ${{ runner.temp }}/result/eexist-shim.patch
+            ${{ runner.temp }}/result/formal-oem-abi-patched.json
+            ${{ runner.temp }}/result/shadow-gate-patched.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+ "$RUNNER_TEMP/result/package-audit.txt"
+          grep -q '^FLASHABLE=NO          python3 - "$OUT" <<'PY'
+          import hashlib,struct,sys
+          p=sys.argv[1]; b=open(p,'rb').read()
+          assert b[:8]==b"ANDROID!"
+          assert struct.unpack_from("<I",b,40)[0]==4
+          assert struct.unpack_from("<I",b,12)[0]==0
+          assert struct.unpack_from("<I",b,1580)[0]==0
+          cmd=b[44:44+1536].split(b"\0",1)[0].split()
+          assert b"pandora_rust_binder_eexist=1" in cmd
+          assert not any(b"rust_binder" in x for x in cmd if x.startswith(b"module_blacklist="))
+          assert any(x.startswith(b"module_blacklist=") and b"kernelsu" in x for x in cmd)
+          print("BOOT_V4_EEXIST_EXPERIMENT_AUDIT=PASS")
+          print("sha256="+hashlib.sha256(b).hexdigest())
+          PY
+          cat > "$RUNNER_TEMP/result/READ-ME-FIRST.txt" <<'EOF'
+          PANDORA OS4.0.6.0 / r74 RUST_BINDER EEXIST EXPERIMENT
+          FASTBOOT BOOT ONLY. NEVER FASTBOOT FLASH.
+          Formal OEM ABI gate remains BLOCKED.
+          This boot contains one opt-in kernel loader shim enabled only by:
+            pandora_rust_binder_eexist=1
+          It returns EEXIST only for a userspace insertion request named rust_binder,
+          before old OEM Rust ABI symbol resolution. Current stock live evidence
+          strongly supports C Binder and vendor zsmalloc provider selection.
+          No system_dlkm, vendor_boot or init_boot bytes are modified.
+          Real-device boot/runtime behavior is still UNVERIFIED.
+          EOF
+      - name: "上传实验待测包与完整门禁证据"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-eexist-FASTBOOT-BOOT-ONLY
+          path: |
+            ${{ runner.temp }}/result/PANDORA-OS4.0.6.0-R74-RUST-BINDER-EEXIST-EXPERIMENT-FASTBOOT-BOOT-ONLY.img
+            ${{ runner.temp }}/result/TESTBOOT-SHA256SUMS.txt
+            ${{ runner.temp }}/result/READ-ME-FIRST.txt
+            ${{ runner.temp }}/result/experiment-metadata.txt
+            ${{ runner.temp }}/result/eexist-shim.patch
+            ${{ runner.temp }}/result/formal-oem-abi-patched.json
+            ${{ runner.temp }}/result/shadow-gate-patched.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+ "$RUNNER_TEMP/result/package-audit.txt"
           sha256sum "$OUT" > "$RUNNER_TEMP/result/TESTBOOT-SHA256SUMS.txt"
           python3 - "$OUT" <<'PY'
           import hashlib,struct,sys
