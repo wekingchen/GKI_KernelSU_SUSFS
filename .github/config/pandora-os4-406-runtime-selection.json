@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "device": "pandora",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "stock_uname": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "candidate_gki_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+  "evidence": {
+    "first_live_zip_sha256": "7ec1ba2638d32687ba1bf3ce216232fcd98a99e92e841662420d000d1880871f",
+    "second_live_zip_sha256": "75242f56b2d01372026bb6cf52144cc951aeb847c3396a22ce526772c9794917",
+    "merged_evidence_commit": "571db251ad3f41e5a1c8f44c9cf8deabb5fe4784"
+  },
+  "runtime_selection": {
+    "binder_requested_impl": "c",
+    "binder_active_impl_direct": "UNAVAILABLE",
+    "rust_binder_module_loaded_stock": true,
+    "rust_binder_source": "system",
+    "rust_binder_system_manifest": true,
+    "rust_binder_hard_dependencies": 0,
+    "zsmalloc_source": "vendor",
+    "zram_source": "vendor",
+    "node_cache_source": "vendor",
+    "stock_same_name_system_zsmalloc_requested_but_vendor_loaded": true,
+    "stock_same_name_system_zram_requested_but_vendor_loaded": true
+  },
+  "shadow_blocker_contract": {
+    "failed_modules": 0,
+    "crc_mismatches": 0,
+    "unresolved_kernel_imports": 71,
+    "unresolved_rust_binder": 71,
+    "unresolved_rust_mangled": 71,
+    "unresolved_sorted_sha256": "a19474dd1c545d48fb6280b1db9056a58f2f1703b152ebdcf11cc8b059894ecc",
+    "ambiguous_providers": 27,
+    "ambiguous_same_crc": 24,
+    "ambiguous_split_crc": 3,
+    "ambiguous_sorted_sha256": "bc5b343b89010194a9838dbe5633ae368784243b607dab11a2c5cd0963506332",
+    "rust_binder_path": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/android/binder/rust_binder.ko",
+    "zsmalloc_providers": [
+      "vendor_dlkm/lib/modules/zsmalloc.ko",
+      "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/mm/zsmalloc.ko"
+    ],
+    "zsmalloc_consumers": [
+      "vendor_dlkm/lib/modules/node_cache.ko",
+      "vendor_dlkm/lib/modules/zram.ko",
+      "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/block/zram/zram.ko"
+    ]
+  },
+  "safety": {
+    "formal_oem_gate_must_remain": "BLOCKED",
+    "persistent_flash": false,
+    "lkg_promotion": false,
+    "scope": "EXPERIMENTAL_FASTBOOT_BOOT_ONLY"
+  }
+}
