@@ -25,12 +25,14 @@ class ReadOnlyLiveABICollection(unittest.TestCase):
             self.assertIn(item, self.contents)
 
     def test_no_kernel_addresses_are_collected(self):
-        active_commands = "\n".join(line for line in self.contents.splitlines()\n                                  if not line.lstrip().lower().startswith("rem "))\n        self.assertNotIn("awk ", active_commands)
+        active_commands = "\n".join(line for line in self.contents.splitlines()
+                                  if not line.lstrip().lower().startswith("rem "))
+        self.assertNotIn("awk ", active_commands)
         self.assertIn('su -c "cat /proc/kallsyms"', self.contents)
         self.assertIn('powershell.exe -NoProfile -NonInteractive -Command', self.contents)
         self.assertIn('($cols.Count -ge 3)', self.contents)
         self.assertIn('$cols[2]', self.contents)
-        self.assertIn('findstr /C:"qcom_smem_get"', self.contents)
+        self.assertIn('findstr /I /C:"qcom_smem_get"', self.contents)
         self.assertIn('kernel-symbol-names.txt', self.contents)
         self.assertIn('for %%F in ("%OUT%\\kernel-symbol-names.txt") do if %%~zF EQU 0', self.contents)
 
