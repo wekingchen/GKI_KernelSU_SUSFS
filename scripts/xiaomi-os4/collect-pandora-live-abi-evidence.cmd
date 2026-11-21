@@ -3,7 +3,7 @@ setlocal EnableExtensions
 rem Xiaomi pandora OS4: READ ONLY. No flashing, Root changes, or phone writes.
 rem Windows CMD cannot safely nest Android "for ... do" or awk quote strings in su -c.
 rem Use simple device-side cat only and do all filtering on the Windows host.
-where adb.exe >nul 2>&1
+where adb >nul 2>&1
 if errorlevel 1 (
   echo ERROR: adb.exe not found. Run this script from platform-tools.
   exit /b 2
