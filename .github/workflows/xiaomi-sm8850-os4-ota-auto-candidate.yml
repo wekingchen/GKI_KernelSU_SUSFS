@@ -483,7 +483,16 @@ jobs:
             echo "## 新 OTA OEM ABI / KMI 检查"
             echo
             if [[ -f "$RUNNER_TEMP/ota-abi/ota-abi-report.json" ]]; then
-              jq -r '"- 门禁状态: " + .gate, "- 阻断原因: " + .reason, "- 检查模块: " + ((.module_count // 0)|tostring), "- 错误模块: " + ((.failed_modules|length)|tostring), "- CRC 不匹配: " + ((.crc_mismatches|length)|tostring)' "$RUNNER_TEMP/ota-abi/ota-abi-report.json"
+              jq -r '
+                "- 门禁状态: " + .gate,
+                "- 阻断原因: " + .reason,
+                "- 检查 DLKM 模块: " + ((.module_count // 0)|tostring),
+                "- 早期 vendor_boot 模块: " + ((.vendor_boot_modules_seen // 0)|tostring),
+                "- 错误模块: " + ((.failed_modules|length)|tostring),
+                "- CRC 不匹配: " + ((.crc_mismatches|length)|tostring),
+                "- 未解析 Rust Binder 导入: " + ((.unresolved_rust_binder // 0)|tostring),
+                "- 多提供者同 CRC / 不同 CRC: " + ((.ambiguous_same_crc // 0)|tostring) + " / " + ((.ambiguous_split_crc // 0)|tostring)
+              ' "$RUNNER_TEMP/ota-abi/ota-abi-report.json"
             else
               echo "- 未生成 ABI 校验报告，禁止待测 boot"
             fi
