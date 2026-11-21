@@ -112,10 +112,10 @@ class ModuleDelivery(unittest.TestCase):
 
     def test_repeated_parmtype_allowed_but_conflicting_identity_fails(self):
         sections={".modinfo": (b"parmtype=param_a:int\0parmtype=param_b:bool\0"
-                              b"vermagic=6.12.69-android16-6-4k\\0")}
+                              b"vermagic=6.12.69-android16-6-4k\0")}
         fields=audit.module_fields(sections)
         self.assertEqual(fields["parmtype"], "param_a:int")
-        sections[".modinfo"] += b"vermagic=6.12.68-android16-6-4k\\0"
+        sections[".modinfo"] += b"vermagic=6.12.68-android16-6-4k\0"
         with self.assertRaisesRegex(ValueError, "identity"):
             audit.module_fields(sections)
 
