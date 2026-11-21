@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: "先跑 EEXIST 影子门禁 / shim / packager / 无 Root 采集器单测"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_runtime_selected_testboot.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_rust_binder_eexist_shim.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_406_eexist_testboot.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_406_eexist_live_collector.py' -v
       - name: "下载 SHA 锁定 stock 并只读解析 boot-v4/AVB 边界"
         env:
           GH_TOKEN: ${{ github.token }}
