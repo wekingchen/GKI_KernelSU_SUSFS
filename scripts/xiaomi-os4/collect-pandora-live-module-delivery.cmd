@@ -45,7 +45,6 @@ if errorlevel 1 (
 (
   echo device=pandora
   echo build=OS4.0.6.0.XBLCNXM
-  echo slot=
 ) > "%OUT%\identity.txt"
 for /f "tokens=*" %%S in ('adb shell getprop ro.boot.slot_suffix 2^>nul') do >> "%OUT%\identity.txt" echo %%S
 >> "%OUT%\identity.txt" echo %KREL%
