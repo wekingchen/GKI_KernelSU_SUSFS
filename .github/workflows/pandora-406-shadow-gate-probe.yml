@@ -1,0 +1,48 @@
+name: "临时诊断 / pandora 4.0.6 Rust Binder 黑名单影子门禁"
+on:
+  push:
+    branches:
+      - experiment/pandora-406-rust-binder-blacklist-testboot
+    paths:
+      - .github/workflows/pandora-406-shadow-gate-probe.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: "下载固定 stock 与 r74 candidate 资产"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/out"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern "*xm.zip" --dir "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM --repo "$GITHUB_REPOSITORY" \
+            --pattern "stock-report.json" --pattern "gki-candidate.json" --pattern "build-metadata.txt" --pattern "Module.symvers" --dir "$RUNNER_TEMP/candidate"
+          ZIP="$(find "$RUNNER_TEMP/stock" -maxdepth 1 -name "*xm.zip" -type f -print -quit)"
+          test "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
+          echo "STOCK_ZIP=$ZIP" >> "$GITHUB_ENV"
+      - name: "重新生成正式 OEM ABI 报告（仍应 BLOCKED）"
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$RUNNER_TEMP/candidate/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/candidate/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/candidate/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/candidate/Module.symvers" \
+            --output "$RUNNER_TEMP/out/ota-abi-report.json"
+          jq -e '.gate=="BLOCKED" and .eligible_for_fastboot_boot==false' "$RUNNER_TEMP/out/ota-abi-report.json"
+      - name: "只打印阻断集合，不放宽任何门禁"
+        run: |
+          set -euo pipefail
+          jq '{gate,eligible_for_fastboot_boot,failed_modules,crc_mismatches,unresolved_count:(.unresolved_kernel_imports|length),unresolved_rust_binder,unresolved_rust_mangled,unresolved_examples:(.unresolved_kernel_imports[:100]),ambiguous_count:(.ambiguous_providers|length),ambiguous_same_crc,ambiguous_split_crc,ambiguous_provider_details}' \
+            "$RUNNER_TEMP/out/ota-abi-report.json" | tee "$RUNNER_TEMP/out/shadow-input-summary.json"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-shadow-gate-input-readonly
+          path: ${{ runner.temp }}/out
+          retention-days: 30
