@@ -161,6 +161,29 @@ jobs:
                    rust_binder_oem_module_sha256=hashlib.sha256(raw).hexdigest())
           (root/"r62/binder-boot-conditions.json").write_text(json.dumps(out,indent=2)+"\n")
           PY
+      - name: "Inspect real verified R62 build's Rust Binder module evidence"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r62-artifact"
+          gh run download 43551917368 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-OS4-R62-CUSTOM-run-43551917368 --dir "$RUNNER_TEMP/r62-artifact"
+          echo '=== R62 ARTIFACT RUST RELEVANT FILES ==='
+          find "$RUNNER_TEMP/r62-artifact" -maxdepth 3 -type f | sed "s#$RUNNER_TEMP/r62-artifact/##" | grep -Ei 'rust|binder|symvers|metadata|config|\\.ko|archive' | head -n 70 || true
+          echo '=== R62 ARTIFACT FILE COUNT ==='
+          find "$RUNNER_TEMP/r62-artifact" -type f | wc -l
+          module="$(find "$RUNNER_TEMP/r62-artifact" -type f -name 'rust_binder*.ko' -print -quit)"
+          if [[ -n "$module" ]]; then
+            readelf -p .comment "$module" | head -n 15
+            readelf -p .modinfo "$module" | grep -Ei 'vermagic|name|scmversion|depends' | head -n 20 || true
+            echo 'R62_RUST_BINDER_SHA256'
+            sha256sum "$module"
+            echo 'R62_RUST_BINDER_UNDEFINED_RUST_NAMES_SAMPLE'
+            readelf -W -s "$module" | grep -E '_R' | grep -E 'UND' | head -n 14 || true
+          else
+            echo 'R62_RUST_BINDER_KO_NOT_DIRECT_ARTIFACT'
+          fi
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
