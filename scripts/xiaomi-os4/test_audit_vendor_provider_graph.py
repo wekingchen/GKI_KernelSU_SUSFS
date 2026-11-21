@@ -26,11 +26,14 @@ VENDOR = 0x84561234
 SHA = lambda x: hashlib.sha256(x).hexdigest()
 
 
-def elf(imports=None, exports=None, release=FULL):
+def elf(imports=None, exports=None, release=FULL, scmversion=''):
     imports = imports if imports is not None else {"core_export": CORE}
     exports = exports if exports is not None else {}
+    modinfo = f"vermagic={release} SMP preempt modversions aarch64\0"
+    if scmversion:
+        modinfo += f"scmversion={scmversion}\0"
     parts = [
-        (".modinfo", f"vermagic={release} SMP preempt modversions aarch64\0".encode()),
+        (".modinfo", modinfo.encode()),
         ("__version_ext_names", b"\0".join(k.encode() for k in imports) + b"\0\0"),
         ("__version_ext_crcs", b"".join(struct.pack("<I", v) for v in imports.values())),
     ]
@@ -98,6 +101,21 @@ class OEMProviderGraphTest(unittest.TestCase):
         data = elf(exports={"vendor_export": VENDOR})
         self.assertEqual(abi.module_export_crcs(data), {"vendor_export": VENDOR})
 
+    def test_stock_rust_binder_source_metadata_does_not_bypass_missing_symbols(self):
+        report = self.run_gate(binder_consumer=True)
+        self.assertEqual(report["gate"], "BLOCKED")
+        self.assertEqual(report["stock_rust_binder_scmversion"], "g43b5ab7e247d")
+        self.assertEqual(report["stock_rust_binder_imports"], 3)
+        self.assertEqual(report["unresolved_rust_binder"], 1)
+        self.assertEqual(report["unresolved_rust_mangled"], 1)
+        self.assertRegex(report["stock_rust_binder_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_invalid_rust_binder_source_stamp_stays_blocked(self):
+        report = self.run_gate(binder_consumer=True, bad_binder_revision=True)
+        self.assertEqual(report["gate"], "BLOCKED")
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertTrue(report["failed_modules"])
+
     def test_stock_short_vermagic_is_exactly_pinned(self):
         self.assertEqual(abi.compatible_vermagic(FULL, FULL), "exact")
         self.assertEqual(abi.compatible_vermagic(SHORT, FULL), "stock_short")
@@ -112,11 +130,14 @@ class OEMProviderGraphTest(unittest.TestCase):
     def run_gate(self, *, expected_vendor_crc=VENDOR, include_provider=True,
                  duplicate_provider=False, consumer_release=SHORT,
                  early_provider=False, early_bad_crc=False, bad_early_import=False,
-                 corrupt_vendorboot=False):
+                 corrupt_vendorboot=False, binder_consumer=False, bad_binder_revision=False):
+        main_imports = {"core_export": CORE, "vendor_export": expected_vendor_crc}
+        if binder_consumer:
+            main_imports["_RNv_test_missing_binder"] = 0x99117311
         members = {
-            "vendor_dlkm/consumer.ko": elf(
-                imports={"core_export": CORE, "vendor_export": expected_vendor_crc},
-                exports={}, release=consumer_release)
+            ("system_dlkm/rust_binder.ko" if binder_consumer else "vendor_dlkm/consumer.ko"): elf(
+                imports=main_imports, exports={}, release=consumer_release,
+                scmversion=("bad" if bad_binder_revision else "g43b5ab7e247d") if binder_consumer else "")
         }
         if include_provider:
             members["vendor_dlkm/provider.ko"] = elf(
