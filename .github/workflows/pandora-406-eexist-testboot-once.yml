@@ -38,7 +38,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd >/dev/null
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache cpio curl flex git jq libdw-dev \
+            libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils \
+            zstd lz4 >/dev/null
           python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
             --stock-zip "$STOCK_ZIP" \
             --stock-report "$RUNNER_TEMP/base/stock-report.json" \
