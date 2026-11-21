@@ -16,9 +16,43 @@ if errorlevel 1 (
 set "DEVICE="
 set "OSBUILD="
 set "KREL="
-for /f "tokens=*" %%D in ('adb shell getprop ro.product.device 2^>nul') do set "DEVICE=%%D"
-for /f "tokens=*" %%B in ('adb shell getprop ro.mi.os.version.incremental 2^>nul') do set "OSBUILD=%%B"
-for /f "tokens=*" %%K in ('adb shell uname -r 2^>nul') do set "KREL=%%K"
+set "ADBSTATE="
+set "PROBE=%TEMP%\pandora-live-probe-%RANDOM%-%RANDOM%"
+adb get-state > "%PROBE%-state.txt" 2> "%PROBE%-error.txt"
+if errorlevel 1 (
+  echo ERROR: adb cannot access exactly one device.
+  type "%PROBE%-error.txt" 2>nul
+  del /q "%PROBE%-state.txt" "%PROBE%-error.txt" >nul 2>&1
+  exit /b 2
+)
+set /p ADBSTATE=<"%PROBE%-state.txt"
+if /i not "%ADBSTATE%"=="device" (
+  echo ERROR: adb state is "%ADBSTATE%", expected "device".
+  del /q "%PROBE%-state.txt" "%PROBE%-error.txt" >nul 2>&1
+  exit /b 2
+)
+adb shell getprop ro.product.device > "%PROBE%-device.txt" 2>> "%PROBE%-error.txt"
+if errorlevel 1 goto :probe_failed
+adb shell getprop ro.mi.os.version.incremental > "%PROBE%-build.txt" 2>> "%PROBE%-error.txt"
+if errorlevel 1 goto :probe_failed
+adb shell uname -r > "%PROBE%-krel.txt" 2>> "%PROBE%-error.txt"
+if errorlevel 1 goto :probe_failed
+set /p DEVICE=<"%PROBE%-device.txt"
+set /p OSBUILD=<"%PROBE%-build.txt"
+set /p KREL=<"%PROBE%-krel.txt"
+del /q "%PROBE%-state.txt" "%PROBE%-error.txt" "%PROBE%-device.txt" "%PROBE%-build.txt" "%PROBE%-krel.txt" >nul 2>&1
+if not defined DEVICE (
+  echo ERROR: adb returned an empty ro.product.device.
+  exit /b 2
+)
+if not defined OSBUILD (
+  echo ERROR: adb returned an empty ro.mi.os.version.incremental.
+  exit /b 2
+)
+if not defined KREL (
+  echo ERROR: adb returned an empty uname -r.
+  exit /b 2
+)
 if /i not "%DEVICE%"=="pandora" (
   echo ERROR: expected pandora, got "%DEVICE%".
   exit /b 3
@@ -31,6 +65,15 @@ if /i not "%KREL%"=="6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k" (
   echo ERROR: unexpected running kernel "%KREL%".
   exit /b 3
 )
+goto :probe_ok
+
+:probe_failed
+echo ERROR: adb identity probe failed.
+type "%PROBE%-error.txt" 2>nul
+del /q "%PROBE%-state.txt" "%PROBE%-error.txt" "%PROBE%-device.txt" "%PROBE%-build.txt" "%PROBE%-krel.txt" >nul 2>&1
+exit /b 2
+
+:probe_ok
 adb shell su -c "id" 2>nul | findstr /C:"uid=0(root)" >nul
 if errorlevel 1 (
   echo ERROR: root is unavailable.
