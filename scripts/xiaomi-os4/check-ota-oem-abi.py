@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import zipfile
+from pandora_vendorboot_modules import extract_vendor_boot_modules
 from pathlib import Path
 
 KO_NAME = re.compile(r"\.ko(?:\.zst|\.xz|\.gz)?$", re.I)
@@ -282,6 +283,14 @@ def main() -> int:
             count_member = [i for i in stock_zip.infolist() if i.filename.rsplit("/", 1)[-1] == "oem-modules-count.txt"]
             if len(oem_members) != 1 or len(count_member) != 1:
                 raise ValueError("new OTA must contain OEM/GKI modules and count manifest")
+            vendor_boot_members = [i for i in stock_zip.infolist()
+                                   if i.filename == "vendor_boot.img" and not i.is_dir()]
+            if len(vendor_boot_members) != 1:
+                if "vendor_boot_oem_original_verified" in stock:
+                    raise ValueError("modern OTA stock missing unique vendor_boot.img")
+                vendor_boot_bytes = None  # Legacy hermetic fixture only.
+            else:
+                vendor_boot_bytes = stock_zip.read(vendor_boot_members[0])
             if oem_members[0].file_size > MAX_COMPRESSED_ARCHIVE:
                 raise ValueError("OEM module archive oversized")
             wanted_count = int(stock_zip.read(count_member[0]).decode("ascii", "strict").strip().split("=", 1)[1])
@@ -314,6 +323,32 @@ def main() -> int:
                     imported = imported_versions(sections)
                     provided = module_export_crcs(data)
                     records.append((name, imported))
+                    for symbol, crc in provided.items():
+                        providers.setdefault(symbol, []).append((name, crc))
+                except Exception as exc:
+                    report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
+            # OEM DLKM trees alone are incomplete: vendor_boot v4 carries
+            # early boot .ko providers (smem, qcom-scm, ipc_logging, ...).
+            # Incorporate only modules not already present by basename; an
+            # ambiguous duplicate basename must not override a DLKM image.
+            from_boot = extract_vendor_boot_modules(vendor_boot_bytes) if vendor_boot_bytes else []
+            existing_names = {m.filename.rsplit("/", 1)[-1] for m in files}
+            early_extra_modules = 0
+            early_imports = 0
+            for path, data in from_boot:
+                if path.rsplit("/", 1)[-1] in existing_names:
+                    continue
+                name = "vendor_boot/" + path
+                try:
+                    if len(data) < 64 or len(data) > MAX_MODULE:
+                        raise ValueError("invalid vendor_boot module size")
+                    sections = elf_sections(data)
+                    compatible_vermagic(module_vermagic(sections), release)
+                    imported = imported_versions(sections)
+                    provided = module_export_crcs(data)
+                    records.append((name, imported))
+                    early_extra_modules += 1
+                    early_imports += len(imported)
                     for symbol, crc in provided.items():
                         providers.setdefault(symbol, []).append((name, crc))
                 except Exception as exc:
@@ -358,6 +393,9 @@ def main() -> int:
         report.update(stock_build=stock["build"], stock_input_sha256=stock["ota_source_id"],
                       candidate_commit=gki["candidate_commit"], kernel_release=release,
                       module_count=len(files), imports_checked=total_imports,
+                      vendor_boot_modules_seen=len(from_boot),
+                      vendor_boot_additional_modules=early_extra_modules,
+                      vendor_boot_additional_imports=early_imports,
                       core_imports_checked=core_imports, oem_imports_checked=oem_imports,
                       short_vermagic_modules=short_vermagic_modules,
                       full_vermagic_modules=full_vermagic_modules,
