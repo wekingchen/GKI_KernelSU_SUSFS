@@ -14,7 +14,7 @@ class Collector(unittest.TestCase):
             r"\bsu\s+-c\b", r"\bmount\s+-o\s+rw\b", r"\bdd\s+if=",
         ]
         for pattern in forbidden:
-            self.assertIsNone(re.search(pattern,LOW),pattern)
+            self.assertIsNone(re.search(pattern,EXEC),pattern)
 
     def test_never_persists_raw_cmdline_or_kernel_log(self):
         self.assertIn("cat /proc/cmdline",LOW)
