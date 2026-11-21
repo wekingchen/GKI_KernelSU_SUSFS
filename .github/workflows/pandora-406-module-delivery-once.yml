@@ -1,4 +1,5 @@
 name: "临时诊断 / pandora 4.0.6 原厂模块供给与签名只读审计"
+# Retry 2: allow repeatable .modinfo parmtype while strictly rejecting conflicting identity.
 on:
   push:
     branches:
