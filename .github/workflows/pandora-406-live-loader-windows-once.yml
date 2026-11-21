@@ -64,7 +64,13 @@ jobs:
             }
           }
           '@
-          Add-Type -TypeDefinition $csharp -OutputAssembly (Join-Path $mock 'adb.exe') -OutputType ConsoleApplication
+          $source = Join-Path $mock 'Program.cs'
+          Set-Content -Path $source -Value $csharp -Encoding utf8
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          if (-not (Test-Path $compiler)) { throw 'Native .NET Framework C# compiler unavailable' }
+          $binary = Join-Path $mock 'adb.exe'
+          & $compiler /nologo /target:exe ("/out:" + $binary) $source
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $binary)) { throw 'Mock executable compilation failed' }
           $env:PATH = "$mock;$env:PATH"
           Push-Location $env:RUNNER_TEMP
           try {
