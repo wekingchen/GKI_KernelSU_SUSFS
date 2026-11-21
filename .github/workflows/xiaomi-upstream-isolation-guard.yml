@@ -49,6 +49,12 @@ jobs:
         shell: bash
         run: python3 -m unittest discover -s scripts/generic-custom -p 'test_*.py' -v
 
+      - name: "安装 Boot v4/LZ4 真实格式测试依赖"
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends lz4
+
       - name: "OTA 真机反馈与 fixture 字节级复现单测"
         if: hashFiles('scripts/xiaomi-os4/test_ota_baseline_feedback.py') != ''
         shell: bash

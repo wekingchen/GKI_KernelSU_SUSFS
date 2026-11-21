@@ -16,6 +16,9 @@ BASE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("abi", BASE / "check-ota-oem-abi.py")
 abi = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(abi)
+_fixture_spec = importlib.util.spec_from_file_location("ota_vendorboot_test_fixture", BASE / "ota_vendorboot_test_fixture.py")
+_fixture = importlib.util.module_from_spec(_fixture_spec)
+_fixture_spec.loader.exec_module(_fixture)
 FULL = "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
 SHORT = "6.12.69-android16-6-4k"
 CORE = 0x12345678
@@ -107,7 +110,9 @@ class OEMProviderGraphTest(unittest.TestCase):
                 abi.compatible_vermagic(invalid, FULL)
 
     def run_gate(self, *, expected_vendor_crc=VENDOR, include_provider=True,
-                 duplicate_provider=False, consumer_release=SHORT):
+                 duplicate_provider=False, consumer_release=SHORT,
+                 early_provider=False, early_bad_crc=False, bad_early_import=False,
+                 corrupt_vendorboot=False):
         members = {
             "vendor_dlkm/consumer.ko": elf(
                 imports={"core_export": CORE, "vendor_export": expected_vendor_crc},
@@ -127,6 +132,14 @@ class OEMProviderGraphTest(unittest.TestCase):
         with zipfile.ZipFile(stockzip, "w") as z:
             z.writestr("oem-modules.zip", inner.getvalue())
             z.writestr("oem-modules-count.txt", f"MODULE_COUNT={len(members)}\n")
+            early_imports = {"core_export": CORE}
+            if bad_early_import:
+                early_imports["never_exported"] = 0x11223344
+            early_exports = {"vendor_export": VENDOR ^ (1 if early_bad_crc else 0)} if early_provider else {}
+            vendor_boot = _fixture.make_vendor_boot_v4({
+                "early_test_provider.ko": elf(imports=early_imports, exports=early_exports)
+            })
+            z.writestr("vendor_boot.img", b"broken" if corrupt_vendorboot else vendor_boot)
         identity = SHA(stockzip.read_bytes())
         stock = dict(status="NEW_OTA_CANDIDATE",
                      source_provenance="BOOT_KERNEL_MARKER_AND_README_AGREE",
@@ -158,8 +171,29 @@ class OEMProviderGraphTest(unittest.TestCase):
         report = self.run_gate()
         self.assertTrue(report["eligible_for_fastboot_boot"], report)
         self.assertEqual(report["oem_imports_checked"], 1)
-        self.assertEqual(report["core_imports_checked"], 2)
+        self.assertEqual(report["core_imports_checked"], 3)
         self.assertEqual(report["short_vermagic_modules"], 1)
+
+    def test_early_vendor_boot_provider_matches_real_crc(self):
+        report = self.run_gate(include_provider=False, early_provider=True)
+        self.assertTrue(report["eligible_for_fastboot_boot"], report)
+        self.assertEqual(report["vendor_boot_modules_seen"], 1)
+        self.assertGreaterEqual(report["oem_imports_checked"], 1)
+
+    def test_early_provider_wrong_crc_fails(self):
+        report = self.run_gate(include_provider=False, early_provider=True, early_bad_crc=True)
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertTrue(report["crc_mismatches"])
+
+    def test_early_module_own_missing_import_fails(self):
+        report = self.run_gate(bad_early_import=True)
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertTrue(any("never_exported" in x for x in report["unresolved_kernel_imports"]))
+
+    def test_corrupt_vendor_boot_fails_closed(self):
+        report = self.run_gate(corrupt_vendorboot=True)
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertEqual(report["gate"], "BLOCKED")
 
     def test_bad_vendor_crc_fails(self):
         report = self.run_gate(expected_vendor_crc=VENDOR ^ 1)
