@@ -66,7 +66,7 @@ jobs:
                   nums=[int(cpio[p+6+k*8:p+14+k*8],16) for k in range(13)]
                   name_len,flen,mode=nums[11],nums[6],nums[1]
                   if not 0<name_len<2048 or flen>512*1024*1024:raise ValueError('bad cpio header')
-                  raw_name=cpio[p+110:p+110+name_len].rstrip(b'\\x00')
+                  raw_name=cpio[p+110:p+110+name_len].rstrip(b'\x00')
                   path=raw_name.decode('utf8','replace')
                   if path=='TRAILER!!!': break
                   entries.append((path,flen,mode))
