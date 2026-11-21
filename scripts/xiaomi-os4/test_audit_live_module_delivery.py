@@ -25,6 +25,18 @@ class LiveLoaderCollector(unittest.TestCase):
         self.assertIn('if /i not "%krel%"=="6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"', "\n".join(COMMANDS))
         self.assertIn('uid=0(root)', "\n".join(COMMANDS))
 
+    def test_identity_capture_uses_direct_adb_redirection_not_for_f_subshell(self):
+        text = "\n".join(COMMANDS)
+        self.assertIn('adb get-state > "%probe%-state.txt"', text)
+        self.assertIn('adb shell getprop ro.product.device > "%probe%-device.txt"', text)
+        self.assertIn('adb shell getprop ro.mi.os.version.incremental > "%probe%-build.txt"', text)
+        self.assertIn('adb shell uname -r > "%probe%-krel.txt"', text)
+        self.assertIn('set /p device=<"%probe%-device.txt"', text)
+        self.assertIn('set /p osbuild=<"%probe%-build.txt"', text)
+        self.assertIn('set /p krel=<"%probe%-krel.txt"', text)
+        self.assertNotRegex(text, r'for /f .*adb shell getprop ro\.product\.device')
+        self.assertIn('adb cannot access exactly one device', text)
+
     def test_no_raw_cmdline_or_kallsyms_written(self):
         text = "\n".join(COMMANDS)
         self.assertIn('cat /proc/cmdline', text)
