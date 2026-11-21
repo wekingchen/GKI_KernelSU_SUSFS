@@ -30,15 +30,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/android-tree"
           tar -xzf "$RUNNER_TEMP/android.tar.gz" -C "$RUNNER_TEMP/android-tree"
           if grep -R -n "ANDROID_BINDER_IPC_RUST_DUMMY" "$RUNNER_TEMP/android-tree" > "$RUNNER_TEMP/rust-dummy-hits.txt"; then
-            echo "rust_dummy_tree=present" >> "$RUNNER_TEMP/r74-binder.txt"
+            DUMMY_TREE=present
           else
-            echo "rust_dummy_tree=absent" >> "$RUNNER_TEMP/r74-binder.txt"
+            DUMMY_TREE=absent
           fi
           K="$RUNNER_TEMP/r74/drivers/android/Kconfig"
           B="$RUNNER_TEMP/r74/drivers/android/binder.c"
           R="$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
           {
             echo "commit=$R74"
+            echo "rust_dummy_tree=$DUMMY_TREE"
             cat "$RUNNER_TEMP/rust-dummy-hits.txt" 2>/dev/null || true
             if grep -q "ANDROID_BINDER_IPC_RUST_DUMMY" "$K"; then echo "rust_dummy=present"; else echo "rust_dummy=absent"; fi
             if grep -q "active_impl" "$B"; then echo "active_impl=present"; else echo "active_impl=absent"; fi
