@@ -63,8 +63,15 @@ def module_fields(sections: dict[str, bytes]) -> dict[str, str]:
         k, v = raw.split(b"=", 1)
         key = k.decode("ascii", "strict")
         value = v.decode("utf-8", "replace")
-        if key in result and result[key] != value:
-            raise ValueError("conflicting duplicate module info field: " + key)
+        # parmtype/parm/alias/firmware may legitimately appear repeatedly
+        # for distinct exported parameters. Treat only identity/ABI fields as
+        # single-valued; never let a later record override a conflict there.
+        singleton = {"vermagic", "scmversion", "depends", "signer",
+                     "sig_key", "sig_hashalgo", "license", "name", "intree"}
+        if key in result:
+            if key in singleton and result[key] != value:
+                raise ValueError("conflicting duplicate module identity field: " + key)
+            continue
         result[key] = value
     return result
 
