@@ -426,3 +426,36 @@ Binder 强制切为 active，而是研究：**是否能在 system loader 之前�
 - 尚未确认 Xiaomi 实际 system_dlkm loader 命令及其错误策略；
 - 尚未确认候选 r74 模块可在 system loader 之前从哪一受信任位置加载；
 - 不修改 system_dlkm、不刷机、不解除 OEM gate。
+
+
+### 原厂 vendor_boot 离线审计：system_dlkm loader 不在 vendor ramdisk
+
+只读 Run #44912654297 从已锁定 stock-input
+`pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip`（SHA 固定）提取并拆开
+100663296-byte `vendor_boot.img`，没有再次读取手机。
+
+vendor ramdisk：
+- 单一 `vendor_ramdisk00`，LZ4，22173394 bytes；
+- `first_stage_ramdisk/fstab.qcom` 明确把 `vendor_dlkm` 与
+  `system_dlkm` 都以只读、`slotselect,avb=vbmeta,logical,first_stage_mount`
+  挂载；
+- ramdisk 自身有早期 `lib/modules/modules.load` / `modules.dep`；
+- 但在该 ramdisk 的 .rc / fstab / shell / module metadata 中，没有找到
+  负责 `/system_dlkm` 的 `modprobe` / `dlkm_loader` / `rust_binder`
+  加载命令。
+
+因此可确认 system_dlkm 分区的挂载信任链入口存在于 first-stage，
+但**实际 system_dlkm 模块加载动作不在这份 vendor ramdisk 可见脚本中**；
+它符合 AOSP 的设计：first-stage 挂载 system_dlkm，后续 vendor process
+再按 `modules.load` 加载。
+
+这也给“提前加载同源 r74 rust_binder”方案划定了现实边界：
+- AOSP libmodprobe 对 `finit_module()` 返回 `EEXIST` 明确按
+  “module already loaded”成功处理，因此“同名模块先加载”在通用 loader
+  语义上是成立的；
+- 但当前没有确认一个**不改 system_dlkm / vendor_boot、又早于 Xiaomi
+  vendor loader** 的可信执行点；
+- 当前 fastboot-boot-only 测试模型只替换 boot Image，stock vendor_boot /
+  init_boot 继续生效，不能擅自假设它会提前提供候选 rust_binder；
+- 所以该方向保留为 `PRELOAD_SAME_SOURCE_RUST_BINDER_HYPOTHESIS`，
+  不生成刷包、不放开 fastboot boot gate。
