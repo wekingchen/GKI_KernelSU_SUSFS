@@ -17,9 +17,18 @@ EXPECTED = {
     "system-zsmalloc-file-sha.txt": ("system", "zsmalloc",
         "b54598bea0a162cd2578f9d1490095fef148014de0c7dbaf012036b6adcbc465",
         "/system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/mm/zsmalloc.ko"),
+    "system-zram-file-sha.txt": ("system", "zram",
+        "7a440b89b62385d1affc0dca25af32c75f6e03af1a884e3d2ae8e4e75402b3c3",
+        "/system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/block/zram/zram.ko"),
     "vendor-zsmalloc-file-sha.txt": ("vendor", "zsmalloc",
         "350f7127f0a8cda912eea8dfe6d93dbf30e5b31832969aa44ee6161424eaed3e",
         "/vendor_dlkm/lib/modules/zsmalloc.ko"),
+    "vendor-zram-file-sha.txt": ("vendor", "zram",
+        "6737e77c46b0a5a998adf552c42191e97068c393c506d83679d24c320f13d166",
+        "/vendor_dlkm/lib/modules/zram.ko"),
+    "vendor-node-cache-file-sha.txt": ("vendor", "node_cache",
+        "bc78bab29b624743419e5a3d7f7f8586dc9f30d682cf3a65608c79601b7ddefd",
+        "/vendor_dlkm/lib/modules/node_cache.ko"),
 }
 
 EXPECTED_GNU_NOTE_SHA = {
