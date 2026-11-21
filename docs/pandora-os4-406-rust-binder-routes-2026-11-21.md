@@ -373,3 +373,89 @@ OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
 实际加载文件路径、AVB、模块签名策略或 Binder 服务切换。
 因此只收窄来源判断，不作为解锁 71 条 Rust ABI 或 27 条 zsmalloc 歧义
 的通行证。路线 A 精确 OEM 源码仍未得到。
+
+
+## 第十一轮：真机表明 C Binder 是当前主实现强证据（2026-11-21）
+
+第二份补采已经取得 `/sys/module/binder/parameters/impl=c`，
+而 system `modules.load` 又明确包含原厂 `rust_binder.ko`。
+结合当前 Android common Rust Binder init 行为，`rust_binder.ko`
+在 `binder_use_rust == 0` 时可以加载为 Live 但不接管 C Binder。
+
+因此路线 B 的问题重新拆成两条：
+
+1. **当前 Binder 实现选择**：C 为强证据；Rust active 不受真机证据支持。
+2. **候选 GKI 模块兼容**：system 仍要求加载 OEM rust_binder；
+   r74 对其 71 个 Rust 导入仍无法解析，因此装载兼容继续 BLOCKED。
+
+这使“必须重现 OEM Rust Binder 作为 active Binder”不再是合理目标；
+下一步应研究候选 GKI 如何在不修改 system_dlkm、不破坏 C Binder 主链的
+前提下安全满足/处理该 `rust_binder.ko` 加载请求，以及 Xiaomi loader
+对单个 system_dlkm 模块失败的实际容错边界。
+
+
+### r74 精确源码复核：不能走官方 dummy，C 模式 inert 语义成立
+
+锁定候选 commit `b1d12d482d767c50cb792d988e4479d3f75c342a`
+在只读 Run #44912345351 中直接从 Gitiles 取源码并检查
+`drivers/android` 整个子树：
+
+```text
+rust_dummy_tree=absent
+active_impl=present
+rust_module_inert_when_c=yes
+```
+
+具体：
+- r74 的 `binder.c` 已包含只读 `active_impl` module parameter；
+- r74 `rust_binder_main.rs` 在 `binder_use_rust == 0` 时直接返回成功，
+  不调用 `unload_binder()`；
+- r74 整个 `drivers/android` 子树不存在
+  `ANDROID_BINDER_IPC_RUST_DUMMY`，因此不能依赖“官方 dummy rust_binder”
+  消除 system_dlkm 的同名模块加载请求。
+
+这与真机 `impl=c` 的证据吻合，也说明更合理的候选方向不是把 Rust
+Binder 强制切为 active，而是研究：**是否能在 system loader 之前加载
+与 r74 Image 同源、已验证 0 missing / 0 CRC mismatch 的
+`rust_binder.ko`**。AOSP libmodprobe 对 `finit_module()` 返回
+`EEXIST` 的情况明确按“模块已经加载”处理为成功，因此如果 Xiaomi
+使用相同机制，后续 system_dlkm 再遇到 OEM 同名 rust_binder 时可能不需要
+真正装入旧二进制。
+
+该方案当前仅是待验证架构假设：
+- 尚未确认 Xiaomi 实际 system_dlkm loader 命令及其错误策略；
+- 尚未确认候选 r74 模块可在 system loader 之前从哪一受信任位置加载；
+- 不修改 system_dlkm、不刷机、不解除 OEM gate。
+
+
+### 原厂 vendor_boot 离线审计：system_dlkm loader 不在 vendor ramdisk
+
+只读 Run #44912654297 从已锁定 stock-input
+`pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip`（SHA 固定）提取并拆开
+100663296-byte `vendor_boot.img`，没有再次读取手机。
+
+vendor ramdisk：
+- 单一 `vendor_ramdisk00`，LZ4，22173394 bytes；
+- `first_stage_ramdisk/fstab.qcom` 明确把 `vendor_dlkm` 与
+  `system_dlkm` 都以只读、`slotselect,avb=vbmeta,logical,first_stage_mount`
+  挂载；
+- ramdisk 自身有早期 `lib/modules/modules.load` / `modules.dep`；
+- 但在该 ramdisk 的 .rc / fstab / shell / module metadata 中，没有找到
+  负责 `/system_dlkm` 的 `modprobe` / `dlkm_loader` / `rust_binder`
+  加载命令。
+
+因此可确认 system_dlkm 分区的挂载信任链入口存在于 first-stage，
+但**实际 system_dlkm 模块加载动作不在这份 vendor ramdisk 可见脚本中**；
+它符合 AOSP 的设计：first-stage 挂载 system_dlkm，后续 vendor process
+再按 `modules.load` 加载。
+
+这也给“提前加载同源 r74 rust_binder”方案划定了现实边界：
+- AOSP libmodprobe 对 `finit_module()` 返回 `EEXIST` 明确按
+  “module already loaded”成功处理，因此“同名模块先加载”在通用 loader
+  语义上是成立的；
+- 但当前没有确认一个**不改 system_dlkm / vendor_boot、又早于 Xiaomi
+  vendor loader** 的可信执行点；
+- 当前 fastboot-boot-only 测试模型只替换 boot Image，stock vendor_boot /
+  init_boot 继续生效，不能擅自假设它会提前提供候选 rust_binder；
+- 所以该方向保留为 `PRELOAD_SAME_SOURCE_RUST_BINDER_HYPOTHESIS`，
+  不生成刷包、不放开 fastboot boot gate。

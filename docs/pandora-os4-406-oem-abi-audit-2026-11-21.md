@@ -291,3 +291,54 @@ SHA-256 `7ec1ba2638d32687ba1bf3ce216232fcd98a99e92e841662420d000d1880871f`，
 system Rust Binder 模块来源已解决；Binder 当前 active 实现与
 system_dlkm 版本目录加载清单等待第二次只读补采。fastboot boot、
 AnyKernel3、持久刷机和 LKG 晋升继续禁止。
+
+
+## 第十一轮：第二份真机补采确认 Binder impl=c（2026-11-21）
+
+第二份真机只读包 `pandora-live-module-delivery-7599.zip`
+（SHA256 `75242f56b2d01372026bb6cf52144cc951aeb847c3396a22ce526772c9794917`）
+补齐了第一份缺失的 system_dlkm 版本目录 metadata 和 Binder sysfs 状态。
+
+- system `modules.load` 共 82 行，明确包含
+  `kernel/drivers/android/binder/rust_binder.ko`（第 47 项）；
+  `modules.dep` 对该模块记录为空依赖。
+- `/sys/module/binder/parameters/impl=c`；
+  `active_impl` 节点不可用/为空；cmdline 与 bootconfig 均无 `binder.impl`。
+- `rust_binder` 仍为 `Live`，其 GNU Note 唯一匹配原厂 system 模块。
+- Android common 的 legacy 实现中，`impl=c` 对应
+  `binder_use_rust=0`；Rust Binder 模块在该状态下可成功加载但不卸载
+  C Binder。因此当前 OEM 运行事实应记录为
+  **C Binder 强证据 + Rust 模块已加载但 inert 强证据**，
+  而不是“Rust Binder active”。
+- 由于本机缺少 2026-09 后新增的 `active_impl`，不提升为
+  `DIRECTLY_VERIFIED`；精确 Xiaomi OEM Binder 源码也仍未知。
+- 原厂 rust_binder 的 71 个 r74 缺失导入继续阻断，但其性质改为
+  **system_dlkm 模块装载兼容性**，不再描述成当前 Binder 主链功能依赖。
+  system_dlkm loader 对该模块加载失败是否会让 Xiaomi 启动失败仍未知。
+
+正式 `check-ota-oem-abi.py` 门禁继续 BLOCKED。
+完整证据边界见
+[pandora OS4.0.6.0 真机模块来源只读证据](pandora-os4-406-live-module-evidence-2026-11-21.md)。
+
+
+## 第十二轮：r74 与原厂 vendor_boot 的只读策略审计（2026-11-21）
+
+锁定 r74 commit `b1d12d482d767c50cb792d988e4479d3f75c342a`
+已直接复核：
+- `active_impl` 存在；
+- Rust Binder 在 `binder_use_rust == 0` 时成功加载但 inert；
+- 整个 `drivers/android` 子树没有 `ANDROID_BINDER_IPC_RUST_DUMMY`。
+
+原厂 `vendor_boot.img` 也从锁定 stock-input 离线拆解：
+- vendor/system dlkm 均为只读 `first_stage_mount,avb=vbmeta`；
+- vendor ramdisk 中没有发现 system_dlkm 的实际 `modprobe` / loader rc；
+  因此不能从 vendor_boot 单独证明 Xiaomi 对 system `rust_binder.ko`
+  加载失败的启动容错策略。
+
+AOSP libmodprobe 对 `finit_module(EEXIST)` 视为“已加载”成功，这使
+“提前加载 r74 同源 rust_binder，后续 system loader 遇到 OEM 同名模块时
+不再插入旧 ELF”成为一个可研究的非 system_dlkm 修改方向。
+但目前没有确认能在 stock vendor_boot/init_boot 条件下、早于 Xiaomi
+system loader 且不改额外分区的执行点，因此仍是只读架构假设。
+
+正式 OEM ABI gate、fastboot boot、AnyKernel3 与 LKG 状态均不改变。

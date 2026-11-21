@@ -170,6 +170,10 @@ def evaluate(folder: Path) -> dict:
         report["binder_implementation_verified"] = active_impl in ("rust", "c")
         report["binder_implementation_selection"] = (
             active_impl if active_impl in ("rust", "c") else "UNPROVEN")
+        report["binder_implementation_evidence_level"] = (
+            "DIRECT_ACTIVE_IMPL_SYSFS" if active_impl in ("rust", "c")
+            else "REQUESTED_IMPL_ONLY" if requested_impl in ("rust", "c")
+            else "UNKNOWN")
         report["rust_binder_initstate"] = (
             (safe_text(folder, "rust-binder-initstate.txt", 64) or "").strip()
             or "UNKNOWN")
@@ -179,6 +183,7 @@ def evaluate(folder: Path) -> dict:
         mounts = safe_text(folder, "dlkm-mounts.txt") or ""
         system_load = safe_text(folder, "system-modules.load") or ""
         vendor_load = safe_text(folder, "vendor-modules.load") or ""
+        system_dep = safe_text(folder, "system-modules.dep", 200000) or ""
         vendor_dep = safe_text(folder, "vendor-modules.dep", 200000) or ""
         report["mounts_observed"] = bool(mounts.strip())
         report["dlkm_mounts_read_only"] = (
@@ -190,6 +195,9 @@ def evaluate(folder: Path) -> dict:
             "vendor": bool(vendor_load.strip()),
         }
         report["system_load_mentions_rust_binder"] = "rust_binder.ko" in system_load
+        report["system_rust_binder_has_no_hard_deps"] = bool(re.search(
+            r"^kernel/drivers/android/binder/rust_binder\.ko:\s*$",
+            system_dep, re.MULTILINE))
         report["vendor_load_mentions"] = {
             "zsmalloc": "zsmalloc.ko" in vendor_load,
             "zram": "zram.ko" in vendor_load,
@@ -223,13 +231,35 @@ def evaluate(folder: Path) -> dict:
         report["runtime_rust_binder_active_consistent"] = (
             report["runtime_rust_binder_stock_system_note_consistent"]
             and report["binder_active_impl_sysfs"] == "rust")
+        report["runtime_rust_binder_loaded_by_system_manifest"] = (
+            report["runtime_rust_binder_stock_system_note_consistent"]
+            and report["system_load_mentions_rust_binder"])
+        if report["binder_active_impl_sysfs"] in ("rust", "c"):
+            report["binder_runtime_role"] = (
+                "RUST_ACTIVE_DIRECTLY_VERIFIED"
+                if report["binder_active_impl_sysfs"] == "rust"
+                else "C_ACTIVE_DIRECTLY_VERIFIED")
+        elif (report["binder_impl_sysfs_requested_state"] == "c"
+              and report["runtime_rust_binder_loaded_by_system_manifest"]):
+            report["binder_runtime_role"] = "C_STRONGLY_SUPPORTED_RUST_MODULE_LOADED_INERT"
+            report["binder_implementation_selection"] = "C_STRONGLY_SUPPORTED"
+            report["binder_implementation_evidence_level"] = (
+                "LEGACY_IMPL_C_PLUS_LOADED_RUST_MODULE")
+        elif report["binder_impl_sysfs_requested_state"] == "rust":
+            report["binder_runtime_role"] = "RUST_REQUESTED_ACTIVE_UNPROVEN"
+        else:
+            report["binder_runtime_role"] = "UNPROVEN"
 
         verified = (safe_text(folder, "verified-boot-state.txt", 128) or "").splitlines()
         report["verified_boot_state"] = verified[0].strip() if verified else "UNKNOWN"
         report["vbmeta_device_state"] = verified[1].strip() if len(verified) > 1 else "UNKNOWN"
         report["system_dlkm_avb_chain_verified"] = False
         report["runtime_evidence_status"] = (
-            "CURRENT_BOOT_VENDOR_ZSMALLOC_SOURCE_RESOLVED"
+            "CURRENT_BOOT_VENDOR_ZSMALLOC_AND_BINDER_C_STRONGLY_SUPPORTED"
+            if (report["runtime_vendor_memory_stack_consistent"]
+                and report["binder_runtime_role"] ==
+                    "C_STRONGLY_SUPPORTED_RUST_MODULE_LOADED_INERT")
+            else "CURRENT_BOOT_VENDOR_ZSMALLOC_SOURCE_RESOLVED"
             if report["runtime_vendor_memory_stack_consistent"]
             else "CURRENT_BOOT_PARTIAL")
         report["overall_status"] = ("ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF"
