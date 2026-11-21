@@ -150,13 +150,29 @@ def evaluate(folder: Path) -> dict:
                 "verified_boot_chain": False,
             }
         report["runtime_module_note_evidence"] = note_observations
-        report["runtime_zsmalloc_unique_note_source"] = (
-            note_observations["zsmalloc"]["matched_stock_sources"][0]
-            if note_observations["zsmalloc"]["status"] == "UNIQUE_STOCK_GNU_NOTE_MATCH"
-            else "UNPROVEN")
+        unique_sources = {}
+        for module, evidence in note_observations.items():
+            unique_sources[module] = (
+                evidence["matched_stock_sources"][0]
+                if evidence["status"] == "UNIQUE_STOCK_GNU_NOTE_MATCH"
+                else "UNPROVEN")
+        report["runtime_unique_note_sources"] = unique_sources
+        report["runtime_zsmalloc_unique_note_source"] = unique_sources["zsmalloc"]
+        report["runtime_rust_binder_unique_note_source"] = unique_sources["rust_binder"]
         report["runtime_note_identity_scope"] = "GNU_NOTE_ONLY_NOT_FULL_ELF"
-        report["binder_implementation_verified"] = False
-        report["binder_implementation_selection"] = "UNPROVEN"
+
+        requested_impl = (safe_text(folder, "binder-impl-sysfs.txt", 64) or "").strip()
+        active_impl = (safe_text(folder, "binder-active-impl-sysfs.txt", 64) or "").strip()
+        report["binder_impl_sysfs_requested_state"] = (
+            requested_impl if requested_impl in ("rust", "c") else "UNKNOWN")
+        report["binder_active_impl_sysfs"] = (
+            active_impl if active_impl in ("rust", "c") else "UNKNOWN")
+        report["binder_implementation_verified"] = active_impl in ("rust", "c")
+        report["binder_implementation_selection"] = (
+            active_impl if active_impl in ("rust", "c") else "UNPROVEN")
+        report["rust_binder_initstate"] = (
+            (safe_text(folder, "rust-binder-initstate.txt", 64) or "").strip()
+            or "UNKNOWN")
         report["on_disk_source_qualified_modules"] = results
         report["on_disk_discrepancies"] = discrepancies
         report["on_disk_unknowns"] = unknown
