@@ -15,14 +15,20 @@ if errorlevel 1 (
 )
 set "DEVICE="
 set "OSBUILD="
+set "KREL="
 for /f "tokens=*" %%D in ('adb shell getprop ro.product.device 2^>nul') do set "DEVICE=%%D"
 for /f "tokens=*" %%B in ('adb shell getprop ro.mi.os.version.incremental 2^>nul') do set "OSBUILD=%%B"
+for /f "tokens=*" %%K in ('adb shell uname -r 2^>nul') do set "KREL=%%K"
 if /i not "%DEVICE%"=="pandora" (
   echo ERROR: expected pandora, got "%DEVICE%".
   exit /b 3
 )
 if /i not "%OSBUILD%"=="OS4.0.6.0.XBLCNXM" (
   echo ERROR: expected OS4.0.6.0.XBLCNXM, got "%OSBUILD%".
+  exit /b 3
+)
+if /i not "%KREL%"=="6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k" (
+  echo ERROR: unexpected running kernel "%KREL%".
   exit /b 3
 )
 adb shell su -c "id" 2>nul | findstr /C:"uid=0(root)" >nul
@@ -39,9 +45,10 @@ if errorlevel 1 (
 (
   echo device=pandora
   echo build=OS4.0.6.0.XBLCNXM
+  echo slot=
 ) > "%OUT%\identity.txt"
-adb shell getprop ro.boot.slot_suffix >> "%OUT%\identity.txt"
-adb shell uname -r >> "%OUT%\identity.txt"
+for /f "tokens=*" %%S in ('adb shell getprop ro.boot.slot_suffix 2^>nul') do >> "%OUT%\identity.txt" echo %%S
+>> "%OUT%\identity.txt" echo %KREL%
 adb shell getprop sys.boot_completed >> "%OUT%\identity.txt"
 adb shell getprop ro.boot.verifiedbootstate >> "%OUT%\verified-boot-state.txt"
 adb shell getprop ro.boot.vbmeta.device_state >> "%OUT%\verified-boot-state.txt"
@@ -52,6 +59,12 @@ adb shell su -c "cat /proc/cmdline" 2>nul | powershell.exe -NoProfile -NonIntera
 rem bootconfig is one key per line; store ONLY matching Binder lines.
 adb shell su -c "cat /proc/bootconfig" 2>nul | findstr /I /C:"binder.impl" > "%OUT%\binder-impl-bootconfig.txt"
 
+rem Android common can choose Rust Binder through sysfs before rust_binder.ko
+rem is loaded. Read both the requested implementation and the newer read-only
+rem active implementation when present. Missing files remain UNKNOWN.
+adb shell su -c "cat /sys/module/binder/parameters/impl" > "%OUT%\binder-impl-sysfs.txt" 2>nul
+adb shell su -c "cat /sys/module/binder/parameters/active_impl" > "%OUT%\binder-active-impl-sysfs.txt" 2>nul
+
 rem module list: strip kernel load addresses and section addresses on Windows.
 adb shell su -c "cat /proc/modules" 2>nul | powershell.exe -NoProfile -NonInteractive -Command "$input | ForEach-Object { $c = $_ -split '\s+'; if ($c.Count -ge 3 -and $c[0] -in @('rust_binder','zsmalloc','zram','node_cache','binder_linux')) { $c[0] + ' size=' + $c[1] + ' users=' + $c[2] } }" > "%OUT%\loaded-modules-redacted.txt"
 adb shell su -c "cat /proc/sys/kernel/modules_disabled" > "%OUT%\modules-disabled.txt" 2>nul
@@ -59,8 +72,9 @@ adb shell su -c "cat /sys/module/rust_binder/initstate" > "%OUT%\rust-binder-ini
 
 rem SHA of files visible in mounted partitions is evidence of CURRENT FILES,
 rem NOT proof of which exact binary the kernel actually loaded.
-adb shell su -c "sha256sum /system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/android/binder/rust_binder.ko" > "%OUT%\system-rust-binder-file-sha.txt" 2>nul
-adb shell su -c "sha256sum /system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/mm/zsmalloc.ko" > "%OUT%\system-zsmalloc-file-sha.txt" 2>nul
+adb shell su -c "sha256sum /system_dlkm/lib/modules/%KREL%/kernel/drivers/android/binder/rust_binder.ko" > "%OUT%\system-rust-binder-file-sha.txt" 2>nul
+adb shell su -c "sha256sum /system_dlkm/lib/modules/%KREL%/kernel/mm/zsmalloc.ko" > "%OUT%\system-zsmalloc-file-sha.txt" 2>nul
+adb shell su -c "sha256sum /system_dlkm/lib/modules/%KREL%/kernel/drivers/block/zram/zram.ko" > "%OUT%\system-zram-file-sha.txt" 2>nul
 adb shell su -c "sha256sum /vendor_dlkm/lib/modules/zsmalloc.ko" > "%OUT%\vendor-zsmalloc-file-sha.txt" 2>nul
 adb shell su -c "sha256sum /vendor_dlkm/lib/modules/zram.ko" > "%OUT%\vendor-zram-file-sha.txt" 2>nul
 adb shell su -c "sha256sum /vendor_dlkm/lib/modules/node_cache.ko" > "%OUT%\vendor-node-cache-file-sha.txt" 2>nul
@@ -69,14 +83,17 @@ rem Kernel sysfs exposes GNU build-id ELF Note bytes for some loaded modules.
 rem Hash only the binary note; do not save addresses or raw note contents.
 rem A matching note is NOT a proof of the full in-memory ELF or its source path.
 rem Missing sysfs note must remain UNKNOWN; no module load/unload is attempted.
-adb shell su -c "sha256sum /sys/module/rust_binder/notes/.note.gnu.build-id" > "%OUT%\\loaded-rust-binder-note-sha.txt" 2>nul
-adb shell su -c "sha256sum /sys/module/zsmalloc/notes/.note.gnu.build-id" > "%OUT%\\loaded-zsmalloc-note-sha.txt" 2>nul
-adb shell su -c "sha256sum /sys/module/zram/notes/.note.gnu.build-id" > "%OUT%\\loaded-zram-note-sha.txt" 2>nul
-adb shell su -c "sha256sum /sys/module/node_cache/notes/.note.gnu.build-id" > "%OUT%\\loaded-node-cache-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/rust_binder/notes/.note.gnu.build-id" > "%OUT%\loaded-rust-binder-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/zsmalloc/notes/.note.gnu.build-id" > "%OUT%\loaded-zsmalloc-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/zram/notes/.note.gnu.build-id" > "%OUT%\loaded-zram-note-sha.txt" 2>nul
+adb shell su -c "sha256sum /sys/module/node_cache/notes/.note.gnu.build-id" > "%OUT%\loaded-node-cache-note-sha.txt" 2>nul
 
-rem Separate source manifests; never merge vendor and system selection files.
-adb shell su -c "cat /system_dlkm/lib/modules/modules.load" > "%OUT%\system-modules.load" 2>nul
-adb shell su -c "cat /system_dlkm/lib/modules/modules.dep" > "%OUT%\system-modules.dep" 2>nul
+rem GKI non-flattened system_dlkm metadata lives in lib/modules/<uname -r>/.
+rem Keep root-level files only as secondary layout evidence for OEM variants.
+adb shell su -c "cat /system_dlkm/lib/modules/%KREL%/modules.load" > "%OUT%\system-modules.load" 2>nul
+adb shell su -c "cat /system_dlkm/lib/modules/%KREL%/modules.dep" > "%OUT%\system-modules.dep" 2>nul
+adb shell su -c "cat /system_dlkm/lib/modules/modules.load" > "%OUT%\system-root-modules.load" 2>nul
+adb shell su -c "cat /system_dlkm/lib/modules/modules.dep" > "%OUT%\system-root-modules.dep" 2>nul
 adb shell su -c "cat /vendor_dlkm/lib/modules/modules.load" > "%OUT%\vendor-modules.load" 2>nul
 adb shell su -c "cat /vendor_dlkm/lib/modules/modules.dep" > "%OUT%\vendor-modules.dep" 2>nul
 adb shell su -c "cat /proc/mounts" 2>nul | findstr /I /C:"system_dlkm" /C:"vendor_dlkm" > "%OUT%\dlkm-mounts.txt"
@@ -87,7 +104,11 @@ adb shell su -c "cat /proc/mounts" 2>nul | findstr /I /C:"system_dlkm" /C:"vendo
   echo Vendor/system zsmalloc sources are intentionally separated.
   echo Empty modules.load or SHA output can indicate inaccessible locations.
   echo Empty binder-impl-cmdline means no matching token was observed, NOT a proven C implementation.
-  echo Optional loaded module build-id NOTE hashes are NOT complete binary identity.\n  echo Missing sysfs notes remain UNKNOWN and are not errors.\n  echo No raw kernel addresses or raw /proc/cmdline are stored.
+  echo binder-impl-sysfs and active-impl are read-only runtime selection evidence when present.
+  echo Optional loaded module build-id NOTE hashes are NOT complete binary identity.
+  echo Missing sysfs notes remain UNKNOWN and are not errors.
+  echo system modules.load is read from lib/modules/%KREL% first; root layout is secondary.
+  echo No raw kernel addresses or raw /proc/cmdline are stored.
   echo No partition, module, root, boot or AVB settings were changed.
 ) > "%OUT%\README.txt"
 echo.
