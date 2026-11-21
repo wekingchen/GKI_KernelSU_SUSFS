@@ -45,6 +45,7 @@ def read_module(name):
 
 CROSS = read_module("cross-ota-lkg.py")
 VERIFY_RELEASE = read_module("verify-ota-lkg-release.py")
+VENDOR_BOOT_FIXTURE = read_module("ota_vendorboot_test_fixture.py")
 
 
 def fake_elf(vermagic, symbol="sym_1", crc=501):
@@ -136,7 +137,9 @@ class OS4FullChain(unittest.TestCase):
         with zipfile.ZipFile(self.stock, "w") as z:
             z.writestr("boot.img", self.boot)
             z.writestr("init_boot.img", b"init")
-            z.writestr("vendor_boot.img", b"vendor")
+            z.writestr("vendor_boot.img", VENDOR_BOOT_FIXTURE.make_vendor_boot_v4({
+                "synthetic_early.ko": fake_elf(FIXED_UNAME, "sym_2", 502)
+            }))
             z.writestr("dtbo.img", b"dtbo")
             z.writestr("README.txt",
                        f"device=pandora\nbuild={FIXED_BUILD}\nslot=_a\nuname={uname}\n")
