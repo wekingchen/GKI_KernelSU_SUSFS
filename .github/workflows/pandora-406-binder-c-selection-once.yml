@@ -21,12 +21,11 @@ jobs:
         run: |
           set -euo pipefail
           R74=b1d12d482d767c50cb792d988e4479d3f75c342a
-          mkdir -p "$RUNNER_TEMP/r74"
-          git -C "$RUNNER_TEMP/r74" init -q
-          git -C "$RUNNER_TEMP/r74" remote add origin https://android.googlesource.com/kernel/common
-          git -C "$RUNNER_TEMP/r74" fetch -q --depth=1 origin "$R74"
-          git -C "$RUNNER_TEMP/r74" checkout -q FETCH_HEAD
-          test "$(git -C "$RUNNER_TEMP/r74" rev-parse HEAD)" = "$R74"
+          mkdir -p "$RUNNER_TEMP/r74/drivers/android/binder"
+          BASE="https://android.googlesource.com/kernel/common/+/$R74"
+          curl -fsSL "$BASE/drivers/android/Kconfig?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/Kconfig"
+          curl -fsSL "$BASE/drivers/android/binder.c?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/binder.c"
+          curl -fsSL "$BASE/drivers/android/binder/rust_binder_main.rs?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
           K="$RUNNER_TEMP/r74/drivers/android/Kconfig"
           B="$RUNNER_TEMP/r74/drivers/android/binder.c"
           R="$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
