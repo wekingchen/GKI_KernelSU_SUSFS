@@ -319,3 +319,26 @@ AnyKernel3、持久刷机和 LKG 晋升继续禁止。
 正式 `check-ota-oem-abi.py` 门禁继续 BLOCKED。
 完整证据边界见
 [pandora OS4.0.6.0 真机模块来源只读证据](pandora-os4-406-live-module-evidence-2026-11-21.md)。
+
+
+## 第十二轮：r74 与原厂 vendor_boot 的只读策略审计（2026-11-21）
+
+锁定 r74 commit `b1d12d482d767c50cb792d988e4479d3f75c342a`
+已直接复核：
+- `active_impl` 存在；
+- Rust Binder 在 `binder_use_rust == 0` 时成功加载但 inert；
+- 整个 `drivers/android` 子树没有 `ANDROID_BINDER_IPC_RUST_DUMMY`。
+
+原厂 `vendor_boot.img` 也从锁定 stock-input 离线拆解：
+- vendor/system dlkm 均为只读 `first_stage_mount,avb=vbmeta`；
+- vendor ramdisk 中没有发现 system_dlkm 的实际 `modprobe` / loader rc；
+  因此不能从 vendor_boot 单独证明 Xiaomi 对 system `rust_binder.ko`
+  加载失败的启动容错策略。
+
+AOSP libmodprobe 对 `finit_module(EEXIST)` 视为“已加载”成功，这使
+“提前加载 r74 同源 rust_binder，后续 system loader 遇到 OEM 同名模块时
+不再插入旧 ELF”成为一个可研究的非 system_dlkm 修改方向。
+但目前没有确认能在 stock vendor_boot/init_boot 条件下、早于 Xiaomi
+system loader 且不改额外分区的执行点，因此仍是只读架构假设。
+
+正式 OEM ABI gate、fastboot boot、AnyKernel3 与 LKG 状态均不改变。
