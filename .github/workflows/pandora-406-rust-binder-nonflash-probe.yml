@@ -1,0 +1,114 @@
+name: "临时调查 / pandora 4.0.6 Rust Binder 非刷机配对验证"
+on:
+  push:
+    branches:
+      - audit/pandora-406-rust-binder-nonflash
+    paths:
+      - .github/workflows/pandora-406-rust-binder-nonflash-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pandora-406-rust-binder-nonflash
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/audit/pandora-406-rust-binder-nonflash'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: "先运行严格非刷机 Rust ABI 正反例单测"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_rust_binder_pair_readonly.py' -v
+          python3 -m py_compile scripts/xiaomi-os4/verify-rust-binder-gki-pair-readonly.py
+      - name: "安装隔离 GKI 编译和只读 OEM ELF 审计依赖"
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache cpio curl flex git jq libdw-dev libelf-dev libssl-dev lz4 patch perl python3 rsync tar unzip xz-utils zip zstd dwarves
+      - name: "复用已经进行 SHA 校验的 r536225 工具链缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+      - name: "下载已固定的 GKI 和 stock 证据，不获取其他 OTA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE="$RUNNER_TEMP/rust-evidence"
+          mkdir -p "$BASE"/{locked,stock,out}
+          CANDIDATE_TAG=pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM
+          for file in locked-candidate.env stock-report.json gki-candidate.json build-metadata.txt Module.symvers final.config; do
+            gh release download "$CANDIDATE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$file" --dir "$BASE/locked"
+          done
+          cd "$BASE/locked"
+          echo '75b1641bf3c0b70094649f73b47ab1a85868f11a55d09745d8eb5b27e1c32ab0  locked-candidate.env' | sha256sum -c -
+          echo '59bea9d2acdb8b3ae3d5250cab118aca778b2bffd4ef52efc76b055b7e139601  stock-report.json' | sha256sum -c -
+          echo '28a2bd3804cc0706637661776e7540e37e8d165bb51eb1e778feec5b9088dbd8  gki-candidate.json' | sha256sum -c -
+          echo 'a7afe856802df34d462ab70d0a8da55da8ddbda2c1e7e8e3fd19396cfce63c67  build-metadata.txt' | sha256sum -c -
+          echo '242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25  Module.symvers' | sha256sum -c -
+          echo 'f9c26021d6984036dbd3d34b1ce9709169cbb43e2dfc0758218ce9a2b52150f9  final.config' | sha256sum -c -
+          grep -Fxq 'SOURCE_GKI_TAG=android16-6.12-2026-03_r74' build-metadata.txt
+          grep -Fxq 'FLASHABLE=NO' build-metadata.txt
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern '*xm.zip' --dir "$BASE/stock"
+          mapfile -t ZIPS < <(find "$BASE/stock" -maxdepth 1 -type f -name '*xm.zip')
+          [[ "${#ZIPS[@]}" == 1 ]]
+          [[ "$(sha256sum "${ZIPS[0]}" | cut -d ' ' -f1)" == bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8 ]]
+          printf '%s\n' "${ZIPS[0]}" > "$BASE/out/stock-zip-path.txt"
+      - name: "重新生成原厂 71/27 门禁报告，仍然 BLOCKED"
+        run: |
+          set -euo pipefail
+          BASE="$RUNNER_TEMP/rust-evidence"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$(cat "$BASE/out/stock-zip-path.txt")" \
+            --stock-report "$BASE/locked/stock-report.json" \
+            --candidate-report "$BASE/locked/gki-candidate.json" \
+            --metadata "$BASE/locked/build-metadata.txt" \
+            --symvers "$BASE/locked/Module.symvers" \
+            --output "$BASE/out/stock-abi.json"
+          jq -e '.gate=="BLOCKED" and .unresolved_rust_binder==71 and .stock_rust_binder_imports==240 and .ambiguous_same_crc==24 and .ambiguous_split_crc==3' "$BASE/out/stock-abi.json"
+      - name: "只构建官方锁定 GKI 源码下的 Binder 配对候选，不打包 boot"
+        env:
+          OTA_CANDIDATE_ENV: ${{ runner.temp }}/rust-evidence/locked/locked-candidate.env
+          OTA_STOCK_REPORT_PATH: ${{ runner.temp }}/rust-evidence/locked/stock-report.json
+          XIAOMI_OS4_JOBS: '6'
+        run: |
+          set -euo pipefail
+          bash scripts/xiaomi-os4/build-ota-gki-baseline-candidate.sh
+          BASE="$RUNNER_TEMP/rust-evidence"
+          cmp "$RUNNER_TEMP/ota-candidate/results/Module.symvers" "$BASE/locked/Module.symvers"
+          cmp "$RUNNER_TEMP/ota-candidate/results/final.config" "$BASE/locked/final.config"
+          [[ -s "$RUNNER_TEMP/ota-candidate/out/drivers/android/binder/rust_binder.ko" ]]
+          python3 scripts/xiaomi-os4/verify-rust-binder-gki-pair-readonly.py \
+            --candidate-module "$RUNNER_TEMP/ota-candidate/out/drivers/android/binder/rust_binder.ko" \
+            --symvers "$BASE/locked/Module.symvers" \
+            --config "$BASE/locked/final.config" \
+            --metadata "$BASE/locked/build-metadata.txt" \
+            --stock-abi-report "$BASE/out/stock-abi.json" \
+            --output "$BASE/out/rust-binder-gki-pair.json"
+      - name: "只上传报告和 SHA，不上传 Image、boot、ko"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-rust-binder-nonflash-evidence
+          path: |
+            ${{ runner.temp }}/rust-evidence/out/stock-abi.json
+            ${{ runner.temp }}/rust-evidence/out/rust-binder-gki-pair.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: "明确继续禁止任何刷写"
+        if: always()
+        run: |
+          echo '## pandora OS4.0.6.0 Rust Binder 非刷机证据' >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f "$RUNNER_TEMP/rust-evidence/out/rust-binder-gki-pair.json" ]]; then
+            jq '{rust_gki_pair,gate,reason,candidate_rust_binder_imports,unresolved_candidate_imports,mismatched_candidate_imports,stock_zsmalloc_ambiguous_same_crc,stock_zsmalloc_ambiguous_split_crc}' "$RUNNER_TEMP/rust-evidence/out/rust-binder-gki-pair.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '**OEM ABI 永远维持 BLOCKED；不打包、不刷机、不晋升 LKG。**' >> "$GITHUB_STEP_SUMMARY"
