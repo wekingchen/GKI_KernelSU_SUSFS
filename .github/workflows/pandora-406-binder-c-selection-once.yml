@@ -26,11 +26,20 @@ jobs:
           curl -fsSL "$BASE/drivers/android/Kconfig?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/Kconfig"
           curl -fsSL "$BASE/drivers/android/binder.c?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/binder.c"
           curl -fsSL "$BASE/drivers/android/binder/rust_binder_main.rs?format=TEXT" | base64 -d > "$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
+          curl -fsSL "https://android.googlesource.com/kernel/common/+archive/$R74/drivers/android.tar.gz" -o "$RUNNER_TEMP/android.tar.gz"
+          mkdir -p "$RUNNER_TEMP/android-tree"
+          tar -xzf "$RUNNER_TEMP/android.tar.gz" -C "$RUNNER_TEMP/android-tree"
+          if grep -R -n "ANDROID_BINDER_IPC_RUST_DUMMY" "$RUNNER_TEMP/android-tree" > "$RUNNER_TEMP/rust-dummy-hits.txt"; then
+            echo "rust_dummy_tree=present" >> "$RUNNER_TEMP/r74-binder.txt"
+          else
+            echo "rust_dummy_tree=absent" >> "$RUNNER_TEMP/r74-binder.txt"
+          fi
           K="$RUNNER_TEMP/r74/drivers/android/Kconfig"
           B="$RUNNER_TEMP/r74/drivers/android/binder.c"
           R="$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
           {
             echo "commit=$R74"
+            cat "$RUNNER_TEMP/rust-dummy-hits.txt" 2>/dev/null || true
             if grep -q "ANDROID_BINDER_IPC_RUST_DUMMY" "$K"; then echo "rust_dummy=present"; else echo "rust_dummy=absent"; fi
             if grep -q "active_impl" "$B"; then echo "active_impl=present"; else echo "active_impl=absent"; fi
             if grep -q "binder_use_rust == 0" "$R"; then echo "rust_module_inert_when_c=yes"; else echo "rust_module_inert_when_c=not_confirmed"; fi
