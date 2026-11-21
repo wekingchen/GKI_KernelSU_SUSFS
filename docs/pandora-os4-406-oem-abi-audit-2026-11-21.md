@@ -237,3 +237,24 @@
 **结论仍为 OEM ABI BLOCKED；禁用 fastboot boot、AnyKernel3、持久刷机、
 LKG 晋升。下一阶段必须取得独立的原厂 system_dlkm 加载链/模块来源证据，
 路线 A 的准确 OEM Rust 源码也尚未找到。**
+
+## 第九轮：已完成原厂 ELF Build-ID Note 的双来源固定（2026-11-21）
+
+[实际 SHA 固定 stock 审计 Run #44907158941](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44907158941)
+从 505 份原厂 .ko 中提取了 system rust_binder、两套 zsmalloc、
+两套 zram 及 vendor node_cache 的**独立 GNU Build-ID Note SHA**，
+与来源 CRC、文件 SHA 分开报告。vendor/system zsmalloc 的 Note
+分别为 `531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035`
+和 `4d8f123bb80cc23169e27f29459957272f969f7e509495dc00639e514378d1fa`，
+真实互不相同。详见
+[路线 B 第十轮完整原厂 Note 表](pandora-os4-406-rust-binder-routes-2026-11-21.md)。
+
+新增 Windows 只读采集器从
+`/sys/module/{zsmalloc,zram,node_cache,rust_binder}/notes/.note.gnu.build-id`
+**只计算 SHA，不复制原始 Note/内核地址**；采集后仅在本机压缩 ZIP。
+离线解释器只有在该 sysfs Note SHA 与唯一原厂来源对应、
+且 `/proc/modules` 确认模块名时才报告候选来源，明确不能据此证明
+完整内存模块 SHA、装载文件路径/信任或 AVB。
+
+**未有 OS4.0.6.0 真机的上述 Note 快照**，所有启动/刷机门禁继续
+`BLOCKED`、71 Rust 导入缺口及 zsmalloc 24/3 来源歧义均不放行。
