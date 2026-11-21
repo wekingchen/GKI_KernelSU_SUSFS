@@ -82,3 +82,36 @@
 后续应优先取得确实对应 OS4.0.6.0.XBLCNXM 的 OEM vmlinux / Module.symvers 或完整可重现的源码及配置；已知 Xiaomi 的 popsicle-w-oss 公开源码树 Makefile 为 Linux 6.11，不能直接称为当前 6.12.69 原厂内核的精确源码。
 
 **当前状态：BLOCKED；禁止输出 fastboot boot / AnyKernel3。OS4.0.6.0 + LKM Root 保持可用。**
+
+
+## 第三轮：实机加载清单与 vendor_boot 早期模块证据（2026-11-21）
+
+真实设备上，OS4.0.6.0.XBLCNXM / Android 17 / Slot B / 原厂 6.12.69-android16-6 内核的 Root 只读采集正常。用户在 Windows CMD 运行了 PR #102 修复后的采集脚本，上传的 pandora-live-abi-29286.zip 由本次排查直接读取：
+
+- 已加载 665 个内核模块，包括 rust_binder、zram、zsmalloc、node_cache、smem、qcom_scm 和 qcom_ipc_logging。
+- vendor_dlkm 和 vendor 两份 modules.load 内容相同；均有 665 行，但仅包含 402 个不同文件名。它们不是 665 个不同模块。
+- system_dlkm、odm_dlkm、ramdisk 在先前脚本探测的 modules.load 路径上为空；这 **不等于** 这些来源没有实际模块。
+- 原厂 /proc/kallsyms 已可读取到 qcom_smem_get、ipc_log_string、qcom_scm_assign_mem、cdev_tevent_alloc 等符号的名称和相应的 __ksymtab_ / __crc_ 标识；只上传名称，没有内核地址。
+- vendor modules.load 明确列有 zram.ko、zsmalloc.ko 和 node_cache.ko；但没有硬证据证明当前 zsmalloc 实例的文件哈希。跨分区重复提供者仍应 fail-closed。
+
+只读 GitHub 数据复核：
+
+1. [Run #44894244089](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44894244089)：本次 stock-input 中共有 505 个 DLKM 模块（vendor_dlkm 402 + system_dlkm 103）；原厂 vendor_boot SHA-256 为 e5c72defa27afa9f2e41af85880976784865406d4c785754d5b9c462ca630137，匹配升级前 Windows 离线备份，Boot v4、LZ4 Legacy、单个压缩 ramdisk。
+2. 解压 vendor_boot 成功，CPIO 共 471 个条目、461 个 .ko。该库存含额外的 smem.ko、qcom_ipc_logging.ko、qcom-scm.ko、qcom_aoss.ko 等启动模块。以文件名去重后，至少有 168 个不在原 DLKM 库存内。
+3. [Run #44894376465](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44894376465)：从这批真实早期 .ko 读取了 3,013 个导出 CRC，对之前 923 条缺失导入逐项对照，**852 条找到了唯一且 CRC 完全一致的早期模块提供者**；没有新的 CRC 不匹配和多提供者记录；剩余 71 条全部由 system_dlkm 的 rust_binder.ko 消费。
+4. 样例已核对：qcom_smem_get 由 smem.ko 导出；ipc_log_string 由 qcom_ipc_logging.ko 导出；qcom_scm_assign_mem 则由连字符名称的 qcom-scm.ko 导出。这并不意味着所有早期模块的自身导入对候选 GKI 已通过：最终必须将它们自身依赖也纳入正式静态门禁。
+
+### 生产门禁集成前必须完成的修复
+
+本轮尝试直接将 vendor_boot 早期模块全量接入现有 check-ota-oem-abi.py 后，现有 test_os4_full_chain.py 的若干正向测试变红，因为这些合成夹具把 vendor_boot.img 写成单纯的 b"vendor" 占位内容，无法通过真实 Boot v4 校验。**已撤回该生产门禁实验性改动**；不允许为使 CI 变绿而绕过真实 Boot v4/CPIO 校验。
+
+保留可复用的严格 vendor_boot 解析器及正反测试，正式接线前先将合成夹具升级为有效的 Boot v4 + 真实 LZ4 Legacy/CPIO 样本，确保负向测试仍能发现篡改和缺失。
+
+下一步：
+
+- 正式门禁应从与本 OTA 同 SHA 的 vendor_boot 中读取其实际早期模块，将新增模块的自身 imported_versions / module_export_crcs 也纳入图验证，不仅对已有消费端查 CRC。
+- 进一步分析 rust_binder 的 71 条 Rust mangled exports：需要核对 OEM Rust 编译配置、内核 Rust 导出、候选 CONFIG_RUST / 工具链与源构建；不匹配时应重新编译兼容模块，而不是删除或忽略它。
+- 对 vendor/system zsmalloc 双份 ABI 进行可验证的来源选择，不能只靠 /proc/modules 的名称或 modules.load 推断已加载文件的精确字节。
+- 当前 gate 仍为 BLOCKED，绝不生成 fastboot boot、AnyKernel3 或晋升 LKG。手机继续使用 4.0.6.0 + LKM Root。已归档固件输入包含 vendor_boot，不需要用户重新上传手机 OTA 采集包。
+
+原始实机采集 ZIP 是本地证据，不作为公用代码仓库发布内容；本文件只记录经过核对的统计、原厂哈希和诊断结论。
