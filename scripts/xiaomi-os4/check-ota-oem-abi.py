@@ -5,6 +5,7 @@ Does not claim full ABI or boot compatibility: users must still fastboot boot to
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.util
 import json
 import lzma
 import re
@@ -12,8 +13,13 @@ import struct
 import subprocess
 import sys
 import zipfile
-from pandora_vendorboot_modules import extract_vendor_boot_modules
 from pathlib import Path
+
+_vendor_spec = importlib.util.spec_from_file_location(
+    'pandora_vendorboot_modules', Path(__file__).with_name('pandora_vendorboot_modules.py'))
+_vendor_module = importlib.util.module_from_spec(_vendor_spec)
+_vendor_spec.loader.exec_module(_vendor_module)
+extract_vendor_boot_modules = _vendor_module.extract_vendor_boot_modules
 
 KO_NAME = re.compile(r"\.ko(?:\.zst|\.xz|\.gz)?$", re.I)
 ELF64_HDR = struct.Struct("<16sHHIQQQIHHHHHH")
