@@ -110,7 +110,11 @@ def main():
     release=stock["uname"].encode()
     if release not in image: fail("stock release marker absent from Image")
     candidate_payload_size=PAGE+((len(image)+PAGE-1)//PAGE)*PAGE
-    payload_capacity=vbmeta_offset if stock_has_avb_footer else len(boot)
+    # This artifact is for fastboot boot only and deliberately carries no old
+    # AVB metadata. A replacement Image may be larger than the stock signed
+    # payload/vbmeta offset; it only has to fit the known boot partition size.
+    # Persistent flashing remains forbidden by the surrounding shadow gate.
+    payload_capacity=len(boot)
     if candidate_payload_size>payload_capacity:
         fail("Image too large for stock boot partition envelope")
     header=bytearray(boot[:PAGE])
@@ -151,6 +155,7 @@ def main():
     print("EXPERIMENTAL_TESTBOOT=PASS")
     print("FORMAL_OEM_GATE=BLOCKED")
     print("STOCK_PARTITION_AVB_FOOTER="+("PRESENT_STRIPPED" if stock_has_avb_footer else "ABSENT"))
+    print("STOCK_PARTITION_SIZE="+str(len(boot)))
     print("STOCK_ORIGINAL_BOOT_SIZE="+str(original_size))
     print("STOCK_AVB_VBMETA_OFFSET="+str(vbmeta_offset))
     print("STOCK_AVB_VBMETA_SIZE="+str(vbmeta_size))
