@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for CI-only automatic native upstream restoration."""
+"""Historical native compatibility checks and current fork-only route protection."""
 import importlib.util
 import json
 import sys
@@ -102,10 +102,10 @@ class NativeRestoration(unittest.TestCase):
             mod.promoted_state(self.route, build_blob="a" * 40,
                                custom_blob="b" * 40, commit="c" * 40, run_id=0)
 
-    def test_upstream_mode_stops_private_patch_sync(self):
+    def test_fork_is_only_supported_auto_sync_mode(self):
         run = (ROOT / "scripts/generic-custom/run_auto_sync.sh").read_text()
-        self.assertIn('== upstream', run)
-        self.assertIn("隔离修复版自动同步已停用", run)
+        self.assertIn('!= fork', run)
+        self.assertIn("拒绝自动晋升", run)
 
     def test_native_release_requires_complete_build_artifacts_and_sources(self):
         run = (ROOT / "scripts/generic-custom/try_native_upstream.sh").read_text()
@@ -124,13 +124,13 @@ class NativeRestoration(unittest.TestCase):
         ):
             self.assertIn(fragment, run)
 
-    def test_scheduler_attempts_native_first_then_private(self):
+    def test_scheduler_never_retires_private_fork_automatically(self):
         workflow = (ROOT / ".github/workflows/generic-custom-auto-sync.yml").read_text()
-        self.assertIn("try_native_upstream.sh", workflow)
+        self.assertNotIn("try_native_upstream.sh", workflow)
         self.assertIn("run_auto_sync.sh", workflow)
-        run_body = workflow.split("run: |", 1)[-1]
-        self.assertLess(run_body.index("try_native_upstream.sh"),
-                        run_body.index("run_auto_sync.sh"))
+        native = (ROOT / "scripts/generic-custom/try_native_upstream.sh").read_text()
+        self.assertLess(native.index("exit 1  # fork-only policy lock"),
+                        native.index("git fetch -q --depth 1"))
 
 
 if __name__ == "__main__":

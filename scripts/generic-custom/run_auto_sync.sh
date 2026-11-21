@@ -8,9 +8,9 @@ set -euo pipefail
 [[ "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
 
 ROUTE=".github/config/generic-custom-route.json"
-if [[ "$(jq -er '.mode | select(.=="fork" or .=="upstream")' "$ROUTE")" == upstream ]]; then
-  echo "上游原版已通过实际编译并恢复为主入口；隔离修复版自动同步已停用。" >> "$GITHUB_STEP_SUMMARY"
-  exit 0
+if [[ "$(jq -r '.mode' "$ROUTE")" != fork ]]; then
+  echo "::error::K50 Pro 仅允许隔离修复版自动同步；拒绝自动晋升或停用本仓补丁。"
+  exit 1
 fi
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
@@ -137,6 +137,16 @@ jq -e '[.artifacts[] |
        select(.name=="BakaSU_kernel-android12-5.10-209-AnyKernel3" and
               .expired==false and .size_in_bytes>5000000)] | length==1' \
        <<< "$ARTIFACTS" >/dev/null
+
+# The successful build status alone is insufficient: upstream once soft-failed
+# BBG host genheaders, and can silently skip the Stock Config compatibility path.
+KERNEL_JOB_ID="$(jq -er '[.jobs[] |
+  select(.name | contains("5.10.209-android12-2024-05-BakaSU")) |
+  select(.conclusion=="success")] | if length==1 then .[0].id else empty end' <<< "$JOBS")"
+[[ "$KERNEL_JOB_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$KERNEL_JOB_ID/logs" > "$WORK/kernel-build.log"
+[[ -s "$WORK/kernel-build.log" ]] || { echo "::error::缺少完整内核编译日志"; exit 1; }
+python3 scripts/generic-custom/verify_fork_build_log.py "$WORK/kernel-build.log"
 
 CURRENT_DEV="$(git ls-remote origin refs/heads/dev | cut -f1)"
 [[ "$CURRENT_DEV" == "$BASE_SHA" ]] || {

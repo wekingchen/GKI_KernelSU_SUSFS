@@ -1,5 +1,14 @@
 # Android 内核构建-自定义：上游隔离修复版
 
+## 2026-11-21：当前生效策略（覆盖下方旧的自动回归方案）
+
+- **K50 Pro 始终以本仓隔离修复版为默认构建入口**；绝不因上游原版 CI 编译成功而自动切换、停用补丁或要求手机刷回原版。
+- 上游原件 `build.yml`、`kernel-custom.yml` 继续完整同步且禁止写入私有改动；只在 `build-fork-custom.yml` 叠加兼容性补丁。
+- 每日调度仅执行 `run_auto_sync.sh`。上游没有更新时不重复构建；发现更新时，候选分支完成构建、AnyKernel3 产物核验和 `verify_fork_build_log.py` 门禁后才能更新 `dev`。
+- 真实日志门禁同时要求 Stock Config 已正确装载、BBG SELinux 头文件与 LSM 检查成功、FULL LTO 配置存在，拒绝编译日志中软失败的 host `ld`/genheaders。**Stock Config 是配置呈现层的兼容措施，不证明底层内核配置完全匹配设备。**
+- 上游原版的旧自动回归脚本 `try_native_upstream.sh` 已强制停用并保留作历史参考。此前用户确认的自动功能组合、真机 LKG 记录均不变；无需再次刷机。
+
+
 当前适用的是上游通用自定义 GKI 工作流。**不是小米 17 Pro OS4 的 6.12.69 专用内核编译入口。** 小米 OS4 仍应通过 `xiaomi-sm8850-os4-custom.yml` 编译。
 
 ## 失败记录和判断
@@ -114,7 +123,9 @@
 
 版本来源与本仓私有基线的 Git blob SHA 记录在 `.github/config/generic-custom-upstream-sync.json`，同步脚本和回归测试在 `scripts/generic-custom/`，不会成为上游仓库的同名脚本。私有构建工作流更新后仍保留你现在使用的单独入口 `kernel-custom-fork.yml`。
 
-## 上游恢复后自动停用隔离修复版（不再要求真机确认）
+## 历史方案（2026-11-21 已停用）：上游恢复后自动停用隔离修复版
+
+> 以下内容仅保留用于理解过去的设计决策。当前调度不会运行原版测试或自动切回上游；以文档顶部的 2026-11-21 策略为准。
 
 自 2026-11-01 的“原版恢复”改造起，每次自动检查首先比较 `zzh20188/GKI_KernelSU_SUSFS` 的**原版** `.github/workflows/kernel-custom.yml` 和 `.github/workflows/build.yml`，而不是仅查看隔离副本的 SHA。初始模式为 `fork`，来源状态保存在 `.github/config/generic-custom-route.json`。
 
