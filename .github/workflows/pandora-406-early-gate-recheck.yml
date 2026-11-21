@@ -1,0 +1,67 @@
+name: "pandora 4.0.6 original early-module ABI gate one-off"
+on:
+  push:
+    branches: ["pandora-406-early-module-gate-v2"]
+    paths: [".github/workflows/pandora-406-early-gate-recheck.yml"]
+permissions:
+  contents: read
+jobs:
+  check:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: "安装只读 ABI 解析依赖"
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd lz4 jq
+      - name: "复用并验证原始 OTA + GKI 候选附件"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/probe/stock" "$RUNNER_TEMP/probe/gki"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip' --dir "$RUNNER_TEMP/probe/stock"
+          echo "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8  $RUNNER_TEMP/probe/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" | sha256sum -c -
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/probe/gki"
+          (cd "$RUNNER_TEMP/probe/gki" && sha256sum -c RELEASE-SHA256SUMS.txt)
+      - name: "真实数据重新运行 fail-closed ABI 检查（不生成 boot）"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_vendorboot_modules.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_vendor_provider_graph.py' -v
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$RUNNER_TEMP/probe/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --stock-report "$RUNNER_TEMP/probe/gki/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/probe/gki/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/probe/gki/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/probe/gki/Module.symvers" \
+            --output "$RUNNER_TEMP/probe/ota-abi-report-with-early.json"
+          jq '{
+            gate, eligible_for_fastboot_boot, reason, module_count, imports_checked,
+            vendor_boot_modules_seen, vendor_boot_modules_in_graph,
+            vendor_boot_identical_dlkm_aliases, vendor_boot_module_imports,
+            core_imports_checked, oem_imports_checked, short_vermagic_modules,
+            wrong_crc:(.crc_mismatches|length),
+            unresolved:(.unresolved_kernel_imports|length),
+            ambiguous:(.ambiguous_providers|length),
+            failed_modules:(.failed_modules|length),
+            failed_examples:.failed_modules[:12],
+            missing_examples:.unresolved_kernel_imports[:12],
+            ambiguous_examples:.ambiguous_providers[:12]
+          }' "$RUNNER_TEMP/probe/ota-abi-report-with-early.json" | tee "$RUNNER_TEMP/probe/summary.json"
+          echo 'READ_ONLY, NO BOOT, NO LKG, NO STOCK INPUT MUTATION' >> "$GITHUB_STEP_SUMMARY"
+      - name: "保存只读审计证据"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-full-vendorboot-gate-readonly
+          path: |
+            ${{ runner.temp }}/probe/ota-abi-report-with-early.json
+            ${{ runner.temp }}/probe/summary.json
+          retention-days: 30
+          if-no-files-found: warn
