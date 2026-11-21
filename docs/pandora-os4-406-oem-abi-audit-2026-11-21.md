@@ -45,3 +45,40 @@
 已经验证的只有静态解析器和可追溯的部分内核 ABI 映射，不代表整机硬件兼容、新 GKI 可启动或已经恢复 Built-in Root。原 `OS4.0.5.0` LKG 不变，手机保持 `OS4.0.6.0` + LKM Root 使用。
 
 要继续推进必须核对缺失的 923 条符号由原厂内核或未采集的模块提供的证据，以及重复导出的可用模块选择。**不能通过静默忽略这些符号、豁免 CRC 或关闭检查来制造可刷镜像。**
+
+
+## 第二轮缺口溯源（2026-11-21）
+
+[只读证据 Run #44892287725](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44892287725)，产物 pandora-406-abi-gap-evidence，只使用与本 OTA 一致的 stock ZIP、已归档 GKI Module.symvers 和前次 BLOCKED 报告。所有输入分别验证其 SHA-256；没有重新编译、没有触碰手机或修改放行门禁。
+
+### 缺失符号分布
+
+- 923 次无法解析的导入，对应 **387 个不同符号、165 个消费模块**（vendor_dlkm 852 次；system_dlkm 71 次）。
+- 高频：ipc_log_string 44、ipc_log_context_create 43、ipc_log_context_destroy 32、qcom_smem_get 18、qcom_scm_assign_mem 13。这里的次数是不同导入者引用次数，不能当作不同缺失实现的数量。
+- system_dlkm 中 rust_binder.ko 单独有 71 次缺失导入，其中多为 Rust mangled kernel/core 符号。它们必须和候选 Rust 构建配置、工具链、ABI 一起核查，不能只用 C 符号表匹配推论兼容性。
+- 候选 Module.symvers 中有 598 个非 vmlinux 提供者的导出符号，但 **没有一个** 能补齐上述 923 条导入。因此，放宽当前 checker 的 vmlinux 提供者限制无法修复本轮阻断。
+- 这些符号可能属于原厂内核专有导出，或来自本次采集范围以外的模块。分类需要对应原厂的源码/模块导出及 CRC 证据；仅找到源码中的同名函数并不等于 ABI 对应。
+
+### 27 条 zsmalloc 重复提供者
+
+同一份输入中同时存在 vendor_dlkm 下的 zsmalloc.ko 和 system_dlkm 下的 kernel/mm/zsmalloc.ko：
+
+- 24 条重复导入对应的两份提供者 CRC 相同，**仍需确认运行时实际加载路径，不自动放行**。
+- 3 条涉及 zs_malloc。vendor CRC 为 0x1804f5bc；system CRC 为 0x36f39fe1。vendor node_cache 和 vendor zram 期望前者，system zram 期望后者。
+- 这些不是可随意合并的冗余文件，而是有实际 CRC 差异的模块组合。禁止选择方便的一份强行替代另一份。
+- 未验证真实 modules.load / 已加载模块来源之前，继续 BLOCKED。
+
+### 下一步：只读手机证据
+
+新增加的 Windows CMD 工具：scripts/xiaomi-os4/collect-pandora-live-abi-evidence.cmd（已安装 adb、手机为 pandora、需 Root），只读取：
+
+- 当前 Build、Slot、uname -r 与 boot_completed；
+- /proc/modules 已加载模块；
+- 能找到的 modules.load 中 zram/zsmalloc/node_cache/rust_binder 条目；
+- /proc/kallsyms 中部分核心符号的**名称**，在 Android 端用 awk 去掉地址后才传回电脑。
+
+本地只产生 pandora-live-abi-* 文件夹；不执行 adb push、fastboot、分区写入或自动上传。符号存在性只是进一步定位线索，**不是原厂导出 CRC 的充分证明**，不能自行解除 OEM ABI 门禁。
+
+后续应优先取得确实对应 OS4.0.6.0.XBLCNXM 的 OEM vmlinux / Module.symvers 或完整可重现的源码及配置；已知 Xiaomi 的 popsicle-w-oss 公开源码树 Makefile 为 Linux 6.11，不能直接称为当前 6.12.69 原厂内核的精确源码。
+
+**当前状态：BLOCKED；禁止输出 fastboot boot / AnyKernel3。OS4.0.6.0 + LKM Root 保持可用。**
