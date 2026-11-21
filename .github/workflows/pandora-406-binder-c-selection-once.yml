@@ -1,0 +1,47 @@
+name: "临时诊断 / pandora Binder C 选源与 r74 模块策略（只读）"
+on:
+  push:
+    branches:
+      - audit/pandora-406-binder-c-selection
+    paths:
+      - .github/workflows/pandora-406-binder-c-selection-once.yml
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: "运行 live reviewer 失败关闭回归"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_live_module_reviewer.py' -v
+      - name: "锁定 r74 检查 Binder active_impl / Rust dummy / inert init 语义"
+        run: |
+          set -euo pipefail
+          R74=b1d12d482d767c50cb792d988e4479d3f75c342a
+          mkdir -p "$RUNNER_TEMP/r74"
+          git -C "$RUNNER_TEMP/r74" init -q
+          git -C "$RUNNER_TEMP/r74" remote add origin https://android.googlesource.com/kernel/common
+          git -C "$RUNNER_TEMP/r74" fetch -q --depth=1 origin "$R74"
+          git -C "$RUNNER_TEMP/r74" checkout -q FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/r74" rev-parse HEAD)" = "$R74"
+          K="$RUNNER_TEMP/r74/drivers/android/Kconfig"
+          B="$RUNNER_TEMP/r74/drivers/android/binder.c"
+          R="$RUNNER_TEMP/r74/drivers/android/binder/rust_binder_main.rs"
+          {
+            echo "commit=$R74"
+            if grep -q "ANDROID_BINDER_IPC_RUST_DUMMY" "$K"; then echo "rust_dummy=present"; else echo "rust_dummy=absent"; fi
+            if grep -q "active_impl" "$B"; then echo "active_impl=present"; else echo "active_impl=absent"; fi
+            if grep -q "binder_use_rust == 0" "$R"; then echo "rust_module_inert_when_c=yes"; else echo "rust_module_inert_when_c=not_confirmed"; fi
+            grep -n -E "ANDROID_BINDER_IPC_RUST|ANDROID_BINDER_IPC_RUST_DUMMY" "$K" || true
+            grep -n -E "active_impl|binder_impl_param_get" "$B" | head -n 20 || true
+            grep -n -A12 -B4 "binder_use_rust == 0" "$R" || true
+          } | tee "$RUNNER_TEMP/r74-binder.txt"
+      - name: "只归档文字证据"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r74-binder-c-readonly
+          path: ${{ runner.temp }}/r74-binder.txt
+          retention-days: 30
