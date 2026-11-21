@@ -33,7 +33,7 @@ class EvidenceReviewer(unittest.TestCase):
     def loaded_note(self, module, note_sha, path=None):
         name = "loaded-" + module.replace("_", "-") + "-note-sha.txt"
         path = path or "/sys/module/" + module + "/notes/.note.gnu.build-id"
-        (self.dir / name).write_text(note_sha + "  " + path + "\\n")
+        (self.dir / name).write_text(note_sha + "  " + path + "\n")
 
     def test_actual_loaded_note_can_distinguish_vendor_zsmalloc(self):
         self.loaded_note("zsmalloc", review.EXPECTED_GNU_NOTE_SHA["zsmalloc"]["vendor"])
