@@ -38,7 +38,7 @@ jobs:
           if /I "%~1"=="shell" if /I "%~2"=="uname" echo 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k
           if /I "%~1"=="shell" if /I "%~2"=="su" (
             set "ARG=%~4"
-            if "!ARG!"=="id" echo uid=0(root) gid=0(root)
+            if "!ARG!"=="id" echo uid=0^(root^) gid=0^(root^)
             if "!ARG!"=="cat /proc/cmdline" echo foo=bar serialno=SENSITIVE binder.impl=rust token=SECRET
             if "!ARG!"=="cat /proc/bootconfig" echo binder.impl = "rust"
             if "!ARG!"=="cat /proc/modules" echo rust_binder 12345 0 - Live 0xDEADBEEF
