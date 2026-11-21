@@ -57,8 +57,11 @@ jobs:
                   }
               }
           }
-          '@ | Set-Variable -Name mockCode
-          Add-Type -TypeDefinition $mockCode -OutputType ConsoleApplication -OutputAssembly (Join-Path $dir 'adb.exe')
+          '@ | Set-Content -Encoding ascii (Join-Path $dir 'MockAdb.cs')
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          if (-not (Test-Path $compiler)) { throw "Windows .NET Framework C# compiler unavailable" }
+          & $compiler /nologo /target:exe "/out:$dir\adb.exe" (Join-Path $dir 'MockAdb.cs')
+          if ($LASTEXITCODE -ne 0) { throw "Mock adb native EXE compilation failed" }
           Add-Content -Path $env:GITHUB_PATH -Value $dir
       - name: Actual CMD batch run
         shell: cmd
