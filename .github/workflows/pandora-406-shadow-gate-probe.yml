@@ -41,6 +41,23 @@ jobs:
           set -euo pipefail
           jq '{gate,eligible_for_fastboot_boot,failed_modules,crc_mismatches,unresolved_count:(.unresolved_kernel_imports|length),unresolved_rust_binder,unresolved_rust_mangled,unresolved_examples:(.unresolved_kernel_imports[:100]),ambiguous_count:(.ambiguous_providers|length),ambiguous_same_crc,ambiguous_split_crc,ambiguous_provider_details}' \
             "$RUNNER_TEMP/out/ota-abi-report.json" | tee "$RUNNER_TEMP/out/shadow-input-summary.json"
+      - name: "运行影子门禁单测与 exact r74 shim 单测"
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_runtime_selected_testboot.py' -v
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_pandora_rust_binder_eexist_shim.py' -v
+      - name: "对真实 505 模块报告执行影子门禁"
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/assess-runtime-selected-testboot.py \
+            --abi-report "$RUNNER_TEMP/out/ota-abi-report.json" \
+            --runtime-selection .github/config/pandora-os4-406-runtime-selection.json \
+            --output "$RUNNER_TEMP/out/runtime-selected-shadow-gate.json"
+          jq -e '.formal_oem_gate=="BLOCKED" and .formal_oem_gate_unchanged==true and
+                 .experimental_gate=="RUNTIME_SELECTED_EEXIST_SHIM_TEST_ELIGIBLE" and
+                 .eligible_for_fastboot_boot_experiment==true and .flashable==false and
+                 .eligible_for_persistent_flash==false and .lkg_promotion==false' \
+            "$RUNNER_TEMP/out/runtime-selected-shadow-gate.json"
       - uses: actions/upload-artifact@v6
         with:
           name: pandora-406-shadow-gate-input-readonly
