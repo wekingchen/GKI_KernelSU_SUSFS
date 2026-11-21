@@ -1,4 +1,5 @@
 name: "临时诊断 / pandora 已加载模块 GNU Note 来源（只读）"
+# Real stock ELF notes recorded; rerun current full source-qualified and offline classifier regressions.
 on:
   push:
     branches:
