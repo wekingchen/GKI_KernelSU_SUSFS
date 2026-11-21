@@ -188,3 +188,30 @@
 此轮证据等级：`PINNED_STOCK_INVENTORY_VERIFIED`，
 不是 `RUNTIME_MODULE_DELIVERY_VERIFIED`。生产 gate 仍 `BLOCKED`，
 手机不需要改动。
+
+### 已准备下一次实机只读证据采集（尚未在手机执行）
+
+新增 `scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd`，与现有早期
+ABI 采集助手相互独立；只适用于 `pandora / OS4.0.6.0.XBLCNXM`、
+需已配置 adb 和 Root。仅运行 getprop、cat、sha256sum；**不会 adb push、
+insmod/modprobe、写分区、关闭校验、重启或刷机**。采集资料仅保存到 PC 本地：
+
+- 经 Windows PowerShell 只保留 `binder.impl=...` 的有效 `/proc/cmdline`
+  匹配，绝不写出完整 cmdline、序列号、原始 kallsyms 或模块地址；
+- `/proc/bootconfig` 中匹配 Binder 的行、已加载模块名称（脱敏）、
+  原厂系统/vendor DLKM 挂载和独立 `modules.load/dep`；
+- 精确的原厂 system Rust Binder 文件路径及 vendor/system 两套 zsmalloc
+  文件 SHA、模块禁用开关及 boot verifiedboot 状态；
+- **这些文件路径和本地哈希仍不足以证明运行时加载的具体 ELF**，
+  也不验证 AVB、内核签名信任或真实 Binder 选择。
+
+[Windows 原生模拟 ADB 验收 Run #44904322851](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904322851)
+已通过：用原生 `cmd.exe` 运行脚本，实际 `adb.exe` mock 返回含伪造敏感参数、
+内核装载地址和分区文件内容的样本，验证只保存过滤后结果；
+额外的 4 项静态安全约束测试通过。早期测试失败系模拟 ADB 批处理进程
+替换及 PowerShell Add-Type 不支持 Win32 控制台程序的模拟器问题，
+最终改用 Windows 自带 .NET Framework C# 编译器生成真实 `adb.exe`，
+**不是用户手机上的失败，也没有在用户手机上实测该脚本**。
+
+需要实际运行才可以判断动态加载源；此处只完成备测工具的 Windows 原生
+脱敏及只读流程验收，绝不以 mock PASS 代替手机证据。
