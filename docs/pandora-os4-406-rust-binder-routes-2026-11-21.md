@@ -239,3 +239,23 @@ insmod/modprobe、写分区、关闭校验、重启或刷机**。采集资料仅
 
 任何缺失/错误/冲突的输出标记为 **PARTIAL／UNKNOWN，维持 BLOCKED**；
 此阶段不会改变现用分区，不会尝试 `insmod`/`modprobe` 等主动加载。
+
+### 真机补证方法（只读，供后续验收使用）
+
+在已连接 `pandora / OS4.0.6.0.XBLCNXM` 且 `adb shell su -c "id"`
+能取得 root 的 **Windows `D:\\platform-tools`** 命令提示符执行：
+
+```bat
+cd /d D:\\platform-tools
+curl.exe -fL -o collect-pandora-live-module-delivery.cmd "https://raw.githubusercontent.com/wekingchen/GKI_KernelSU_SUSFS/dev/scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd"
+call collect-pandora-live-module-delivery.cmd
+```
+
+采集结束会打印本地 `pandora-live-module-delivery-数字` 文件夹名。
+检查该文件夹的 `README.txt` 后可将整个**本地文件夹**压缩上传用于对照。
+不会向 GitHub 或其它网络服务自动上传手机信息，不会写入手机。
+当某个 `modules.load` 或模块文件 SHA 输出为空，按“不存在足够证据”处理，
+**不能填充推测路径/假定 Binder 为 C 实现/自动提升到通过**。
+
+此采集只用于下一轮 `RUNTIME_OBSERVATION_PARTIAL` 分析，绝非实机
+`flash`、`fastboot boot`、`insmod` 或 `system_dlkm` 替换授权。
