@@ -48,6 +48,21 @@ jobs:
                  {collected_source, basename, sha256, gnu_build_id_note}))}' \
             "$RUNNER_TEMP/pandora-note/raw-full-report.json" > "$RUNNER_TEMP/pandora-note/module-notes.json"
           cat "$RUNNER_TEMP/pandora-note/module-notes.json"
+          python3 - "$RUNNER_TEMP/pandora-note/module-notes.json" <<'PY'
+          import json,runpy,sys
+          from pathlib import Path
+          expected=runpy.run_path("scripts/xiaomi-os4/review-live-module-delivery-readonly.py")["EXPECTED_GNU_NOTE_SHA"]
+          report=json.loads(Path(sys.argv[1]).read_text())
+          count=0
+          for module, sources in expected.items():
+              for origin, pinned_note in sources.items():
+                  actual=report["modules"][origin+":"+module]["gnu_build_id_note"]
+                  assert actual["status"]=="ELF_GNU_BUILD_ID_PRESENT"
+                  assert actual["note_sha256"]==pinned_note, (origin,module)
+                  count+=1
+          assert count==6
+          print("Six OEM GNU Note hashes match immutable reviewer references: PASS")
+          PY
           echo "OEM ABI remains BLOCKED; no claim about loaded module file SHA"
       - name: "仅归档 JSON Note 证据，不上传 .ko / boot"
         if: always()
