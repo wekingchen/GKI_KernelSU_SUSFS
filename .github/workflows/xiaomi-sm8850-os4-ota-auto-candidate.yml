@@ -371,9 +371,9 @@ jobs:
         run: |
           set -euo pipefail
           DIR="$RUNNER_TEMP/ota-abi"
-          python3 -m py_compile scripts/xiaomi-os4/check-ota-oem-abi.py scripts/xiaomi-os4/package-ota-testboot-v4.py
+          python3 -m py_compile scripts/xiaomi-os4/check-ota-oem-abi.py scripts/xiaomi-os4/pandora_vendorboot_modules.py scripts/xiaomi-os4/package-ota-testboot-v4.py
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends zstd jq
+          sudo apt-get install -y --no-install-recommends zstd jq lz4
           RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
           ASSET_ID="$(jq -r .github_asset_id "$DIR/stock-report.json")"
           jq -e --argjson id "$ASSET_ID" \
