@@ -96,7 +96,7 @@ def gnu_build_id_note(sections: dict[str, bytes]) -> dict:
     desc_end = desc_off + descsz
     if (namesz != 4 or descsz not in (16, 20, 32)
             or kind != 3 or name_end > len(raw)
-            or raw[12:name_end] != b"GNU\\0"
+            or raw[12:name_end] != bytes((71, 78, 85, 0))
             or desc_end > len(raw)):
         return {"status": "INVALID", "note_sha256": None,
                 "build_id_hex": None}
