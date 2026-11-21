@@ -25,9 +25,23 @@ class ReadOnlyLiveABICollection(unittest.TestCase):
             self.assertIn(item, self.contents)
 
     def test_no_kernel_addresses_are_collected(self):
-        self.assertIn("awk '{print $3}' /proc/kallsyms", self.contents)
+        self.assertNotIn("awk", self.contents)
+        self.assertIn('su -c "cat /proc/kallsyms"', self.contents)
+        self.assertIn('powershell.exe -NoProfile -NonInteractive -Command', self.contents)
+        self.assertIn('($cols.Count -ge 3)', self.contents)
+        self.assertIn('$cols[2]', self.contents)
         self.assertIn('findstr /C:"qcom_smem_get"', self.contents)
         self.assertIn('kernel-symbol-names.txt', self.contents)
+        self.assertIn('for %%F in ("%OUT%\\kernel-symbol-names.txt") do if %%~zF EQU 0', self.contents)
+
+    def test_windows_cmd_uses_only_simple_remote_cat_and_detects_partial_output(self):
+        self.assertNotIn('su -c "for p in', self.contents)
+        self.assertNotIn("awk '{print", self.contents)
+        self.assertIn('su -c "cat /vendor_dlkm/lib/modules/modules.load"', self.contents)
+        self.assertIn('su -c "cat /system_dlkm/lib/modules/modules.load"', self.contents)
+        self.assertIn('if %%~zF GTR 0', self.contents)
+        self.assertIn('WARNING: No modules.load file is accessible', self.contents)
+        self.assertIn('ERROR: /proc/modules returned an empty file', self.contents)
 
     def test_no_device_mutations(self):
         lines = [x.strip().lower() for x in self.contents.splitlines()
