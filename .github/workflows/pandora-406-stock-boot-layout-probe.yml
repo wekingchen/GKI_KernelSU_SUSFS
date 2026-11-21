@@ -20,42 +20,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/stock"
           gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern "*xm.zip" --dir "$RUNNER_TEMP/stock"
           ZIP="$(find "$RUNNER_TEMP/stock" -maxdepth 1 -name "*xm.zip" -type f -print -quit)"
-          test "$(sha256sum "$ZIP" | cut -d" " -f1)" = "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
-          python3 - "$ZIP" "$RUNNER_TEMP/stock-boot-layout.txt" <<'PY'
-import hashlib,struct,sys,zipfile
-zp,out=sys.argv[1:]
-with zipfile.ZipFile(zp) as z:
-    info=[i for i in z.infolist() if i.filename.rsplit("/",1)[-1]=="boot.img"]
-    assert len(info)==1
-    b=z.read(info[0])
-assert b[:8]==b"ANDROID!"
-ks,rs,osv,hs=struct.unpack_from("<IIII",b,8)
-hv=struct.unpack_from("<I",b,40)[0]
-sig=struct.unpack_from("<I",b,1580)[0]
-page=4096
-kernel_end=page+((ks+page-1)//page)*page
-footer=b[-64:]
-magic,major,minor,orig,vbo,vbs=struct.unpack(">4sIIQQQ28x",footer)
-region=b[kernel_end:orig]
-nz=[i for i,x in enumerate(region) if x]
-first=(kernel_end+nz[0]) if nz else None
-last=(kernel_end+nz[-1]) if nz else None
-def hx(x,n=64): return x[:n].hex()
-lines=[
- f"partition_size={len(b)}", f"boot_sha256={hashlib.sha256(b).hexdigest()}",
- f"header_version={hv}", f"header_size={hs}", f"kernel_size={ks}", f"ramdisk_size={rs}", f"signature_size={sig}",
- f"kernel_aligned_end={kernel_end}", f"footer_magic={magic.decode(errors='replace')}", f"footer_version={major}.{minor}",
- f"avb_original_image_size={orig}", f"avb_vbmeta_offset={vbo}", f"avb_vbmeta_size={vbs}",
- f"post_kernel_pre_original_len={len(region)}", f"post_kernel_pre_original_nonzero_bytes={len(nz)}",
- f"post_kernel_first_nonzero_offset={first}", f"post_kernel_last_nonzero_offset={last}",
- f"post_kernel_region_sha256={hashlib.sha256(region).hexdigest()}",
- f"post_kernel_head64_hex={hx(region)}", f"post_kernel_tail64_hex={region[-64:].hex() if region else ''}",
- f"vbmeta_magic_at_offset={b[vbo:vbo+4].decode(errors='replace') if vbo+4<=len(b) else 'OOB'}",
- f"vbmeta_sha256={hashlib.sha256(b[vbo:vbo+vbs]).hexdigest() if vbo+vbs<=len(b) else 'OOB'}",
-]
-open(out,"w").write("\n".join(lines)+"\n")
-print("\n".join(lines))
-PY
+          test "$(sha256sum "$ZIP" | cut -d' ' -f1)" = "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8"
+          python3 scripts/xiaomi-os4/inspect-pandora-stock-boot-layout.py \
+            --stock-zip "$ZIP" --output "$RUNNER_TEMP/stock-boot-layout.txt"
       - uses: actions/upload-artifact@v6
         with:
           name: pandora-406-stock-boot-layout-readonly
