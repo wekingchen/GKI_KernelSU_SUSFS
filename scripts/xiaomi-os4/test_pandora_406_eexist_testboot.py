@@ -39,14 +39,14 @@ class Packager(unittest.TestCase):
             f"KERNEL_RELEASE={RELEASE}\nIMAGE_SHA256={h(image)}\n")
         self.out=self.d/"out.img"
 
-    def run(self,*extra):
+    def invoke(self,*extra):
         return subprocess.run([sys.executable,str(SCRIPT),"--stock-zip",str(self.zip),
             "--stock-report",str(self.stock),"--shadow-gate",str(self.gate),
             "--metadata",str(self.meta),"--candidate-image",str(self.image),
             "--output",str(self.out),*extra],capture_output=True,text=True)
 
     def test_output_contains_only_expected_boot_flags(self):
-        p=self.run(); self.assertEqual(p.returncode,0,p.stderr+p.stdout)
+        p=self.invoke(); self.assertEqual(p.returncode,0,p.stderr+p.stdout)
         data=self.out.read_bytes()
         cmd=data[44:44+1536].split(b"\0",1)[0]
         self.assertIn(b"pandora_rust_binder_eexist=1",cmd.split())
@@ -57,7 +57,7 @@ class Packager(unittest.TestCase):
     def test_formal_gate_pass_is_rejected(self):
         g=json.loads(self.gate.read_text()); g["formal_oem_gate"]="CRC_AND_VERMAGIC_MATCH_CANDIDATE"
         self.gate.write_text(json.dumps(g))
-        self.assertNotEqual(self.run().returncode,0)
+        self.assertNotEqual(self.invoke().returncode,0)
 
     def test_conflicting_shim_flag_is_rejected(self):
         with zipfile.ZipFile(self.zip) as z: boot=bytearray(z.read("boot.img"))
@@ -66,6 +66,6 @@ class Packager(unittest.TestCase):
         with zipfile.ZipFile(self.zip,"w") as z: z.writestr("boot.img",boot)
         s=json.loads(self.stock.read_text()); s["ota_source_id"]=h(self.zip.read_bytes()); s["stock_boot_sha256"]=h(boot)
         self.stock.write_text(json.dumps(s))
-        self.assertNotEqual(self.run().returncode,0)
+        self.assertNotEqual(self.invoke().returncode,0)
 
 if __name__=="__main__": unittest.main()
