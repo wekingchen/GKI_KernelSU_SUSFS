@@ -8,6 +8,7 @@ PAGE=4096
 CMD=44
 CMD_LEN=1536
 MAX_BOOT=200*1024*1024
+AVB_FOOTER_SIZE=64
 BOOT_RE=re.compile(r"boot(?:_[^/]*)?\.img$",re.I)
 FLAG=b"pandora_rust_binder_eexist=1"
 
@@ -91,7 +92,8 @@ def main():
     release=stock["uname"].encode()
     if release not in image: fail("stock release marker absent from Image")
     candidate_payload_size=PAGE+((len(image)+PAGE-1)//PAGE)*PAGE
-    if candidate_payload_size>len(boot)-AVB_FOOTER_SIZE:
+    payload_capacity=vbmeta_offset if stock_has_avb_footer else len(boot)
+    if candidate_payload_size>payload_capacity:
         fail("Image too large for stock boot partition envelope")
     header=bytearray(boot[:PAGE])
     raw=bytes(header[CMD:CMD+CMD_LEN])
@@ -131,6 +133,10 @@ def main():
     print("EXPERIMENTAL_TESTBOOT=PASS")
     print("FORMAL_OEM_GATE=BLOCKED")
     print("STOCK_PARTITION_AVB_FOOTER="+("PRESENT_STRIPPED" if stock_has_avb_footer else "ABSENT"))
+    print("STOCK_ORIGINAL_BOOT_SIZE="+str(original_size))
+    print("STOCK_AVB_VBMETA_OFFSET="+str(vbmeta_offset))
+    print("STOCK_AVB_VBMETA_SIZE="+str(vbmeta_size))
+    print("FASTBOOT_BOOT_LOGICAL_SIZE="+str(len(out)))
     print("FLASHABLE=NO")
     print("USE=fastboot boot ONLY")
     print("BOOT_SHA256="+sha(out))
