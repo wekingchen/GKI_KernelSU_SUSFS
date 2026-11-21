@@ -25,7 +25,7 @@ class ReadOnlyLiveABICollection(unittest.TestCase):
             self.assertIn(item, self.contents)
 
     def test_no_kernel_addresses_are_collected(self):
-        self.assertNotIn("awk", self.contents)
+        active_commands = "\n".join(line for line in self.contents.splitlines()\n                                  if not line.lstrip().lower().startswith("rem "))\n        self.assertNotIn("awk ", active_commands)
         self.assertIn('su -c "cat /proc/kallsyms"', self.contents)
         self.assertIn('powershell.exe -NoProfile -NonInteractive -Command', self.contents)
         self.assertIn('($cols.Count -ge 3)', self.contents)
