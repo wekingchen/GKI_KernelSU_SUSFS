@@ -293,32 +293,80 @@ def main() -> int:
             files = [i for i in oem_zip.infolist() if not i.is_dir() and KO_NAME.search(i.filename)]
             if len(files) != wanted_count:
                 raise ValueError("OEM module inventory incomplete or count mismatch")
-            total_imports = 0
+            # First parse every module: complete provider inventory BEFORE resolving
+            # any consumer. This handles modules regardless of ZIP ordering.
+            records = []
+            providers = {}
+            short_vermagic_modules = 0
+            full_vermagic_modules = 0
             for member in files:
                 name = member.filename
                 try:
                     if ".." in name.split("/") or member.file_size > MAX_MODULE:
                         raise ValueError("unsafe OEM module entry")
-                    b = unpack_module(oem_zip.read(member), name)
-                    sections = elf_sections(b)
-                    vermagic = module_vermagic(sections)
-                    if vermagic != release:
-                        raise ValueError("vermagic mismatch: " + vermagic)
+                    data = unpack_module(oem_zip.read(member), name)
+                    sections = elf_sections(data)
+                    mode = compatible_vermagic(module_vermagic(sections), release)
+                    if mode == "stock_short":
+                        short_vermagic_modules += 1
+                    else:
+                        full_vermagic_modules += 1
                     imported = imported_versions(sections)
-                    total_imports += len(imported)
-                    for symbol, expected_crc in imported.items():
-                        if symbol not in exports:
-                            report["unresolved_kernel_imports"].append(f"{name}:{symbol}")
-                        elif exports[symbol] != expected_crc:
-                            report["crc_mismatches"].append(f"{name}:{symbol}")
+                    provided = module_export_crcs(data)
+                    records.append((name, imported))
+                    for symbol, crc in provided.items():
+                        providers.setdefault(symbol, []).append((name, crc))
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
+            total_imports = 0
+            core_imports = 0
+            oem_imports = 0
+            ambiguous = []
+            dependencies = {}
+            for name, imported in records:
+                total_imports += len(imported)
+                for symbol, expected_crc in imported.items():
+                    candidates = providers.get(symbol, [])
+                    if symbol in exports:
+                        # Any duplicate provider is ambiguous even if CRCs agree.
+                        if candidates:
+                            ambiguous.append(f"{name}:{symbol}:vmlinux+OEM")
+                            continue
+                        core_imports += 1
+                        if exports[symbol] != expected_crc:
+                            report["crc_mismatches"].append(f"{name}:{symbol}:vmlinux")
+                    elif len(candidates) == 1:
+                        provider, crc = candidates[0]
+                        if provider == name:
+                            ambiguous.append(f"{name}:{symbol}:self-provider")
+                            continue
+                        oem_imports += 1
+                        edge = provider + " -> " + name
+                        dependencies[edge] = dependencies.get(edge, 0) + 1
+                        if crc != expected_crc:
+                            report["crc_mismatches"].append(f"{name}:{symbol}:{provider}")
+                    elif len(candidates) > 1:
+                        ambiguous.append(f"{name}:{symbol}:multiple-OEM-providers")
+                    else:
+                        report["unresolved_kernel_imports"].append(f"{name}:{symbol}")
+            report["ambiguous_providers"] = ambiguous
+            report["provider_graph_edge_count"] = len(dependencies)
+            report["provider_graph_example_edges"] = [
+                {"edge": edge, "imports": count}
+                for edge, count in list(sorted(dependencies.items()))[:40]
+            ]
         report.update(stock_build=stock["build"], stock_input_sha256=stock["ota_source_id"],
                       candidate_commit=gki["candidate_commit"], kernel_release=release,
                       module_count=len(files), imports_checked=total_imports,
+                      core_imports_checked=core_imports, oem_imports_checked=oem_imports,
+                      short_vermagic_modules=short_vermagic_modules,
+                      full_vermagic_modules=full_vermagic_modules,
+                      verified_oem_export_symbols=sum(len(v) for v in providers.values()),
                       vmlinux_exports=len(exports), module_source="LIVE_OTA_MODULES_IN_XM_ZIP")
-        if report["failed_modules"] or report["unresolved_kernel_imports"] or report["crc_mismatches"] or total_imports == 0:
-            raise ValueError("OEM .ko version check has errors, unproven external providers or missing CRCs")
+        if (report["failed_modules"] or report["unresolved_kernel_imports"]
+                or report["crc_mismatches"] or report["ambiguous_providers"]
+                or total_imports == 0 or core_imports == 0):
+            raise ValueError("OEM .ko CRC/vermagic/provider graph has errors or unresolved imports")
         report.update(gate="CRC_AND_VERMAGIC_MATCH_CANDIDATE", eligible_for_fastboot_boot=True,
                       reason="Static module version CRC check passed; OEM boot still needs human fastboot boot and runtime validation")
     except Exception as exc:
