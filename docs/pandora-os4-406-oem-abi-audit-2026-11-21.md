@@ -258,3 +258,36 @@ LKG 晋升。下一阶段必须取得独立的原厂 system_dlkm 加载链/模�
 
 **未有 OS4.0.6.0 真机的上述 Note 快照**，所有启动/刷机门禁继续
 `BLOCKED`、71 Rust 导入缺口及 zsmalloc 24/3 来源歧义均不放行。
+
+## 第十轮：OS4.0.6.0 真机运行时来源已收窄（2026-11-21）
+
+用户实际只读采集包 `pandora-live-module-delivery-30667.zip`，
+SHA-256 `7ec1ba2638d32687ba1bf3ce216232fcd98a99e92e841662420d000d1880871f`，
+已形成独立记录：
+[pandora OS4.0.6.0 真机模块来源只读证据](pandora-os4-406-live-module-evidence-2026-11-21.md)。
+
+关键新事实：
+
+- `rust_binder`、`zsmalloc`、`zram`、`node_cache` 均真实出现在
+  当前 `/proc/modules`；`rust_binder initstate=live`。
+- 真机已加载 `rust_binder` GNU Note 唯一对应锁定 OTA 的
+  **system_dlkm rust_binder**。
+- 真机已加载 `zsmalloc` / `zram` / `node_cache` GNU Note
+  全部唯一对应 **vendor** 原厂模块；同时 vendor `modules.dep`
+  明确 `zram -> zsmalloc`、`node_cache -> zsmalloc`，
+  且 `/proc/modules` 显示 `zsmalloc users=2`。
+- 因此静态图的 zsmalloc 24/3 多提供者歧义，在**本次当前原厂启动的
+  实际运行时选源层面**已确定为 vendor，不再是 UNKNOWN。
+- 该事实不自动解除候选内核 gate：任何替换 boot/GKI 后仍需验证
+  相同模块装载选择、vendor KMI，以及 OEM Rust Binder 71 个导入缺口。
+- 第一版采集器错误读取 root-level system_dlkm `modules.load`，
+  已修正为 `/system_dlkm/lib/modules/<uname -r>/modules.load`；
+  同时新增只读 Binder `impl` / `active_impl` sysfs 采集。
+- 修正后 Linux 回归与 Windows 原生 CMD 端到端模拟均在
+  [Run #44908512061](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44908512061)
+  通过，且测试强制保持 `gate=BLOCKED` / `flashable=false`。
+
+**当前正式状态：** current-boot vendor zsmalloc 来源已解决；
+system Rust Binder 模块来源已解决；Binder 当前 active 实现与
+system_dlkm 版本目录加载清单等待第二次只读补采。fastboot boot、
+AnyKernel3、持久刷机和 LKG 晋升继续禁止。
