@@ -123,6 +123,33 @@ class EvidenceReviewer(unittest.TestCase):
         self.assertTrue(r["runtime_rust_binder_active_consistent"])
         self.assertEqual(r["gate"], "BLOCKED")
 
+    def test_real_30667_runtime_selection_remains_gate_blocked(self):
+        # Mirrors the first actual OS4.0.6.0 read-only capture. That older
+        # collector did not yet save system zram or Binder sysfs active state.
+        (self.dir / "system-zram-file-sha.txt").unlink()
+        (self.dir / "binder-impl-cmdline.txt").write_text("")
+        for module, source in (
+                ("rust_binder", "system"),
+                ("zsmalloc", "vendor"),
+                ("zram", "vendor"),
+                ("node_cache", "vendor")):
+            self.loaded_note(module, review.EXPECTED_GNU_NOTE_SHA[module][source])
+        r = review.evaluate(self.dir)
+        self.assertEqual(r["overall_status"], "PARTIAL")
+        self.assertIn("system:zram", r["on_disk_unknowns"])
+        self.assertTrue(r["runtime_current_boot_zsmalloc_provider_resolved"])
+        self.assertTrue(r["runtime_vendor_memory_stack_consistent"])
+        self.assertEqual(r["runtime_zsmalloc_unique_note_source"], "vendor")
+        self.assertEqual(r["runtime_rust_binder_unique_note_source"], "system")
+        self.assertTrue(r["runtime_rust_binder_stock_system_note_consistent"])
+        self.assertFalse(r["binder_implementation_verified"])
+        self.assertEqual(r["binder_implementation_selection"], "UNPROVEN")
+        self.assertEqual(r["verified_boot_state"], "green")
+        self.assertEqual(r["vbmeta_device_state"], "locked")
+        self.assertEqual(r["gate"], "BLOCKED")
+        self.assertFalse(r["flashable"])
+        self.assertFalse(r["eligible_for_fastboot_boot"])
+
     def test_matched_on_disk_is_never_runtime_abi_pass(self):
         r = review.evaluate(self.dir)
         self.assertEqual(r["overall_status"], "ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF")
