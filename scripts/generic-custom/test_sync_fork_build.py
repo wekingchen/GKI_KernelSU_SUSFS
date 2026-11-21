@@ -110,6 +110,8 @@ class RebaseSafety(unittest.TestCase):
         self.assertIn('build-fork-custom.yml', pipeline)
         self.assertIn('41239924766', pipeline)
         self.assertIn('select(.conclusion=="success")', pipeline)
+        self.assertIn("verify_fork_build_log.py", pipeline)
+        self.assertIn("KERNEL_JOB_ID=", pipeline)
         self.assertIn('BakaSU_kernel-android12-5.10-209-AnyKernel3', pipeline)
         self.assertIn('CURRENT_UPSTREAM=', pipeline)
         self.assertIn('CURRENT_DEV=', pipeline)

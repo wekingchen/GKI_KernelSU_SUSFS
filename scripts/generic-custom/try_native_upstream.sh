@@ -3,6 +3,11 @@
 # branch. No phone confirmation required. Never retire the fallback after a
 # green test of the fork's modified shared build.yml or a partial build.
 set -euo pipefail
+# 2026-11-21: K50 Pro fork-only policy. Legacy native switch code below is
+# retained only as historical reference and MUST NOT execute automatically.
+echo "::error::上游原版自动切换已停用；K50 Pro 永久优先使用本仓隔离修复版。"
+exit 1  # fork-only policy lock
+
 [[ "$GITHUB_REPOSITORY" == "wekingchen/GKI_KernelSU_SUSFS" ]] || exit 1
 [[ "$GITHUB_REF" == "refs/heads/dev" ]] || exit 1
 cd "$(git rev-parse --show-toplevel)"
