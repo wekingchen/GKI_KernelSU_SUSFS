@@ -40,6 +40,13 @@ class LiveLoaderCollector(unittest.TestCase):
         self.assertNotIn('adb shell su -c "modprobe ', text)
         self.assertNotIn('cat /sys/module/zsmalloc/notes/.note.gnu.build-id', text)
 
+    def test_archive_is_local_only_and_optional(self):
+        text = "\n".join(COMMANDS)
+        self.assertIn('compress-archive -literalpath', text)
+        self.assertIn('destinationpath', text)
+        self.assertIn('evidence archive:', text)
+        self.assertNotIn('adb push', text)
+
     def test_partition_paths_not_conflated(self):
         text = "\n".join(COMMANDS)
         self.assertIn('/system_dlkm/lib/modules/6.12.69-', text)
