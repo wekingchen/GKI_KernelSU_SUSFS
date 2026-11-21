@@ -184,6 +184,32 @@ jobs:
           else
             echo 'R62_RUST_BINDER_KO_NOT_DIRECT_ARTIFACT'
           fi
+      - name: "Compare Rust compiler build signatures from verified kernel vmlinux"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/r62/Xiaomi17Pro-pandora-OS4-Gen5-ORIGINAL-evidence.tar.zst"
+          echo '=== VERIFIED R62 FULL INVENTORY ==='
+          cat "$RUNNER_TEMP/r62/file-list.txt"
+          if grep -qE '^\\./vmlinux\\.zst
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-r62-verified-evidence-inventory
+          path: |
+            ${{ runner.temp }}/r62/file-list.txt
+            ${{ runner.temp }}/r62/verified-r62-vs-new-gki.json
+            ${{ runner.temp }}/r62/binder-boot-conditions.json
+          retention-days: 14
+          if-no-files-found: warn
+ "$RUNNER_TEMP/r62/file-list.txt"; then
+            tar -I zstd -xOf "$archive" './vmlinux.zst' | zstd -dc > "$RUNNER_TEMP/r62/vmlinux"
+            echo '=== VERIFIED R62 RUST/CLANG COMPILER IDENTIFIERS ==='
+            readelf -p .comment "$RUNNER_TEMP/r62/vmlinux" | grep -Ei 'rustc|Android Rust|clang' | head -n 12 || true
+            echo '=== VERIFIED R62 TOOLCHAIN STRINGS ==='
+            strings "$RUNNER_TEMP/r62/vmlinux" | grep -E 'Android Rust Toolchain version|rustc version 1.82.0' | head -n 8 || true
+          else
+            echo 'VERIFIED_R62_VMLINUX_NOT_IN_ARCHIVE'
+          fi
       - name: "Store file inventory only"
         if: always()
         uses: actions/upload-artifact@v6
