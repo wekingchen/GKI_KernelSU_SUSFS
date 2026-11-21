@@ -5,6 +5,7 @@ Does not claim full ABI or boot compatibility: users must still fastboot boot to
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.util
 import json
 import lzma
 import re
@@ -13,6 +14,12 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+_vendor_spec = importlib.util.spec_from_file_location(
+    'pandora_vendorboot_modules', Path(__file__).with_name('pandora_vendorboot_modules.py'))
+_vendor_mod = importlib.util.module_from_spec(_vendor_spec)
+_vendor_spec.loader.exec_module(_vendor_mod)
+extract_vendor_boot_modules = _vendor_mod.extract_vendor_boot_modules
 
 KO_NAME = re.compile(r"\.ko(?:\.zst|\.xz|\.gz)?$", re.I)
 ELF64_HDR = struct.Struct("<16sHHIQQQIHHHHHH")
@@ -286,6 +293,12 @@ def main() -> int:
                 raise ValueError("OEM module archive oversized")
             wanted_count = int(stock_zip.read(count_member[0]).decode("ascii", "strict").strip().split("=", 1)[1])
             raw = stock_zip.read(oem_members[0])
+            vendor_boot_entries = [i for i in stock_zip.infolist()
+                                   if i.filename == "vendor_boot.img" and not i.is_dir()]
+            if len(vendor_boot_entries) != 1 or vendor_boot_entries[0].file_size > 128 * 1024 * 1024:
+                raise ValueError("missing, duplicate or oversized stock vendor_boot.img")
+            vendor_boot_bytes = stock_zip.read(vendor_boot_entries[0])
+            early_modules = extract_vendor_boot_modules(vendor_boot_bytes)
             if not (1 <= wanted_count <= MAX_MODULES):
                 raise ValueError("invalid OEM modules manifest count")
         import io
@@ -299,12 +312,17 @@ def main() -> int:
             providers = {}
             short_vermagic_modules = 0
             full_vermagic_modules = 0
+            dlkm_bytes_sha256 = set()
+            early_byte_identical_aliases = 0
+            early_accepted_modules = 0
+            early_import_count = 0
             for member in files:
                 name = member.filename
                 try:
                     if ".." in name.split("/") or member.file_size > MAX_MODULE:
                         raise ValueError("unsafe OEM module entry")
                     data = unpack_module(oem_zip.read(member), name)
+                    dlkm_bytes_sha256.add(sha(data))
                     sections = elf_sections(data)
                     mode = compatible_vermagic(module_vermagic(sections), release)
                     if mode == "stock_short":
@@ -314,6 +332,33 @@ def main() -> int:
                     imported = imported_versions(sections)
                     provided = module_export_crcs(data)
                     records.append((name, imported))
+                    for symbol, crc in provided.items():
+                        providers.setdefault(symbol, []).append((name, crc))
+                except Exception as exc:
+                    report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
+            # The stock vendor_boot (same SHA-bound OTA archive) carries early
+            # provider modules that do NOT occur in vendor/system DLKM ZIP.
+            # Only byte-identical binaries are provable aliases; no filename- or
+            # matching-CRC shortcut may silently collapse different modules.
+            for path, data in early_modules:
+                name = "vendor_boot/" + path
+                if sha(data) in dlkm_bytes_sha256:
+                    early_byte_identical_aliases += 1
+                    continue
+                try:
+                    if not 64 <= len(data) <= MAX_MODULE:
+                        raise ValueError("invalid early module size")
+                    sections = elf_sections(data)
+                    mode = compatible_vermagic(module_vermagic(sections), release)
+                    if mode == "stock_short":
+                        short_vermagic_modules += 1
+                    else:
+                        full_vermagic_modules += 1
+                    imported = imported_versions(sections)
+                    provided = module_export_crcs(data)
+                    records.append((name, imported))
+                    early_accepted_modules += 1
+                    early_import_count += len(imported)
                     for symbol, crc in provided.items():
                         providers.setdefault(symbol, []).append((name, crc))
                 except Exception as exc:
@@ -358,11 +403,16 @@ def main() -> int:
         report.update(stock_build=stock["build"], stock_input_sha256=stock["ota_source_id"],
                       candidate_commit=gki["candidate_commit"], kernel_release=release,
                       module_count=len(files), imports_checked=total_imports,
+                      vendor_boot_modules_seen=len(early_modules),
+                      vendor_boot_modules_in_graph=early_accepted_modules,
+                      vendor_boot_identical_dlkm_aliases=early_byte_identical_aliases,
+                      vendor_boot_module_imports=early_import_count,
                       core_imports_checked=core_imports, oem_imports_checked=oem_imports,
                       short_vermagic_modules=short_vermagic_modules,
                       full_vermagic_modules=full_vermagic_modules,
                       verified_oem_export_symbols=sum(len(v) for v in providers.values()),
-                      vmlinux_exports=len(exports), module_source="LIVE_OTA_MODULES_IN_XM_ZIP")
+                      vmlinux_exports=len(exports),
+                      module_source="SHA_BOUND_DLKM_AND_VENDOR_BOOT_V4")
         if (report["failed_modules"] or report["unresolved_kernel_imports"]
                 or report["crc_mismatches"] or report["ambiguous_providers"]
                 or total_imports == 0 or core_imports == 0):
