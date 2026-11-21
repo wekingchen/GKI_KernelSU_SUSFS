@@ -139,3 +139,52 @@
 `g43b5ab7e247d` 对应的准确 6.12.69 OEM Rust/内核源码。
 任何替代模块方案必须显式保留完整 OTA 恢复和签名/AVB 约束，不允许通过
 删掉 Rust Binder、禁用校验、伪造 CRC 或合并两套 zsmalloc 来消除阻断。
+
+## 第八轮：OS4.0.6 原厂 system/vendor 模块供给静态审计（2026-11-21）
+
+[只读 Run #44903615504](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903615504)
+已对与上一轮相同 SHA 的 stock ZIP 真正复验全部 505 个归档模块；证据工件
+`pandora-406-stock-module-delivery-readonly`，Artifact ID `14707270880`。
+首轮 #44903500899 失败仅因新解析器错误地将合法的重复 `.modinfo parmtype`
+条目视为冲突；已改为**只对单值身份字段严格拒绝冲突**，增补反例测试后复测通过。
+上述失败不能解释为 OEM 模块错误。
+
+### 可证实的模块身份（库存，不等于运行时）
+
+- `system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/android/binder/rust_binder.ko`
+  SHA `ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c`，
+  `.modinfo` 中 `vermagic` 对应原厂完整 release、
+  `scmversion=g43b5ab7e247d`、`depends` 为空。
+  未发现标准 Linux `~Module signature appended~.` 尾标，也未记录
+  `.modinfo signer/sig_key/sig_hashalgo`；**仅证明文件中未见这些标记，
+  不能据此推导原厂禁止/允许未签名模块、实际加载或 AVB 验证结果**。
+- `vendor_dlkm/lib/modules/zsmalloc.ko` SHA
+  `350f7127f0a8cda912eea8dfe6d93dbf30e5b31832969aa44ee6161424eaed3e`，
+  `zs_malloc` 导出 CRC `0x1804f5bc`，与同来源 vendor `zram.ko`、
+  `node_cache.ko` 的消费 CRC 完全一致。
+- `system_dlkm/.../kernel/mm/zsmalloc.ko` SHA
+  `b54598bea0a162cd2578f9d1490095fef148014de0c7dbaf012036b6adcbc465`，
+  `zs_malloc` 导出 CRC `0x36f39fe1`，与 system `zram.ko` 的消费 CRC 相符。
+  两个来源不能混用，重复提供者 24 同 CRC / 3 不同 CRC 继续阻断。
+
+### 缺失的关键加载证据
+
+- 此已采集的 `xm.zip` **不包含完整的 `system_dlkm.img`**，
+  内嵌 `oem-modules.zip` 也没有 `modules.load` / `modules.dep`。
+  因此无法从此证据独立证明 system_dlkm 的实际文件系统挂载配置、
+  文件选择、`modprobe`/init 加载顺序、模块加载签名策略、AVB 链或
+  `rust_binder` 与 C Binder 的实际实现选择。
+- 来自已锁定的**候选 GKI final.config（非原厂配置）**：
+  `CONFIG_MODULE_SIG=y`、`CONFIG_MODULE_SIG_FORCE=n`、
+  `CONFIG_MODULE_SIG_ALL=y`、`CONFIG_ANDROID_BINDER_IPC_RUST=m`。
+  不能把这些配置冒充现用 OEM 内核的运行时策略，也不能因
+  `SIG_FORCE=n` 直接把 OEM Binder 替换视为安全。
+- Android 官方文档：
+  [GKI system_dlkm 分区](https://source.android.com/docs/core/architecture/partitions/gki-partitions)
+  明确提醒 GKI 内核与其模块需要配套构建、更新，而且 `system_dlkm` 由
+  first-stage init 以只读文件系统挂载。此事实支持继续保持原厂分区
+  与 OTA 恢复路径不变，**不支持用单个 boot-only AnyKernel3 偷换系统模块**。
+
+此轮证据等级：`PINNED_STOCK_INVENTORY_VERIFIED`，
+不是 `RUNTIME_MODULE_DELIVERY_VERIFIED`。生产 gate 仍 `BLOCKED`，
+手机不需要改动。
