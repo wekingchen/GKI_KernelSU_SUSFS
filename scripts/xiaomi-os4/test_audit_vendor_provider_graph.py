@@ -210,6 +210,26 @@ class OEMProviderGraphTest(unittest.TestCase):
         self.assertFalse(report["eligible_for_fastboot_boot"])
         self.assertTrue(report["ambiguous_providers"])
 
+    def test_duplicate_provider_in_same_crc_reports_ambiguity_without_allowing_boot(self):
+        report = self.run_gate(duplicate_provider=True)
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertEqual(report["ambiguous_same_crc"], 1)
+        self.assertEqual(report["ambiguous_split_crc"], 0)
+        self.assertTrue(report["ambiguous_provider_details"])
+        detail = report["ambiguous_provider_details"][0]
+        self.assertEqual(detail["symbol"], "vendor_export")
+        self.assertEqual(detail["provider_crc_variants"], 1)
+        self.assertTrue(all(p["crc_matches"] for p in detail["providers"]))
+
+    def test_conflicting_early_and_dlkm_crc_reports_split_without_allowing_boot(self):
+        report = self.run_gate(early_provider=True, early_bad_crc=True)
+        self.assertFalse(report["eligible_for_fastboot_boot"])
+        self.assertEqual(report["ambiguous_split_crc"], 1)
+        detail = report["ambiguous_provider_details"][0]
+        self.assertEqual(detail["provider_crc_variants"], 2)
+        self.assertTrue(any(p["crc_matches"] for p in detail["providers"]))
+        self.assertTrue(any(not p["crc_matches"] for p in detail["providers"]))
+
     def test_bad_short_vermagic_fails(self):
         report = self.run_gate(consumer_release="6.12.68-android16-6-4k")
         self.assertFalse(report["eligible_for_fastboot_boot"])
