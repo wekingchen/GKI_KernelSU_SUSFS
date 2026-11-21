@@ -1,0 +1,104 @@
+name: "临时验收 / pandora 4.0.6 模块 GNU Note 与本地 ZIP Windows 仿真"
+on:
+  push:
+    branches:
+      - audit/pandora-406-runtime-module-note
+    paths:
+      - .github/workflows/pandora-406-live-notes-windows-once.yml
+permissions:
+  contents: read
+jobs:
+  cmd-smoke:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/audit/pandora-406-runtime-module-note'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: "静态检查只读命令边界与来源隔离"
+        shell: pwsh
+        run: python -m unittest discover -s scripts/xiaomi-os4 -p 'test_audit_live_module_delivery.py' -v
+      - name: "用 Windows 原生 CMD 和模拟 adb 走完整读取/脱敏流程"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mock = Join-Path $env:RUNNER_TEMP 'pandora-adb-mock'
+          New-Item -ItemType Directory -Force -Path $mock | Out-Null
+          $csharp = @'
+          using System;
+          public static class Program {
+            public static int Main(string[] args) {
+              if (args.Length >= 3 && args[0] == "shell" && args[1] == "getprop") {
+                switch (args[2]) {
+                  case "ro.product.device": Console.WriteLine("pandora"); break;
+                  case "ro.mi.os.version.incremental": Console.WriteLine("OS4.0.6.0.XBLCNXM"); break;
+                  case "ro.boot.slot_suffix": Console.WriteLine("_b"); break;
+                  case "sys.boot_completed": Console.WriteLine("1"); break;
+                  case "ro.boot.verifiedbootstate": Console.WriteLine("orange"); break;
+                  case "ro.boot.vbmeta.device_state": Console.WriteLine("unlocked"); break;
+                }
+                return 0;
+              }
+              if (args.Length >= 3 && args[0] == "shell" && args[1] == "uname") {
+                Console.WriteLine("6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k");
+                return 0;
+              }
+              if (args.Length >= 4 && args[0] == "shell" && args[1] == "su" && args[2] == "-c") {
+                string command = args[3];
+                if (command == "id") Console.WriteLine("uid=0(root) gid=0(root)");
+                else if (command == "cat /proc/cmdline") Console.WriteLine("foo=bar serialno=SENSITIVE binder.impl=rust token=SECRET");
+                else if (command == "cat /proc/bootconfig") Console.WriteLine("binder.impl = rust");
+                else if (command == "cat /proc/modules") {
+                  Console.WriteLine("rust_binder 12345 0 - Live 0xDEADBEEF");
+                  Console.WriteLine("zsmalloc 20480 2 - Live 0xDEADBEEF");
+                } else if (command == "cat /proc/sys/kernel/modules_disabled") Console.WriteLine("0");
+                else if (command == "cat /sys/module/rust_binder/initstate") Console.WriteLine("live");
+                else if (command == "cat /proc/mounts") Console.WriteLine("/dev/block/dm-1 /system_dlkm ext4 ro 0 0");
+                else if (command == "cat /system_dlkm/lib/modules/modules.load") Console.WriteLine("rust_binder.ko");
+                else if (command == "cat /vendor_dlkm/lib/modules/modules.load") Console.WriteLine("zsmalloc.ko");
+                else if (command == "cat /system_dlkm/lib/modules/modules.dep") Console.WriteLine("rust_binder.ko:");
+                else if (command == "cat /vendor_dlkm/lib/modules/modules.dep") Console.WriteLine("zram.ko: zsmalloc.ko");
+                else if (command.StartsWith("sha256sum ")) Console.WriteLine("0123456789abcdef  " + command.Substring(10));
+                return 0;
+              }
+              return 0;
+            }
+          }
+          '@
+          $source = Join-Path $mock 'Program.cs'
+          Set-Content -Path $source -Value $csharp -Encoding utf8
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          if (-not (Test-Path $compiler)) { throw 'Native .NET Framework C# compiler unavailable' }
+          $binary = Join-Path $mock 'adb.exe'
+          & $compiler /nologo /target:exe ("/out:" + $binary) $source
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $binary)) { throw 'Mock executable compilation failed' }
+          $env:PATH = "$mock;$env:PATH"
+          Push-Location $env:RUNNER_TEMP
+          try {
+            $cmdFile = Join-Path $env:GITHUB_WORKSPACE 'scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd'
+            & cmd.exe /c $cmdFile
+            if ($LASTEXITCODE -ne 0) { throw "Windows CMD collector failed with exit $LASTEXITCODE" }
+            $dirs = @(Get-ChildItem -Directory -Filter 'pandora-live-module-delivery-*')
+            if ($dirs.Count -ne 1) { throw "Expected one local evidence directory" }
+            $out = $dirs[0].FullName
+            $cmd = Get-Content (Join-Path $out 'binder-impl-cmdline.txt') -Raw
+            $loaded = Get-Content (Join-Path $out 'loaded-modules-redacted.txt') -Raw
+            $sha = Get-Content (Join-Path $out 'system-rust-binder-file-sha.txt') -Raw
+            if ($cmd -notmatch 'binder.impl=rust' -or $cmd -match 'SENSITIVE|SECRET') { throw 'Boot args leaked or dropped binder choice' }
+            if ($loaded -notmatch 'rust_binder' -or $loaded -match '0xDEADBEEF') { throw 'Module address redaction failed' }
+            if ($sha -notmatch '0123456789abcdef') { throw 'Module path SHA probe not executed' }
+            if (-not (Test-Path (Join-Path $out 'vendor-modules.load'))) { throw 'Missing vendor source list' }
+            if (-not (Test-Path (Join-Path $out 'system-modules.load'))) { throw 'Missing system source list' }
+            $note = Get-Content (Join-Path $out 'loaded-zsmalloc-note-sha.txt') -Raw
+            if ($note -notmatch '0123456789abcdef') { throw 'Loaded sysfs GNU Note hash probe not executed' }
+            $archive = Join-Path $env:RUNNER_TEMP ($dirs[0].Name + '.zip')
+            if (-not (Test-Path $archive)) { throw 'Local evidence ZIP was not generated' }
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $entries = [System.IO.Compression.ZipFile]::OpenRead($archive)
+            try {
+              $names = @($entries.Entries | ForEach-Object { $_.FullName })
+              if (-not ($names -match 'loaded-zsmalloc-note-sha.txt')) { throw 'Evidence ZIP omitted module Note hashes' }
+            } finally { $entries.Dispose() }
+            Write-Host 'Windows native CMD read-only + GNU Note + local ZIP mock PASS'
+          } finally {
+            Pop-Location
+          }
