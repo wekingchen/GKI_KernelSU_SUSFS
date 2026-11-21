@@ -197,3 +197,15 @@
 明确不采用：复用旧 R62 导出、重新编译同一份纯 GKI 并期待 Rust 名称自己变化、伪造 Rust mangled 名称/CRC、静默忽略 rust_binder、把未验证的系统模块替换写入真实设备。
 
 需要真正完成的下一步是获取/复原与 g43b5ab7e247d 对应的 Rust kernel/core 源码及构建参数，或者在候选 GKI 内构建并验证匹配该候选内核 Rust exports 的 Binder 模块，再**单独设计可恢复的运行时模块供给和加载证明**。它不能靠只替换 boot.img 的旧式 AnyKernel3 自动实现。必须保留可回滚路径并继续隔离上游源码。若缺乏这些源和加载证据，ABI gate 保持 BLOCKED；不生成新 OTA fastboot boot，不晋升 LKG。
+
+## 第七轮：路线 B 原生 GKI 配套 Rust Binder 已完成非刷机验证（2026-11-21）
+
+详见 [路线 A/B 进展、完整来源和验证结果](pandora-os4-406-rust-binder-routes-2026-11-21.md)。
+[只读验证 Run #44901587883](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44901587883)
+证明同源 r74 GKI 构建的候选 `rust_binder.ko` 有 240 个导入（71 个 Rust mangled），
+对该候选 GKI vmlinux 导出缺失 0、CRC 不匹配 0。原厂 Rust Binder 的 71 个缺口
+仍在，zsmalloc 的 24 个同 CRC + 3 个异 CRC 双来源仍在。
+`OEM_ABI_GATE=BLOCKED`，也没有验证模块实际加载、签名、AVB 或重建 Image 的字节一致性。
+
+**下一阶段是定位原厂 6.12.69 Rust 源码与正确的 system_dlkm 模块供给/加载证据，
+绝非跳过旧模块或混用 vendor/system zsmalloc。禁止刷机、禁止自动晋升 LKG。**
