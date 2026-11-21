@@ -1,0 +1,56 @@
+name: "小米17 Pro OS4 / OEM ABI 只读诊断（不生成 boot）"
+
+on:
+  push:
+    branches:
+      - "pandora-ota-abi-triage-*"
+    paths:
+      - ".github/workflows/pandora-os4-abi-readonly-triage.yml"
+      - "scripts/xiaomi-os4/triage-oem-abi-readonly.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: "获取绑定的 4.0.6.0 固件和已归档 GKI 符号表"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/abi-triage/stock" "$RUNNER_TEMP/abi-triage/gki"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip' \
+            --dir "$RUNNER_TEMP/abi-triage/stock"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" --pattern 'Module.symvers' \
+            --dir "$RUNNER_TEMP/abi-triage/gki"
+          echo "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8  $RUNNER_TEMP/abi-triage/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" | sha256sum -c -
+      - name: "独立统计厂商 vermagic、ELF 扩展节、符号 CRC（只读）"
+        run: |
+          set -euo pipefail
+          if ! command -v zstd >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y zstd
+          fi
+          python3 scripts/xiaomi-os4/triage-oem-abi-readonly.py \
+            --stock-zip "$RUNNER_TEMP/abi-triage/stock/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --symvers "$RUNNER_TEMP/abi-triage/gki/Module.symvers" \
+            --output "$RUNNER_TEMP/abi-triage/abi-triage.json"
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          本次仅分析输入字节、vermagic 和 CRC。**绝不修改 ABI 放行条件、发布可刷镜像或晋升 LKG。**
+          EOF
+      - name: "保存分析证据"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-abi-readonly-triage
+          path: ${{ runner.temp }}/abi-triage/abi-triage.json
+          if-no-files-found: warn
+          retention-days: 30
