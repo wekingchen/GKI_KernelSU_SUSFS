@@ -110,6 +110,15 @@ class ModuleDelivery(unittest.TestCase):
         self.assertIn("SHA mismatch", result["reason"])
         self.assertEqual(result["gate"], "BLOCKED")
 
+    def test_repeated_parmtype_allowed_but_conflicting_identity_fails(self):
+        sections={".modinfo": (b"parmtype=param_a:int\0parmtype=param_b:bool\0"
+                              b"vermagic=6.12.69-android16-6-4k\\0")}
+        fields=audit.module_fields(sections)
+        self.assertEqual(fields["parmtype"], "param_a:int")
+        sections[".modinfo"] += b"vermagic=6.12.68-android16-6-4k\\0"
+        with self.assertRaisesRegex(ValueError, "identity"):
+            audit.module_fields(sections)
+
     def test_modinfo_and_signature_marker_not_trust_verification(self):
         binary = fixture.elf(imports={"core_export": 0x12345678})
         mod = audit.inspect_module("system_dlkm/lib/modules/rust_binder.ko", binary)
