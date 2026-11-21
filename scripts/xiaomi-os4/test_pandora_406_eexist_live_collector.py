@@ -5,6 +5,7 @@ from pathlib import Path
 
 SRC=(Path(__file__).resolve().parent/"collect-pandora-406-eexist-testboot.cmd").read_text(encoding="utf-8")
 LOW=SRC.lower()
+EXEC="\n".join(line.strip().lower() for line in SRC.splitlines() if line.strip() and not line.strip().lower().startswith("rem "))
 
 class Collector(unittest.TestCase):
     def test_read_only_contract(self):
