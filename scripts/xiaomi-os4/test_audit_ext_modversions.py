@@ -36,6 +36,26 @@ class ExtendedModVersions(unittest.TestCase):
                 "__version_ext_crcs": struct.pack("<I", 1),
             })
 
+    def test_duplicate_between_basic_and_extended_must_have_identical_crc(self):
+        basic = struct.pack("<Q", 0x11223344) + b"module_layout\0".ljust(56, b"\0")
+        both = {
+            "__versions": basic,
+            "__version_ext_names": b"module_layout\0core_export\0\0",
+            "__version_ext_crcs": struct.pack("<II", 0x11223344, 0x55667788),
+        }
+        self.assertEqual(abi.imported_versions(both),
+                         {"module_layout": 0x11223344, "core_export": 0x55667788})
+        both["__version_ext_crcs"] = struct.pack("<II", 0xDEADBEEF, 0x55667788)
+        with self.assertRaisesRegex(ValueError, "conflicting basic/extended CRC"):
+            abi.imported_versions(both)
+
+    def test_repeated_names_within_extended_table_still_fail(self):
+        with self.assertRaisesRegex(ValueError, "duplicate extended CRC symbol"):
+            abi.imported_versions({
+                "__version_ext_names": b"same\0same\0\0",
+                "__version_ext_crcs": struct.pack("<II", 1, 1),
+            })
+
     def test_excessive_padding_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "names padding"):
             abi.imported_versions({
