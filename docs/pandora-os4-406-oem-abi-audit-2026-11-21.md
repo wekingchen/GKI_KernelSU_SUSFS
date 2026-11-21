@@ -115,3 +115,35 @@
 - 当前 gate 仍为 BLOCKED，绝不生成 fastboot boot、AnyKernel3 或晋升 LKG。手机继续使用 4.0.6.0 + LKM Root。已归档固件输入包含 vendor_boot，不需要用户重新上传手机 OTA 采集包。
 
 原始实机采集 ZIP 是本地证据，不作为公用代码仓库发布内容；本文件只记录经过核对的统计、原厂哈希和诊断结论。
+
+
+## 第四轮：完整早期启动模块进入正式门禁（2026-11-21）
+
+在独立分支 pandora-406-early-module-gate-v2 对原生产门禁进行 fail-closed 改造：
+
+1. 原有 test_os4_full_chain.py 不再用简单的假内容代替 vendor_boot；新增真实格式的 Android vendor_boot v4 + LZ4 Legacy + newc CPIO 合成夹具，内含合法 ELF 的 .ko，实测全链路正反向回归通过。
+2. 正式 check-ota-oem-abi.py 对同一 SHA 锁定的 OTA vendor_boot.img 完整解压，读取全部 461 个早期 .ko；只把 SHA256 **字节完全相同** 的模块视为别名，不按文件名或 CRC 推断相同。新增非字节相同的早期模块同时检查其自己的 vermagic、导入 CRC 和导出 CRC。
+3. 工作流 OEM ABI 检查 job 安装 lz4；解析、负面篡改、早期模块错 CRC / 自身缺失导入均保持 BLOCKED。
+
+实际只读审计：[Run #44897936109](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44897936109)，工件 pandora-406-full-vendorboot-gate-readonly。本次未重新编译 GKI，继续绑定既有 stock ZIP SHA 与锁定的候选 GKI Release。报告如下：
+
+| 项目 | 数量 |
+| --- | ---: |
+| 原始 DLKM .ko | 505 |
+| vendor_boot .ko | 461 |
+| vendor_boot 与 DLKM 内容哈希完全一致的别名 | 293 |
+| 新纳入的独立早期 .ko | 168 |
+| 新增早期 .ko 的自身导入数 | 8,073 |
+| 新检查总导入数 | 38,998 |
+| 对候选 GKI vmlinux CRC 匹配 | 33,391 |
+| 对模块提供者 CRC 匹配 | 5,509 |
+| 已能比对出的 CRC 不匹配 | 0 |
+| 未找到符号提供者 | 71 |
+| 存在重复提供者的歧义导入 | 27 |
+| 解析失败的模块 | 0 |
+
+**关键结论：门禁仍然 BLOCKED（71 Rust Binder 缺失导入 + 27 zsmalloc 重复导出歧义）。** 通过的部分是可复核的真实 CRC 映射，不表示设备可启动。尤其 rust_binder 的 71 条 Rust mangled 符号未找到候选 Module.symvers 的真实提供者，不得通过删掉该模块、跳过导入或伪造 CRC 解除门禁。
+
+另外 27 条 zsmalloc 歧义来自真实的两套 vendor/system 模块：需要模块来源、加载顺序和 CRC 相互匹配的独立证据，不能以“名字一样”将不同二进制合并。
+
+此轮只读复测不生成 fastboot boot / AnyKernel3，不修改原始 OTA 输入 Release、不刷机，也不晋升 OS4.0.6.0 LKG。
