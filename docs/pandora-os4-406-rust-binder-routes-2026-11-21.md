@@ -139,3 +139,185 @@
 `g43b5ab7e247d` 对应的准确 6.12.69 OEM Rust/内核源码。
 任何替代模块方案必须显式保留完整 OTA 恢复和签名/AVB 约束，不允许通过
 删掉 Rust Binder、禁用校验、伪造 CRC 或合并两套 zsmalloc 来消除阻断。
+
+## 第八轮：OS4.0.6 原厂 system/vendor 模块供给静态审计（2026-11-21）
+
+[只读 Run #44903615504](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903615504)
+已对与上一轮相同 SHA 的 stock ZIP 真正复验全部 505 个归档模块；证据工件
+`pandora-406-stock-module-delivery-readonly`，Artifact ID `14707270880`。
+首轮 #44903500899 失败仅因新解析器错误地将合法的重复 `.modinfo parmtype`
+条目视为冲突；已改为**只对单值身份字段严格拒绝冲突**，增补反例测试后复测通过。
+上述失败不能解释为 OEM 模块错误。
+
+### 可证实的模块身份（库存，不等于运行时）
+
+- `system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/android/binder/rust_binder.ko`
+  SHA `ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c`，
+  `.modinfo` 中 `vermagic` 对应原厂完整 release、
+  `scmversion=g43b5ab7e247d`、`depends` 为空。
+  未发现标准 Linux `~Module signature appended~.` 尾标，也未记录
+  `.modinfo signer/sig_key/sig_hashalgo`；**仅证明文件中未见这些标记，
+  不能据此推导原厂禁止/允许未签名模块、实际加载或 AVB 验证结果**。
+- `vendor_dlkm/lib/modules/zsmalloc.ko` SHA
+  `350f7127f0a8cda912eea8dfe6d93dbf30e5b31832969aa44ee6161424eaed3e`，
+  `zs_malloc` 导出 CRC `0x1804f5bc`，与同来源 vendor `zram.ko`、
+  `node_cache.ko` 的消费 CRC 完全一致。
+- `system_dlkm/.../kernel/mm/zsmalloc.ko` SHA
+  `b54598bea0a162cd2578f9d1490095fef148014de0c7dbaf012036b6adcbc465`，
+  `zs_malloc` 导出 CRC `0x36f39fe1`，与 system `zram.ko` 的消费 CRC 相符。
+  两个来源不能混用，重复提供者 24 同 CRC / 3 不同 CRC 继续阻断。
+
+### 缺失的关键加载证据
+
+- 此已采集的 `xm.zip` **不包含完整的 `system_dlkm.img`**，
+  内嵌 `oem-modules.zip` 也没有 `modules.load` / `modules.dep`。
+  因此无法从此证据独立证明 system_dlkm 的实际文件系统挂载配置、
+  文件选择、`modprobe`/init 加载顺序、模块加载签名策略、AVB 链或
+  `rust_binder` 与 C Binder 的实际实现选择。
+- 来自已锁定的**候选 GKI final.config（非原厂配置）**：
+  `CONFIG_MODULE_SIG=y`、`CONFIG_MODULE_SIG_FORCE=n`、
+  `CONFIG_MODULE_SIG_ALL=y`、`CONFIG_ANDROID_BINDER_IPC_RUST=m`。
+  不能把这些配置冒充现用 OEM 内核的运行时策略，也不能因
+  `SIG_FORCE=n` 直接把 OEM Binder 替换视为安全。
+- Android 官方文档：
+  [GKI system_dlkm 分区](https://source.android.com/docs/core/architecture/partitions/gki-partitions)
+  明确提醒 GKI 内核与其模块需要配套构建、更新，而且 `system_dlkm` 由
+  first-stage init 以只读文件系统挂载。此事实支持继续保持原厂分区
+  与 OTA 恢复路径不变，**不支持用单个 boot-only AnyKernel3 偷换系统模块**。
+
+此轮证据等级：`PINNED_STOCK_INVENTORY_VERIFIED`，
+不是 `RUNTIME_MODULE_DELIVERY_VERIFIED`。生产 gate 仍 `BLOCKED`，
+手机不需要改动。
+
+### 已准备下一次实机只读证据采集（尚未在手机执行）
+
+新增 `scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd`，与现有早期
+ABI 采集助手相互独立；只适用于 `pandora / OS4.0.6.0.XBLCNXM`、
+需已配置 adb 和 Root。仅运行 getprop、cat、sha256sum；**不会 adb push、
+insmod/modprobe、写分区、关闭校验、重启或刷机**。采集资料仅保存到 PC 本地：
+
+- 经 Windows PowerShell 只保留 `binder.impl=...` 的有效 `/proc/cmdline`
+  匹配，绝不写出完整 cmdline、序列号、原始 kallsyms 或模块地址；
+- `/proc/bootconfig` 中匹配 Binder 的行、已加载模块名称（脱敏）、
+  原厂系统/vendor DLKM 挂载和独立 `modules.load/dep`；
+- 精确的原厂 system Rust Binder 文件路径及 vendor/system 两套 zsmalloc
+  文件 SHA、模块禁用开关及 boot verifiedboot 状态；
+- **这些文件路径和本地哈希仍不足以证明运行时加载的具体 ELF**，
+  也不验证 AVB、内核签名信任或真实 Binder 选择。
+
+[Windows 原生模拟 ADB 验收 Run #44904322851](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904322851)
+已通过：用原生 `cmd.exe` 运行脚本，实际 `adb.exe` mock 返回含伪造敏感参数、
+内核装载地址和分区文件内容的样本，验证只保存过滤后结果；
+额外的 4 项静态安全约束测试通过。早期测试失败系模拟 ADB 批处理进程
+替换及 PowerShell Add-Type 不支持 Win32 控制台程序的模拟器问题，
+最终改用 Windows 自带 .NET Framework C# 编译器生成真实 `adb.exe`，
+**不是用户手机上的失败，也没有在用户手机上实测该脚本**。
+
+需要实际运行才可以判断动态加载源；此处只完成备测工具的 Windows 原生
+脱敏及只读流程验收，绝不以 mock PASS 代替手机证据。
+
+### 第八轮补充：vermagic 与未来真机证据的解释边界
+
+本轮从不可变原厂 ZIP 中解出的 ELF 还显示：
+- system `rust_binder` / `zsmalloc` / `zram` 的完整 `vermagic` 为
+  `6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`；
+- vendor `node_cache` / `zram` / `zsmalloc` 的 `vermagic`
+  是 `6.12.69-android16-6-4k`，不是可据此判定模块等价的同一 SHA 或 ABI。
+  两套 `zsmalloc` 导出 CRC 仍然不同，不能因 Android KMI 前缀相同就互换。
+
+未来从真机只读采集到的信息应按证据等级处理：
+- `binder.impl=rust` 参数仅证明读取到该启动参数；还需模块加载与 Binder
+  功能证据。**没有观察到该参数不能证明实际使用 C Binder**。
+- `/proc/modules` 有模块名证明当前加载了同名模块，但不包含加载时原始
+  ELF 文件 SHA、装载分区或代替模块的信任链证明。
+- `modules.load` / `modules.dep` 是文件系统中提供的装载配置/依赖关系，
+  不是任意时刻实际装载的不可伪造轨迹。
+- `sha256sum /system_dlkm/...` 只对**当前挂载文件**取 SHA，
+  不证明内存中的模块确实来自这个文件；vendor/system 两份 SHA 分开比较。
+- `ro.boot.verifiedbootstate` / `vbmeta.device_state` 是设备启动状态证据，
+  不能代替 system_dlkm AVB 链的核验，也不是解除签名规则的理由。
+
+任何缺失/错误/冲突的输出标记为 **PARTIAL／UNKNOWN，维持 BLOCKED**；
+此阶段不会改变现用分区，不会尝试 `insmod`/`modprobe` 等主动加载。
+
+### 真机补证方法（只读，供后续验收使用）
+
+在已连接 `pandora / OS4.0.6.0.XBLCNXM` 且 `adb shell su -c "id"`
+能取得 root 的 **Windows `D:\\platform-tools`** 命令提示符执行：
+
+```bat
+cd /d D:\\platform-tools
+curl.exe -fL -o collect-pandora-live-module-delivery.cmd "https://raw.githubusercontent.com/wekingchen/GKI_KernelSU_SUSFS/dev/scripts/xiaomi-os4/collect-pandora-live-module-delivery.cmd"
+call collect-pandora-live-module-delivery.cmd
+```
+
+采集结束会打印本地 `pandora-live-module-delivery-数字` 文件夹名。
+检查该文件夹的 `README.txt` 后可将整个**本地文件夹**压缩上传用于对照。
+不会向 GitHub 或其它网络服务自动上传手机信息，不会写入手机。
+当某个 `modules.load` 或模块文件 SHA 输出为空，按“不存在足够证据”处理，
+**不能填充推测路径/假定 Binder 为 C 实现/自动提升到通过**。
+
+此采集只用于下一轮 `RUNTIME_OBSERVATION_PARTIAL` 分析，绝非实机
+`flash`、`fastboot boot`、`insmod` 或 `system_dlkm` 替换授权。
+
+### 实机快照离线解释器（只评估磁盘文件，不推断内核模块内存镜像）
+
+新增 `scripts/xiaomi-os4/review-live-module-delivery-readonly.py`：
+接收上述 Windows CMD 采集目录作为 `--evidence-dir`，严格核实 pandora、
+OS4.0.6.0、slot、完整 uname 与系统启动完成标记；
+从 system Binder、system zsmalloc、vendor zsmalloc 各自的
+`sha256sum` 文件中识别原始路径并逐个比较固定原厂 SHA。
+任何缺项、路径不符、哈希差异，都单独输出 `UNKNOWN` 或
+`DIFFERS_FROM_PINNED_STOCK`；**不会以 basename 合并分区**。
+
+即便全部磁盘 SHA 与已归档 OTA 相符，输出也只是
+`ON_DISK_PINNED_FILES_MATCH_NO_LOADER_PROOF`：
+`module_delivery_verified=false`、
+`runtime_loaded_binary_sha256=NOT_PROVEN`、
+`binder_implementation_verified=false`、
+`signing_trust_verified=false`、
+`system_dlkm_avb_chain_verified=false`、
+`gate=BLOCKED`、`flashable=false`。
+
+[解释器只读正反例 Run #44904943896](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904943896)
+已通过 6 项测试（包括 system/vendor 互换、缺少哈希、错误 uname、
+缺失启动参数和错误文件路径），不涉及设备或改写模块。
+
+## 第九轮：锁定 GKI r74 Image 字节差异已复核定位（2026-11-21）
+
+[真实重建与逐字节对比 Run #44903724196](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903724196)
+完整成功。使用同一锁定官方 r74 commit、SHA 核验后的 r536225 工具链、
+相同的 `final.config` 与 `Module.symvers`（两者 `cmp` 全字节一致），
+重新编译未验证的 GKI Image；仅归档 JSON，Artifact
+`pandora-406-gki-image-drift-readonly`，ID `14707751852`。
+
+| 项目 | 固定归档 Image | 本次重编 Image |
+| --- | --- | --- |
+| 原始 SHA-256 | `af955281efe49ef22cac3efd4072cfd683ee6ab3f48a173932fbb4442b8a1287` | `76c1eb49cfd910d3cdc66ca67271dd8df2d2d074a7d4d656baea5428be946f5f` |
+| 字节长度 | 41,900,544 | 41,900,544 |
+| GNU Build-ID | `7363742b1c8d3b4f17dc2f2cb63568837cb960a9` | `17628083a59960831448c3c38d075b3caada8a6c` |
+| 模块自动生成证书 SHA-256 | `d5ced7e119ea37108945b39645cdf55364694ce2868c081cbdd5393d5a73b40c` | `708922ce54187696cae705c4f66cd934f0457d7a4c0e3aca1fbaa676ced98f9a` |
+
+- 两份 Image 在原始字节上 **并不相同**，总计 **1,093 个不同字节**，分布在
+  **2 个 4 KiB 块**，首次不同的字节位于 offset `27513188`。
+- GNU Build-ID 有效载荷，以及 `Build time autogenerated kernel key` 的
+  DER X.509 证书所在区间可被现有
+  `scripts/xiaomi-os4/describe-image-reproducibility.py` 结构化识别：
+  两份证书长度均为 `1324`，起始 offset `39148032`。
+- 仅将**各自的** 20 字节 GNU Build-ID 有效载荷和 1324 字节证书范围置零
+  后，两份 Image 的整个字节数组完全一致：
+  共同的归一化 SHA-256
+  `cbda5e08033fd03b88cab50bd6220232ebfb559e87ad790c8cbb66e340dc35b9`。
+- 结论限于**相同官方 r74 GKI 构建本身**：确认此次 raw Image 哈希漂移
+  可由自动证书与 Build-ID 的差异充分解释，未发现这些区间之外的额外变化。
+  不可因此将归一化 Image 当作可刷输出、改写真实 Image、抹掉构建身份，
+  也不可把它称为与 Xiaomi OEM 内核的完整源码、ABI 或二进制复现。
+  原厂 71 项 Rust Binder 导入缺口与 27 项 zsmalloc 歧义仍然存在。
+
+- 此前独立 Rust Binder 配对 Run #44901587883 的 `Image` SHA-256 为
+  `a846571a053e36e998d64720914f19e107d09b101dd71874321c7ffd17132804`，
+  **该第三份 Image 没有参加本轮归一化比较，不能将本轮两份一致结果外推到第三份**。
+  也不应为追求原始 SHA 一致而关闭模块签名功能。
+
+本轮工作流从隔离开发分支移除，仅永久保留这一证据及原有分析工具，
+以免遗留会重复进行全量编译的实验工作流。

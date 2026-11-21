@@ -209,3 +209,31 @@
 
 **下一阶段是定位原厂 6.12.69 Rust 源码与正确的 system_dlkm 模块供给/加载证据，
 绝非跳过旧模块或混用 vendor/system zsmalloc。禁止刷机、禁止自动晋升 LKG。**
+
+## 第八轮：模块文件来源与 GKI Image 字节复现分析（2026-11-21）
+
+完整可追溯结果参见 [路线 A/B 记录](pandora-os4-406-rust-binder-routes-2026-11-21.md)。
+
+- [真实原厂模块静态审计 Run #44903615504](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903615504)
+  以固定 SHA stock ZIP 读取 505 个 .ko，确认 system Rust Binder、
+  system zsmalloc / system zram 与 vendor zsmalloc / vendor zram / node_cache
+  的来源和 SHA/实际 CRC。ZIP 不含完整 system_dlkm.img 和对应
+  `modules.load`，不能据此证明运行时实际加载文件或 AVB 信任链；
+  vendor/system zsmalloc **继续严格分离**，27 个歧义不放行。
+- [Windows 原生 CMD 模拟验收 Run #44904322851](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904322851)
+  证明只读实机数据采集脚本的 Windows 执行、地址脱敏和敏感参数过滤流程，
+  不是在真机执行；后续文件 SHA 只能证明磁盘内容、不能证明内存装载字节。
+  快照离线校验器另经
+  [Run #44904943896](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44904943896)
+  6 个正反例测试通过，任何结果都保持 OEM ABI BLOCKED。
+- [GKI r74 Image 非刷机重建 Run #44903724196](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/44903724196)
+  对照此前锁定归档 Image：原始 SHA 不同，41,900,544 字节里有 1,093
+  字节不同、位于 2 个 4096 字节块。仅屏蔽各自自动生成的 X509 证书与
+  GNU Build-ID 后，归一化 SHA 一致
+  `cbda5e08033fd03b88cab50bd6220232ebfb559e87ad790c8cbb66e340dc35b9`。
+  此结果解释的是两次**纯 GKI** 构建的非确定性来源，
+  不是小米原厂 Image 精确重建或新的刷机放行。
+
+**结论仍为 OEM ABI BLOCKED；禁用 fastboot boot、AnyKernel3、持久刷机、
+LKG 晋升。下一阶段必须取得独立的原厂 system_dlkm 加载链/模块来源证据，
+路线 A 的准确 OEM Rust 源码也尚未找到。**
