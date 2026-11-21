@@ -491,6 +491,7 @@ jobs:
                 "- 错误模块: " + ((.failed_modules|length)|tostring),
                 "- CRC 不匹配: " + ((.crc_mismatches|length)|tostring),
                 "- 未解析 Rust Binder 导入: " + ((.unresolved_rust_binder // 0)|tostring),
+                "- 原厂 Rust Binder 源码版本: " + (.stock_rust_binder_scmversion // "NOT_RECORDED"),
                 "- 多提供者同 CRC / 不同 CRC: " + ((.ambiguous_same_crc // 0)|tostring) + " / " + ((.ambiguous_split_crc // 0)|tostring)
               ' "$RUNNER_TEMP/ota-abi/ota-abi-report.json"
             else
