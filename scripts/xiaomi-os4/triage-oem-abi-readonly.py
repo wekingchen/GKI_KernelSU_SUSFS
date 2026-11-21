@@ -31,6 +31,10 @@ def main():
     sample_mismatches = []
     sample_unknown = []
     sample_ext = []
+    invalid_identifier_examples = []
+    duplicate_symbol_examples = []
+    duplicate_count = 0
+    invalid_identifier_count = 0
     samples_errors = []
     with zipfile.ZipFile(args.stock_zip) as stock:
         with zipfile.ZipFile(io.BytesIO(stock.read("oem-modules.zip"))) as archive:
@@ -51,6 +55,19 @@ def main():
                         shape = (len(n), n.count(b"\0"), len(c), len(c)//4,
                                  len(n)-len(n.rstrip(b"\0")))
                         ext_shapes[str(shape)] += 1
+                        keys = [x.decode("ascii", "replace") for x in
+                                n.rstrip(b"\\0").split(b"\\0")]
+                        seen = set()
+                        for key in keys:
+                            if not abi.SYMBOL.fullmatch(key):
+                                invalid_identifier_count += 1
+                                if len(invalid_identifier_examples) < 25:
+                                    invalid_identifier_examples.append(dict(module=name, symbol=key))
+                            if key in seen:
+                                duplicate_count += 1
+                                if len(duplicate_symbol_examples) < 25:
+                                    duplicate_symbol_examples.append(dict(module=name, symbol=key))
+                            seen.add(key)
                         if len(sample_ext) < 12:
                             sample_ext.append(dict(name=name, names_bytes=len(n),
                               names_nul_count=n.count(b"\0"), crcs_bytes=len(c),
@@ -89,6 +106,10 @@ def main():
                   kernel_import_crc_mismatches=candidate_mismatches,
                   external_or_unlisted_imports=external_or_unlisted,
                   sample_ext=sample_ext,sample_parse_errors=samples_errors,
+                  invalid_identifier_count=invalid_identifier_count,
+                  duplicate_count=duplicate_count,
+                  sample_invalid_identifiers=invalid_identifier_examples,
+                  sample_duplicate_symbols=duplicate_symbol_examples,
                   sample_kernel_mismatches=sample_mismatches,
                   sample_external_or_unlisted=sample_unknown)
     args.output.write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n")
