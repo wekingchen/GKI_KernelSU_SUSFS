@@ -1030,7 +1030,7 @@ jobs:
             echo "COMPATIBILITY_KIND=PANDORA_RUST_BINDER_EEXIST_SHIM"
             echo "COMPATIBILITY_PATCH_SHA256=5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee"
           } > "$OUT/compatibility-nonflash-status.txt"
-          (cd "$OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd "$OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
 
       - name: "上传新版本自定义内核：兼容候选仅含 FASTBOOT-BOOT-ONLY"
         uses: actions/upload-artifact@v6
