@@ -1,6 +1,6 @@
 --- a/.github/workflows/get-manager-fork.yml
 +++ b/.github/workflows/get-manager-fork.yml
-@@ -411,4 +411,25 @@
+@@ -411,4 +411,26 @@
              if ! download_bakasu_spoof; then
                echo "::warning::没有可下载且版本不高于目标内核的 BakaSU Spoofed Manager，本次仅附带普通版。"
              fi
