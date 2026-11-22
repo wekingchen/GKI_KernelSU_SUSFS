@@ -1,0 +1,74 @@
+name: "小米17 Pro OS4 / EEXIST 自定义构建路由回归"
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/config/ota-development-current.json"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/**"
+      - ".github/workflows/xiaomi-sm8850-os4-custom.yml"
+      - ".github/workflows/pandora-os4-compat-custom-build-route-tests.yml"
+      - "scripts/xiaomi-os4/build-r62-features.sh"
+      - "scripts/xiaomi-os4/ota-development-pointer.py"
+      - "scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py"
+      - "scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py"
+      - "scripts/xiaomi-os4/check-ota-feature-abi.py"
+      - "scripts/xiaomi-os4/select-lkg-promotion-route.py"
+      - "scripts/xiaomi-os4/test_ota_development_switch.py"
+      - "scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py"
+      - "scripts/xiaomi-os4/test_lkg_promotion_routes.py"
+
+permissions:
+  contents: read
+
+jobs:
+  compat-route-regression:
+    name: "验证兼容基线、EEXIST 补丁、构建路由与 LKG 禁门"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: "检出 PR"
+        uses: actions/checkout@v7
+
+      - name: "Shell / Python / Workflow 语法检查"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/build-r62-features.sh
+          python3 -m py_compile \
+            scripts/xiaomi-os4/ota-development-pointer.py \
+            scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py \
+            scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py \
+            scripts/xiaomi-os4/check-ota-feature-abi.py \
+            scripts/xiaomi-os4/select-lkg-promotion-route.py
+          ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
+            .github/workflows/xiaomi-sm8850-os4-custom.yml
+
+      - name: "OS4.0.6 兼容路由、来源锁与 EEXIST 准备器测试"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/test_ota_development_switch.py -v
+          python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py -v
+          python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
+
+      - name: "验证正式 pointer 指向唯一的 nonflash compatibility baseline"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path(".")
+          pointer = json.loads((root / ".github/config/ota-development-current.json").read_text())
+          record = json.loads((root / pointer["record_path"]).read_text())
+          fixture = json.loads((root / pointer["fixture_path"]).read_text())
+          assert pointer["status"] == "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY"
+          assert pointer["build"] == "OS4.0.6.0.XBLCNXM"
+          assert record["formal_oem_gate"] == "BLOCKED"
+          assert record["safe_to_flash"] is False
+          assert fixture["safe_to_flash"] is False
+          assert pointer["full_parity_lkg_promoted"] is False
+          print("PANDORA_406_COMPAT_POINTER=PASS_NONFLASH_ONLY")
+          PY

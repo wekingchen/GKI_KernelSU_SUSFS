@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "status": "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY",
+  "build": "OS4.0.6.0.XBLCNXM",
+  "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "stock_release_asset_id": 775019680,
+  "candidate_gki_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+  "candidate_image_sha256": "af955281efe49ef22cac3efd4072cfd683ee6ab3f48a173932fbb4442b8a1287",
+  "candidate_boot_sha256": "028c0a268a1cd869ba0d3a29fc3263003fadb5babd15bf7189510e237745600c",
+  "module_symvers_sha256": "242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25",
+  "verification_run_id": 44925895903,
+  "fixture_path": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/compatibility-fixture.json",
+  "record_path": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/compatibility-verification.json",
+  "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+  "compatibility_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+  "full_parity_lkg_promoted": false
+}

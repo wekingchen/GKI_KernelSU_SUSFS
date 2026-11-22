@@ -94,7 +94,13 @@ class DynamicOTA(unittest.TestCase):
     def test_valid_new_ota_selected_and_no_lkg_promotion(self):
         x = self.select()
         self.assertEqual(x.returncode, 0, x.stdout + x.stderr)
-        self.assertEqual((self.root / "route.txt").read_text(), f"mode=ota\nbuild={BUILD}\n")
+        self.assertEqual(
+            (self.root / "route.txt").read_text(),
+            f"mode=ota\nbuild={BUILD}\n"
+            f"record_path=.github/config/ota-verified/{BUILD}/verification.json\n"
+            f"fixture_path=.github/config/ota-verified/{BUILD}/fixture.json\n"
+            "compatibility_mode=0\n",
+        )
         self.assertFalse(json.loads(self.pointer_path.read_text())["full_parity_lkg_promoted"])
 
     def test_missing_verification_blocks_new_ota_instead_of_legacy(self):
@@ -178,6 +184,147 @@ class DynamicOTA(unittest.TestCase):
         x = check()
         self.assertNotEqual(x.returncode, 0)
         self.assertEqual(json.loads((self.root / "abi.json").read_text())["gate"], "BLOCKED")
+
+
+class CompatibilityOTA(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.build = "OS4.0.6.0.XBLCNXM"
+        rel = Path(".github/config/ota-verified") / self.build
+        self.record_path = rel / "compatibility-verification.json"
+        self.fixture_path = rel / "compatibility-fixture.json"
+        self.pointer_path = self.root / ".github/config/ota-development-current.json"
+        self.report_path = self.root / "stock.json"
+        source_root = ROOT.parents[1]
+        source_record = source_root / ".github/config/ota-verified" / self.build / "compatibility-verification.json"
+        source_fixture = source_root / ".github/config/ota-verified" / self.build / "compatibility-fixture.json"
+        self.record = json.loads(source_record.read_text())
+        self.fixture = json.loads(source_fixture.read_text())
+        self.stock = {
+            "status": "NEW_OTA_CANDIDATE",
+            "kernel_marker_verified": True,
+            "may_build_gki_candidate": True,
+            "device": "pandora",
+            "build": self.build,
+            "uname": self.record["kernel_release"],
+            "ota_source_id": self.record["stock_input_sha256"],
+            "stock_boot_sha256": self.record["stock_boot_sha256"],
+            "github_asset_id": str(self.record["stock_release_asset_id"]),
+        }
+        self.write()
+
+    def write(self):
+        (self.root / self.record_path).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / self.record_path).write_text(json.dumps(self.record))
+        (self.root / self.fixture_path).write_text(json.dumps(self.fixture))
+        self.report_path.write_text(json.dumps(self.stock))
+
+    def run_cmd(self, *args):
+        return subprocess.run([sys.executable, *map(str, args)],
+                              cwd=self.root, capture_output=True, text=True)
+
+    def create_pointer(self):
+        return self.run_cmd(
+            ROUTER, "create",
+            "--record", self.record_path,
+            "--fixture", self.fixture_path,
+            "--output", self.pointer_path,
+        )
+
+    def select(self):
+        return self.run_cmd(
+            ROUTER, "select",
+            "--stock-report", self.report_path,
+            "--root", self.root,
+            "--pointer", self.pointer_path,
+            "--output", self.root / "route.txt",
+        )
+
+    def test_compatibility_baseline_routes_only_to_nonflash_ota_mode(self):
+        created = self.create_pointer()
+        self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+        pointer = json.loads(self.pointer_path.read_text())
+        self.assertEqual(pointer["status"], "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY")
+        self.assertFalse(pointer["full_parity_lkg_promoted"])
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        route = (self.root / "route.txt").read_text()
+        self.assertIn("mode=ota\n", route)
+        self.assertIn("compatibility_mode=1\n", route)
+        self.assertIn("compatibility-verification.json", route)
+        self.assertIn("compatibility-fixture.json", route)
+
+    def test_compatibility_fixture_must_keep_eexist_and_not_blacklist_rust_binder(self):
+        self.fixture["header_v4"]["cmdline"] = "module_blacklist=kernelsu"
+        self.write()
+        created = self.create_pointer()
+        self.assertNotEqual(created.returncode, 0)
+        self.assertIn("compatibility boot parameter missing", created.stderr)
+
+    def test_compatibility_baseline_cannot_be_marked_flashable(self):
+        self.record["safe_to_flash"] = True
+        self.write()
+        created = self.create_pointer()
+        self.assertNotEqual(created.returncode, 0)
+        self.assertIn("compatibility baseline identity mismatch: safe_to_flash", created.stderr)
+
+    def test_prepare_delegates_to_exact_compatibility_baseline_validator(self):
+        image = b"Linux version " + self.record["kernel_release"].encode() + b"\0" + b"K" * 4096
+        symvers = "".join(
+            f"0x{i:08x}\tsym_{i}\tvmlinux\tEXPORT_SYMBOL\n"
+            for i in range(100)
+        ).encode()
+        self.record["candidate_gki_image_sha256"] = digest(image)
+        self.record["module_symvers_sha256"] = digest(symvers)
+        self.write()
+        created = self.create_pointer()
+        self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+
+        candidate = self.root / "candidate"
+        candidate.mkdir()
+        (candidate / "Image").write_bytes(image)
+        (candidate / "Module.symvers").write_bytes(symvers)
+        (candidate / "final.config").write_text("CONFIG_MODVERSIONS=y\n")
+        (candidate / "gki-candidate.json").write_text(json.dumps({
+            "candidate_tag": self.record["candidate_gki_tag"],
+            "candidate_commit": self.record["candidate_gki_commit"],
+            "selection_reason": self.record["candidate_selection_reason"],
+            "not_oem_source_proven": True,
+        }))
+        (candidate / "stock-report.json").write_text(json.dumps(self.stock))
+        (candidate / "locked-candidate.env").write_text(
+            f"OTA_GKI_TAG={self.record['candidate_gki_tag']}\n"
+            f"OTA_GKI_COMMIT={self.record['candidate_gki_commit']}\n"
+            "OTA_KERNEL_VERSION=6.12.69\n"
+            "OTA_KMI=android16-6\n"
+            f"OTA_BUILD={self.build}\n"
+            f"OTA_INPUT_SHA256={self.record['stock_input_sha256']}\n"
+        )
+        (candidate / "build-metadata.txt").write_text(
+            f"SOURCE_GKI_TAG={self.record['candidate_gki_tag']}\n"
+            f"SOURCE_GKI_COMMIT={self.record['candidate_gki_commit']}\n"
+            f"SOURCE_SELECTION={self.record['candidate_selection_reason']}\n"
+            f"STOCK_UNAME={self.record['kernel_release']}\n"
+            f"KERNEL_RELEASE={self.record['kernel_release']}\n"
+            f"IMAGE_SHA256={digest(image)}\n"
+            f"SYMVERS_SHA256={digest(symvers)}\n"
+        )
+        output = self.root / "verified-ota-source.env"
+        prepared = self.run_cmd(
+            ROUTER, "prepare",
+            "--root", self.root,
+            "--stock-report", self.report_path,
+            "--pointer", self.pointer_path,
+            "--candidate-dir", candidate,
+            "--output", output,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stdout + prepared.stderr)
+        env = output.read_text()
+        self.assertIn("OS4_PANDORA_RUST_BINDER_EEXIST_SHIM=1", env)
+        self.assertIn("OS4_COMPATIBILITY_BASELINE_KIND=PANDORA_RUST_BINDER_EEXIST_SHIM", env)
+        self.assertIn("OS4_PANDORA_RUST_BINDER_EEXIST_PATCH_SHA256=", env)
 
 
 if __name__ == "__main__":

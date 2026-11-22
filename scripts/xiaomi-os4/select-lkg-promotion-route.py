@@ -55,6 +55,8 @@ def route(source_id: str, run: dict | None, artifacts: dict | None,
         name = asset.get("name")
         if not isinstance(name, str):
             continue
+        if name.startswith("pandora-OTA-COMPAT-NONFLASH-"):
+            fail("EEXIST compatibility candidates are boot-only and can never be promoted to LKG")
         if name == f"pandora-OS4-R62-CUSTOM-run-{source_id}":
             candidates.append("legacy")
         m = re.fullmatch(r"pandora-OTA-CUSTOM-(OS[0-9]+\.[0-9.]+[A-Z0-9]+)-run-([1-9][0-9]*)", name)

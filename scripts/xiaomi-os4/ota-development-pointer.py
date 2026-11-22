@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 BUILD = re.compile(r"^OS[0-9]+\.[0-9.]+[A-Z0-9]+$")
@@ -13,6 +14,13 @@ RELEASE = re.compile(r"^(6\.12\.[0-9]+)-android16-6-[A-Za-z0-9_.-]+$")
 SHA64 = re.compile(r"^[a-f0-9]{64}$")
 SHA40 = re.compile(r"^[a-f0-9]{40}$")
 TAG = re.compile(r"^android16-6\.12-[0-9]{4}-[0-9]{2}_r[1-9][0-9]*$")
+COMPAT_BUILD = "OS4.0.6.0.XBLCNXM"
+COMPAT_RELEASE = "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
+COMPAT_GKI_TAG = "android16-6.12-2026-03_r74"
+COMPAT_GKI_COMMIT = "b1d12d482d767c50cb792d988e4479d3f75c342a"
+COMPAT_KIND = "PANDORA_RUST_BINDER_EEXIST_SHIM"
+COMPAT_PARAM = "pandora_rust_binder_eexist=1"
+COMPAT_PATCH_SHA = "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee"
 
 
 def fail(message):
@@ -35,7 +43,96 @@ def keys_equal(a, b, key):
         fail("identity mismatch: " + key)
 
 
+def is_compatibility_record(record):
+    return record.get("status") == "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED"
+
+
+def verified_compatibility(record, fixture):
+    expected = {
+        "schema": 2,
+        "status": "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED",
+        "verification_mode": "USER_ATTESTATION_PLUS_READ_ONLY_RUNTIME_EVIDENCE",
+        "device": "pandora",
+        "stock_build": COMPAT_BUILD,
+        "observed_build": COMPAT_BUILD,
+        "kernel_release": COMPAT_RELEASE,
+        "observed_uname": COMPAT_RELEASE,
+        "candidate_gki_tag": COMPAT_GKI_TAG,
+        "candidate_gki_commit": COMPAT_GKI_COMMIT,
+        "candidate_selection_reason": "SAME_PATCH_LATEST_OFFICIAL_GKI_CANDIDATE",
+        "compatibility_kind": COMPAT_KIND,
+        "compatibility_parameter": COMPAT_PARAM,
+        "compatibility_patch_sha256": COMPAT_PATCH_SHA,
+        "next_stage": "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH",
+        "formal_oem_gate": "BLOCKED",
+        "safe_to_flash": False,
+        "persistent_flash": False,
+        "full_parity_lkg_promoted": False,
+    }
+    for key, value in expected.items():
+        if record.get(key) != value:
+            fail("compatibility baseline identity mismatch: " + key)
+    for field in ("stock_input_sha256", "stock_boot_sha256",
+                  "candidate_gki_image_sha256", "module_symvers_sha256",
+                  "compatibility_image_sha256", "compatibility_boot_sha256",
+                  "compatibility_patch_sha256", "runtime_evidence_zip_sha256"):
+        if not SHA64.fullmatch(record.get(field, "")):
+            fail("invalid compatibility baseline hash: " + field)
+    if not isinstance(record.get("stock_release_asset_id"), int) or record["stock_release_asset_id"] < 1:
+        fail("missing compatibility stock Release asset ID")
+    if not isinstance(record.get("verification_run_id"), int) or record["verification_run_id"] < 1:
+        fail("missing compatibility baseline verification Run ID")
+    runtime = record.get("runtime")
+    if not isinstance(runtime, dict):
+        fail("missing compatibility runtime evidence")
+    if (runtime.get("boot_completed") is not True
+        or runtime.get("rust_binder_loaded") is not False
+        or runtime.get("rust_binder_initstate") != "ABSENT"
+        or runtime.get("binder_activity_service") != "found"
+        or runtime.get("binder_package_service") != "found"
+        or runtime.get("loaded_vendor_memory_stack") != ["node_cache", "zram", "zsmalloc"]):
+        fail("compatibility runtime evidence is incomplete")
+    if fixture.get("schema") != 2 or fixture.get("safe_to_flash") is not False:
+        fail("compatibility fixture is not schema2 nonflash")
+    for key, value in {
+        "stock_build": COMPAT_BUILD,
+        "stock_input_sha256": record["stock_input_sha256"],
+        "stock_boot_sha256": record["stock_boot_sha256"],
+        "baseline_kernel_sha256": record["compatibility_image_sha256"],
+        "tested_boot_sha256": record["compatibility_boot_sha256"],
+        "compatibility_kind": COMPAT_KIND,
+        "compatibility_parameter": COMPAT_PARAM,
+        "shim_patch_sha256": COMPAT_PATCH_SHA,
+        "header_version": 4,
+        "header_size": 1584,
+        "ramdisk_size": 0,
+        "signature_size": 0,
+    }.items():
+        if fixture.get(key) != value:
+            fail("compatibility fixture identity mismatch: " + key)
+    if not isinstance(fixture.get("boot_size"), int) or fixture["boot_size"] <= 4096:
+        fail("invalid compatibility fixture boot size")
+    header = fixture.get("header_v4")
+    if not isinstance(header, dict) or header.get("reserved") != [0, 0, 0, 0]:
+        fail("invalid compatibility boot-v4 header")
+    cmdline = header.get("cmdline")
+    if not isinstance(cmdline, str):
+        fail("missing compatibility boot-v4 cmdline")
+    tokens = cmdline.split()
+    if COMPAT_PARAM not in tokens:
+        fail("compatibility boot parameter missing")
+    blacklists = [x for x in tokens if x.startswith("module_blacklist=")]
+    if len(blacklists) != 1:
+        fail("compatibility fixture must contain exactly one module blacklist")
+    blocked = blacklists[0].split("=", 1)[1].split(",")
+    if "kernelsu" not in blocked or "rust_binder" in blocked:
+        fail("compatibility fixture KernelSU/rust_binder blacklist contract failed")
+    return COMPAT_BUILD, COMPAT_RELEASE
+
+
 def verified(record, fixture):
+    if is_compatibility_record(record):
+        return verified_compatibility(record, fixture)
     if record.get("schema") != 1 or record.get("status") != "HUMAN_ATTESTED_BASELINE_BOOTED":
         fail("no accepted human boot attestation")
     if record.get("next_stage") != "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION":
@@ -76,17 +173,23 @@ def verified(record, fixture):
 
 def pointer_check(pointer, record, fixture):
     build, uname = verified(record, fixture)
-    if pointer.get("schema") != 1 or pointer.get("status") != "VERIFIED_OTA_DEVELOPMENT_ONLY":
-        fail("invalid current OTA development pointer")
+    compat = is_compatibility_record(record)
     expected = {
-        "build": build, "kernel_release": uname,
+        "schema": 1,
+        "status": "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY" if compat else "VERIFIED_OTA_DEVELOPMENT_ONLY",
+        "build": build,
+        "kernel_release": uname,
         "stock_input_sha256": record["stock_input_sha256"],
         "stock_release_asset_id": record["stock_release_asset_id"],
         "candidate_gki_commit": record["candidate_gki_commit"],
-        "candidate_boot_sha256": record["candidate_boot_sha256"],
+        "candidate_image_sha256": record["candidate_gki_image_sha256"] if compat else record["candidate_image_sha256"],
+        "candidate_boot_sha256": record["compatibility_boot_sha256"] if compat else record["candidate_boot_sha256"],
+        "module_symvers_sha256": record["module_symvers_sha256"],
         "verification_run_id": record["verification_run_id"],
-        "fixture_path": f".github/config/ota-verified/{build}/fixture.json",
-        "record_path": f".github/config/ota-verified/{build}/verification.json",
+        "fixture_path": f".github/config/ota-verified/{build}/compatibility-fixture.json" if compat else f".github/config/ota-verified/{build}/fixture.json",
+        "record_path": f".github/config/ota-verified/{build}/compatibility-verification.json" if compat else f".github/config/ota-verified/{build}/verification.json",
+        "compatibility_kind": COMPAT_KIND if compat else None,
+        "compatibility_patch_sha256": COMPAT_PATCH_SHA if compat else None,
         "full_parity_lkg_promoted": False,
     }
     for k, v in expected.items():
@@ -100,7 +203,7 @@ def project_paths(pointer, root):
         value = pointer.get(k, "")
         if not isinstance(value, str) or ".." in value or value.startswith("/"):
             fail("unsafe path in pointer: " + k)
-        if not re.fullmatch(r"\.github/config/ota-verified/OS[0-9]+\.[0-9.]+[A-Z0-9]+/(verification|fixture)\.json", value):
+        if not re.fullmatch(r"\.github/config/ota-verified/OS[0-9]+\.[0-9.]+[A-Z0-9]+/(verification|fixture|compatibility-verification|compatibility-fixture)\.json", value):
             fail("unexpected versioned path: " + k)
     return load(root / pointer["record_path"]), load(root / pointer["fixture_path"])
 
@@ -126,22 +229,27 @@ def cmd_create(a):
     record = load(a.record)
     fixture = load(a.fixture)
     build, uname = verified(record, fixture)
-    if a.record != Path(f".github/config/ota-verified/{build}/verification.json"):
-        fail("verification record must be in its version directory")
-    if a.fixture != Path(f".github/config/ota-verified/{build}/fixture.json"):
-        fail("fixture must be in its version directory")
+    compat = is_compatibility_record(record)
+    expected_record = Path(f".github/config/ota-verified/{build}/compatibility-verification.json" if compat else f".github/config/ota-verified/{build}/verification.json")
+    expected_fixture = Path(f".github/config/ota-verified/{build}/compatibility-fixture.json" if compat else f".github/config/ota-verified/{build}/fixture.json")
+    if a.record != expected_record or a.fixture != expected_fixture:
+        fail("verification record and fixture must use their version-scoped canonical paths")
     pointer = {
         "schema": 1,
-        "status": "VERIFIED_OTA_DEVELOPMENT_ONLY",
+        "status": "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY" if compat else "VERIFIED_OTA_DEVELOPMENT_ONLY",
         "build": build,
         "kernel_release": uname,
         "stock_input_sha256": record["stock_input_sha256"],
         "stock_release_asset_id": record["stock_release_asset_id"],
         "candidate_gki_commit": record["candidate_gki_commit"],
-        "candidate_boot_sha256": record["candidate_boot_sha256"],
+        "candidate_image_sha256": record["candidate_gki_image_sha256"] if compat else record["candidate_image_sha256"],
+        "candidate_boot_sha256": record["compatibility_boot_sha256"] if compat else record["candidate_boot_sha256"],
+        "module_symvers_sha256": record["module_symvers_sha256"],
         "verification_run_id": record["verification_run_id"],
         "fixture_path": a.fixture.as_posix(),
         "record_path": a.record.as_posix(),
+        "compatibility_kind": COMPAT_KIND if compat else None,
+        "compatibility_patch_sha256": COMPAT_PATCH_SHA if compat else None,
         "full_parity_lkg_promoted": False,
     }
     a.output.parent.mkdir(parents=True, exist_ok=True)
@@ -165,8 +273,21 @@ def cmd_select(a):
         fail("invalid selected build")
     if mode == "legacy" and build != "OS4.0.5.0.XBLCNXM":
         fail("legacy mode cannot build a different HyperOS version")
-    a.output.write_text(f"mode={mode}\nbuild={build}\n", encoding="utf-8")
-    print(f"CUSTOM_BUILD_MODE={mode} BUILD={build}")
+    if mode == "ota":
+        pointer = load(a.pointer)
+        record, fixture = project_paths(pointer, a.root)
+        compat = is_compatibility_record(record)
+        fields = [
+            "mode=ota",
+            "build=" + build,
+            "record_path=" + pointer["record_path"],
+            "fixture_path=" + pointer["fixture_path"],
+            "compatibility_mode=" + ("1" if compat else "0"),
+        ]
+    else:
+        fields = ["mode=legacy", "build=" + build]
+    a.output.write_text("\n".join(fields) + "\n", encoding="utf-8")
+    print(f"CUSTOM_BUILD_MODE={mode} BUILD={build} COMPATIBILITY={fields[-1].split('=',1)[1]}")
 
 
 def cmd_prepare(a):
@@ -175,6 +296,21 @@ def cmd_prepare(a):
     stock_check(load(a.stock_report), pointer, record, fixture)
     build = pointer["build"]
     cd = a.candidate_dir
+    if is_compatibility_record(record):
+        import subprocess
+        helper = Path(__file__).with_name("prepare-pandora-406-eexist-compat-baseline.py")
+        process = subprocess.run(
+            [sys.executable, str(helper),
+             "--record", str(a.root / pointer["record_path"]),
+             "--fixture", str(a.root / pointer["fixture_path"]),
+             "--candidate-dir", str(cd),
+             "--output", str(a.output)],
+            capture_output=True, text=True,
+        )
+        if process.returncode != 0:
+            fail("compatibility baseline preparation failed: " + process.stderr[-1200:])
+        print(process.stdout.strip())
+        return
     for file in ("Image", "Module.symvers", "final.config", "build-metadata.txt",
                  "locked-candidate.env", "gki-candidate.json", "stock-report.json"):
         if not (cd / file).is_file() or (cd / file).stat().st_size == 0:

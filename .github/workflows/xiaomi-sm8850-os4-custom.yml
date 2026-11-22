@@ -72,6 +72,9 @@ jobs:
     outputs:
       mode: ${{ steps.select.outputs.mode }}
       build: ${{ steps.select.outputs.build }}
+      record_path: ${{ steps.select.outputs.record_path }}
+      fixture_path: ${{ steps.select.outputs.fixture_path }}
+      compatibility_mode: ${{ steps.select.outputs.compatibility_mode }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -710,7 +713,7 @@ jobs:
 
 
   ota-build:
-    name: "pandora / 当前已验证新 OTA / 自定义内核（IMG + 实验性 AnyKernel3）"
+    name: "pandora / 已验证兼容基线 / 自定义内核（compat 模式严格 boot-only）"
     needs: [select-baseline, resolve-upstreams]
     if: needs.select-baseline.outputs.mode == 'ota'
     runs-on: ubuntu-24.04
@@ -762,9 +765,14 @@ jobs:
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
           bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
           python3 -m py_compile scripts/xiaomi-os4/ota-development-pointer.py \
+            scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py \
+            scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py \
             scripts/xiaomi-os4/check-ota-feature-abi.py \
             scripts/xiaomi-os4/check-ota-anykernel-evidence.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          python3 scripts/xiaomi-os4/test_ota_development_switch.py
+          python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py
+          python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
           sudo apt-get update -qq
@@ -789,7 +797,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-os4/ccache-ota-*
-          key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh') }}
+          key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py', 'scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py', 'scripts/xiaomi-os4/check-ota-feature-abi.py') }}
 
       - name: "只使用最新稳定上游，在新 OTA GKI 上尝试功能编译"
         shell: bash
@@ -845,7 +853,7 @@ jobs:
           python3 scripts/xiaomi-os4/check-ota-feature-abi.py \
             --baseline-symvers "$RUNNER_TEMP/ota-permanent/Module.symvers" \
             --feature-symvers "$RUNNER_TEMP/xiaomi-os4-integrated/results/Module.symvers" \
-            --baseline-record ".github/config/ota-verified/${{ needs.select-baseline.outputs.build }}/verification.json" \
+            --baseline-record "${{ needs.select-baseline.outputs.record_path }}" \
             --feature-metadata "$RUNNER_TEMP/xiaomi-os4-integrated/results/build-metadata.txt" \
             --report "$RUNNER_TEMP/xiaomi-os4-integrated/results/ota-custom-abi-report.json"
 
@@ -854,19 +862,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERIFIED_BUILD: ${{ needs.select-baseline.outputs.build }}
+          FIXTURE_PATH: ${{ needs.select-baseline.outputs.fixture_path }}
+          RECORD_PATH: ${{ needs.select-baseline.outputs.record_path }}
+          COMPATIBILITY_MODE: ${{ needs.select-baseline.outputs.compatibility_mode }}
         run: |
           set -euo pipefail
           RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
           OUT="$RUNNER_TEMP/ota-custom-output"
           mkdir -p "$OUT"
-          FIX=".github/config/ota-verified/$VERIFIED_BUILD/fixture.json"
+          FIX="$FIXTURE_PATH"
+          RECORD="$RECORD_PATH"
           IMG="$OUT/pandora-$VERIFIED_BUILD-CUSTOM-run-$GITHUB_RUN_ID-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"
-          EXPECTED="$(jq -r .kernel_release ".github/config/ota-verified/$VERIFIED_BUILD/verification.json")"
+          EXPECTED="$(jq -r .kernel_release "$RECORD")"
           IMAGE_SHA="$(sha256sum "$RES/Image" | cut -d' ' -f1)"
-          python3 scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
-            "$FIX" "$RES/Image" "$IMG" \
-            --expected-image-sha256 "$IMAGE_SHA" \
+          REPACK_ARGS=(
+            "$FIX" "$RES/Image" "$IMG"
+            --expected-image-sha256 "$IMAGE_SHA"
             --expected-release "$EXPECTED" --expected-build "$VERIFIED_BUILD"
+          )
+          if [[ "$COMPATIBILITY_MODE" == "1" ]]; then
+            REPACK_ARGS+=(--fastboot-boot-only-allow-growth)
+          fi
+          python3 scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py "${REPACK_ARGS[@]}" \
+            | tee "$OUT/fastboot-repack-report.txt"
           # Prevent stock Release changing during the long feature build.
           STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
           [[ "$(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .id' <<<"$STOCK")" == "$(jq -r .stock_release_asset_id .github/config/ota-development-current.json)" ]] || {
@@ -874,19 +892,32 @@ jobs:
           }
           cp "$RES/Image" "$RES/Module.symvers" "$RES/final.config" \
             "$RES/build-metadata.txt" "$RES/ota-custom-abi-report.json" "$OUT/"
-          cp ".github/config/ota-verified/$VERIFIED_BUILD/verification.json" "$OUT/verified-baseline.json"
+          cp "$RECORD" "$OUT/verified-baseline.json"
           cp "$FIX" "$OUT/fixture.json"
-          cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
+          cp "$RES/eexist-shim.patch" "$OUT/eexist-shim.patch" 2>/dev/null || true
+          if [[ "$COMPATIBILITY_MODE" == "1" ]]; then
+            cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
+          # $VERIFIED_BUILD / EEXIST 兼容自定义内核（仅临时启动）
+          本产物基于已通过真机启动验证的 exact-r74 EEXIST 兼容基线。
+          只生成 FASTBOOT-BOOT-ONLY.img；不生成 AnyKernel3，不允许持久刷写。
+          正式 OEM ABI gate 仍为 BLOCKED；71 个 OEM Rust Binder imports 与 27 个 zsmalloc provider ambiguity 不因本次启动成功而被删除。
+          镜像增长仅对 safe_to_flash=false 的临时启动包开放。
+          禁止 fastboot flash、AnyKernel3 安装及 LKG 晋升。
+          EOF
+          else
+            cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
           # $VERIFIED_BUILD / 新 OTA 自定义内核（未经真机功能版验证）
           GKI 基线已经由用户真机确认，**本次功能版并未因此获得启动验证**。
           同一次构建提供 FASTBOOT-BOOT-ONLY.img 与未验证 AnyKernel3 安装包。
           **强烈建议先用 fastboot boot 临时测试**，勿直接 fastboot flash。
-          AnyKernel3 会持久修改活动 boot；若启动失败可能需要 fastboot 恢复。
+          AnyKernel3 会持久修改活动 boot；在真机验证通过前，不建议进行 AnyKernel3 持久安装；若启动失败可能需要 fastboot 恢复。
           两个文件中的内核均为同一个 Image；不要求再次提交测试才能取得安装包。
           该功能版不会自动晋升 LKG，Gen 3 LKG 与旧版 boot fixture 保持不变。
           EOF
+          fi
 
       - name: "同时生成新 OTA 实验性 AnyKernel3（无须二次反馈）"
+        if: needs.select-baseline.outputs.compatibility_mode != '1'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -936,6 +967,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "为跨 OTA 稳定晋升保留精确来源与全部功能提交快照"
+        if: needs.select-baseline.outputs.compatibility_mode != '1'
         shell: bash
         env:
           BAKASU: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
@@ -988,10 +1020,27 @@ jobs:
             --artifact-dir "$OUT" --run-id "$GITHUB_RUN_ID" --head-sha "$GITHUB_SHA"
           (cd "$OUT" && sha256sum Image Module.symvers *.img *.zip > SHA256SUMS.txt)
 
-      - name: "上传新版本自定义内核：IMG + UNVERIFIED AnyKernel3"
+      - name: "标记 EEXIST 兼容构建为严格非刷机候选"
+        if: needs.select-baseline.outputs.compatibility_mode == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/ota-custom-output"
+          {
+            echo "FORMAL_OEM_GATE=BLOCKED"
+            echo "FLASHABLE=NO"
+            echo "PERSISTENT_FLASH=FORBIDDEN"
+            echo "ANYKERNEL3_BUILT=NO"
+            echo "LKG_PROMOTION=FORBIDDEN"
+            echo "COMPATIBILITY_KIND=PANDORA_RUST_BINDER_EEXIST_SHIM"
+            echo "COMPATIBILITY_PATCH_SHA256=5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee"
+          } > "$OUT/compatibility-nonflash-status.txt"
+          (cd "$OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+
+      - name: "上传新版本自定义内核：兼容候选仅含 FASTBOOT-BOOT-ONLY"
         uses: actions/upload-artifact@v6
         with:
-          name: pandora-OTA-CUSTOM-${{ needs.select-baseline.outputs.build }}-run-${{ github.run_id }}
+          name: ${{ needs.select-baseline.outputs.compatibility_mode == '1' && format('pandora-OTA-COMPAT-NONFLASH-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) || format('pandora-OTA-CUSTOM-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) }}
           path: ${{ runner.temp }}/ota-custom-output/
           if-no-files-found: error
           compression-level: 0
@@ -1007,11 +1056,17 @@ jobs:
             echo "- 本次系统: $VERIFIED_BUILD"
             echo "- 开发基线: .github/config/ota-verified/$VERIFIED_BUILD/"
             echo "- 功能组件: 本次最新稳定上游"
-            echo "- OEM CRC/KMI: 已按新 OTA baseline 强制检查"
-            echo "- 同时产出: FASTBOOT-BOOT-ONLY.img + OTA_CUSTOM_UNVERIFIED-AnyKernel3.zip"
-            echo "- 两者使用相同 Image，AnyKernel3 无需二次反馈就可取得"
-            echo "- 临时启动通过前，不建议进行 AnyKernel3 持久安装"
-            echo "- 禁止直接 fastboot flash、复用旧 R62 fixture 或自动晋升 LKG"
+            echo "- 新 OTA core ABI preservation: 已强制检查"
+            if [[ "${{ needs.select-baseline.outputs.compatibility_mode }}" == "1" ]]; then
+              echo "- 兼容模式: exact-r74 EEXIST shim，补丁 SHA 固定"
+              echo "- 产物: 仅 FASTBOOT-BOOT-ONLY.img（允许非刷机镜像增长）"
+              echo "- 正式 OEM ABI gate: BLOCKED"
+              echo "- 不生成 AnyKernel3；禁止持久刷写和 LKG 晋升"
+            else
+              echo "- 产物: FASTBOOT-BOOT-ONLY.img + OTA_CUSTOM_UNVERIFIED-AnyKernel3.zip"
+              echo "- 两者使用相同 Image；临时启动通过前不建议持久安装"
+              echo "- 禁止直接 fastboot flash、复用旧 R62 fixture 或自动晋升 LKG"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   bakasu-manager:

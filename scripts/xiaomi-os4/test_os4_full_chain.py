@@ -213,7 +213,16 @@ class OS4FullChain(unittest.TestCase):
         self.run_py("ota-development-pointer.py", "select",
                     "--stock-report", self.stock_report,
                     "--root", self.root, "--pointer", self.pointer, "--output", out)
-        self.assertEqual(out.read_text(), f"mode=ota\nbuild={FIXED_BUILD}\n")
+        self.assertEqual(
+            out.read_text().splitlines(),
+            [
+                "mode=ota",
+                f"build={FIXED_BUILD}",
+                f"record_path=.github/config/ota-verified/{FIXED_BUILD}/verification.json",
+                f"fixture_path=.github/config/ota-verified/{FIXED_BUILD}/fixture.json",
+                "compatibility_mode=0",
+            ],
+        )
         (self.candidate / "locked-candidate.env").write_text(
             "OTA_GKI_TAG=android16-6.12-2026-06_r8\n"
             "OTA_GKI_COMMIT=" + GKI + "\n"

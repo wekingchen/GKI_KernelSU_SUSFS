@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "status": "FASTBOOT_BOOT_RUNTIME_OBSERVED_NONFLASH",
+  "device": "pandora",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+  "source_gki_tag": "android16-6.12-2026-03_r74",
+  "source_gki_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+  "source_selection": "SAME_PATCH_LATEST_OFFICIAL_GKI_CANDIDATE",
+  "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+  "compatibility_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+  "compatibility_tested_baseline_boot_sha256": "028c0a268a1cd869ba0d3a29fc3263003fadb5babd15bf7189510e237745600c",
+  "build_run_id": 44981137052,
+  "artifact_id": 14737494662,
+  "image_sha256": "0e0fb71c7faf8239f97205afd2d3953735d1af8265f4b4520ec496e8d0fcd1b4",
+  "image_size": 44399104,
+  "module_symvers_sha256": "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e",
+  "baseline_module_symvers_sha256": "242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25",
+  "abi_gate": "PASS",
+  "baseline_vmlinux_exports": 18798,
+  "feature_vmlinux_exports": 18884,
+  "added_core_exports": 86,
+  "missing_or_crc_changed_total": 0,
+  "upstream_set_sha256": "7f6d889d70319813fe65e52cb11fa9c8baa6735636b2bcc6fccbbc53b5a5b90e",
+  "upstreams": {
+    "bakasu": {
+      "ref": "main",
+      "commit": "7b65bde0710b5e7c6f755545cb15a4abd417f3a8"
+    },
+    "susfs": {
+      "ref": "gki-android16-6.12",
+      "commit": "9b0b13f069673b9b07b713a5c66977de4d62b175"
+    },
+    "nomount": {
+      "ref": "v2.3.1",
+      "commit": "dcd77d03e9912f397a586d7da81694d1628f170e"
+    },
+    "droidspaces": {
+      "ref": "v7.2.0",
+      "commit": "cdadb9eb5d0f86aacffff60776333e6f6b73a30a"
+    },
+    "ntsync": {
+      "ref": "main",
+      "commit": "dc0f76bedd790b7738e5695509297ee71ca4a2c2"
+    },
+    "bbg": {
+      "ref": "v1.1",
+      "commit": "d4f7302190b83246266598eb5d59c6b36fa22bdc"
+    },
+    "rekernel": {
+      "ref": "11.7",
+      "commit": "e67cd94c524c27503cb340f8bbab594eca95dbef"
+    }
+  },
+  "features": {
+    "root_mode": "bakasu-susfs",
+    "susfs_extra_features": true,
+    "nomount": true,
+    "droidspaces": true,
+    "droidspaces_core_namespaces": true,
+    "droidspaces_macvlan": true,
+    "droidspaces_full_extras": true,
+    "ntsync": true,
+    "bbg": true,
+    "rekernel": true,
+    "networking": true,
+    "cve_chain": true,
+    "os3_parity_extras": true
+  },
+  "stock_boot_file_size": 41906176,
+  "required_fastboot_boot_size": 44404736,
+  "fastboot_boot_growth_bytes": 2498560,
+  "next_stage": "RESTORE_STANDARD_OS4_CUSTOM_BUILD_ROUTE_NONFLASH",
+  "formal_oem_gate": "BLOCKED",
+  "safe_to_flash": false,
+  "anykernel3_built": false,
+  "persistent_flash": false,
+  "lkg_promotion": false,
+  "package_run_id": 44982774320,
+  "package_artifact_id": 14738188791,
+  "fastboot_boot_name": "pandora-OS4.0.6-COMPAT-FULL-FEATURE-FASTBOOT-BOOT-ONLY.img",
+  "fastboot_boot_sha256": "273e6f86ff0e26aea0fe0024f4fdbeb258c89a43d6ef7df543e12619b0041112",
+  "fastboot_boot_size": 44404736,
+  "package_zip_sha256": "b6b6883cf2129e690b19b0cc863d6ff4b0bf15387c8ef5c53c81ae2785163433",
+  "boot_v4_header_audit": "PASS",
+  "test_command": "fastboot boot pandora-OS4.0.6-COMPAT-FULL-FEATURE-FASTBOOT-BOOT-ONLY.img",
+  "latest_live_evidence": {
+    "archive": "pandora-406-eexist-live-3936.zip",
+    "archive_sha256": "3827bc786012391d94dd0e62002a848437e2ce81bcf09fb4ed45539c1a1a27a7",
+    "identity": "MATCH",
+    "device": "pandora",
+    "stock_build": "OS4.0.6.0.XBLCNXM",
+    "slot": "_b",
+    "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+    "kernel_build": "#1 SMP PREEMPT Wed Nov 18 12:14:59 UTC 2026",
+    "boot_completed": true,
+    "eexist_parameter": true,
+    "kernelsu_lkm_blacklisted": true,
+    "root_available_read_only": true,
+    "root_context": "u:r:ksu:s0",
+    "modules_disabled": 0,
+    "binder_services": {
+      "activity": "found",
+      "package": "found"
+    },
+    "binder_impl": "c",
+    "binder_active_impl": "c",
+    "rust_binder_sys_module": "ABSENT",
+    "rust_binder_in_proc_modules": false,
+    "vendor_memory_stack": {
+      "modules": {
+        "node_cache": "loaded",
+        "zram": "loaded",
+        "zsmalloc": "loaded"
+      },
+      "note_sha256": {
+        "node_cache": "24755a08ebe111a8c8b0bbf30e25a6b32c2a0527654efb68109265bd36ef2b02",
+        "zram": "e6c5c0c4c3cfa4ad9f5ea4828391459b3c556dc80a77fd9bd005df2699dc0280",
+        "zsmalloc": "531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035"
+      },
+      "note_matches_pinned_vendor_stock": true,
+      "source_interpretation": "VENDOR_NOTE_IDENTITY_MATCH; DOES_NOT_PROVE_FULL_IN_MEMORY_ELF_OR_FILE_PATH"
+    },
+    "shim_kernel_log_marker": "NOT_OBSERVED",
+    "evidence_verdict": "PASS_EXPERIMENTAL_FASTBOOT_BOOT_ONLY",
+    "image_sha256_attested_by_archive": false,
+    "scope": "READ_ONLY_RUNTIME_OBSERVATION_AFTER_FASTBOOT_BOOT",
+    "formal_oem_gate": "BLOCKED",
+    "safe_to_flash": false,
+    "evidence_report": "docs/pandora-os4-406-eexist-live-3936-evidence-2026-11-22.md"
+  },
+  "live_runtime_gate": {
+    "status": "PASS_EXPERIMENTAL_FASTBOOT_BOOT_ONLY",
+    "evidence_report": "docs/pandora-os4-406-eexist-live-3936-evidence-2026-11-22.md",
+    "direct_binder_impl": "c",
+    "direct_binder_active_impl": "c",
+    "rust_binder_sysfs": "ABSENT",
+    "rust_binder_proc_modules": "ABSENT",
+    "binder_services": "PASS",
+    "root_read_only": "PASS",
+    "vendor_memory_stack_note_matches": "3/3",
+    "shim_kernel_log_marker": "NOT_OBSERVED",
+    "image_sha_attestation": "NOT_INCLUDED_IN_LIVE_ARCHIVE",
+    "formal_oem_gate": "BLOCKED",
+    "safe_to_flash": false,
+    "persistent_flash": false,
+    "anykernel3_built": false,
+    "lkg_promotion": false
+  },
+  "static_feature_config": {
+    "ksu": "y",
+    "susfs": "y",
+    "nomount": "y",
+    "ntsync": "y",
+    "bbg": "y",
+    "config_lsm_includes_baseband_guard": true,
+    "rekernel": "y",
+    "rekernel_network": "y",
+    "rekernel_legacy_netlink": false,
+    "macvlan": "y",
+    "cfs_bandwidth": "y",
+    "namespaces": [
+      "PID_NS",
+      "IPC_NS",
+      "UTS_NS",
+      "USER_NS",
+      "NET_NS",
+      "TIME_NS"
+    ],
+    "droidspaces_pids_mode": "REPURPOSE_NET_PRIO_KMI_SLOT",
+    "cgroup_pids_config": "n_EXPECTED",
+    "cgroup_net_prio": "y_SLOT_IDENTITY_REPURPOSED",
+    "cgroup_net_classid": "y",
+    "sock_cgroup_data": "y",
+    "cve_chain_status": "UPSTREAM_OR_ALREADY_PRESENT",
+    "networking_configs": [
+      "IP_SET",
+      "TCP_CONG_BBR",
+      "NET_SCH_CAKE",
+      "WIREGUARD",
+      "CIFS"
+    ]
+  },
+  "runtime_audit_collector": {
+    "tool": "COLLECT-PANDORA-406-FULL-FEATURE-RUNTIME-CMD.cmd",
+    "status": "COMPLETED_READ_ONLY",
+    "archive": "pandora-406-full-feature-runtime-v2-32272.txt",
+    "archive_sha256": "4e7b74c6ab4919033c9ad5a96f041a524b8f8d4f7d03f4a27ac22b905276c12a",
+    "transport": "CMD -> adb shell -T su -c sh -s via stdin",
+    "powershell_dependency": false,
+    "phone_writes": false
+  },
+  "latest_full_feature_runtime_evidence": {
+    "archive": "pandora-406-full-feature-runtime-v2-32272.txt",
+    "archive_sha256": "4e7b74c6ab4919033c9ad5a96f041a524b8f8d4f7d03f4a27ac22b905276c12a",
+    "collection": "CMD_ONLY_READ_ONLY_ADB_ROOT",
+    "device": "pandora",
+    "stock_build": "OS4.0.6.0.XBLCNXM",
+    "slot": "_b",
+    "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+    "boot_completed": true,
+    "root_available": true,
+    "root_context": "u:r:ksu:s0",
+    "binder": {
+      "impl": "c",
+      "active_impl": "c",
+      "rust_binder_sysfs": "ABSENT",
+      "rust_binder_proc_modules": "ABSENT",
+      "activity_service": "found",
+      "package_service": "found"
+    },
+    "active_lsm": [
+      "capability",
+      "landlock",
+      "safesetid",
+      "selinux",
+      "bpf",
+      "baseband_guard"
+    ],
+    "cgroup": {
+      "controllers": [
+        "pids"
+      ],
+      "subtree_control": [],
+      "config_cgroup_pids": "n_EXPECTED_NET_PRIO_SLOT_REPURPOSE",
+      "runtime_container": "NO_LIVE_CONTAINER",
+      "pids_max_current_events": "NOT_EXERCISED"
+    },
+    "modules_disabled": 0,
+    "ntsync": {
+      "config": "y",
+      "dev_node": "PRESENT",
+      "sysfs_class": "PRESENT",
+      "ioctl_test": "NOT_PERFORMED"
+    },
+    "bakasu_susfs": {
+      "ksud": "4.2.0-rc3-91-g7b65bde0 (uapi: 6)",
+      "susfs_version": "v2.4.0",
+      "variant": "GKI",
+      "enabled_features": [
+        "CONFIG_KSU_SUSFS_SUS_PATH",
+        "CONFIG_KSU_SUSFS_SUS_MOUNT",
+        "CONFIG_KSU_SUSFS_SUS_KSTAT",
+        "CONFIG_KSU_SUSFS_SPOOF_UNAME",
+        "CONFIG_KSU_SUSFS_ENABLE_LOG",
+        "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS",
+        "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG",
+        "CONFIG_KSU_SUSFS_OPEN_REDIRECT",
+        "CONFIG_KSU_SUSFS_SUS_MAP"
+      ],
+      "scope": "USERSpace VERSION_AND_FEATURE_QUERY; BEHAVIORAL_TESTS_NOT_PERFORMED"
+    },
+    "nomount": {
+      "cli_version": "23 (1)",
+      "module_version": "v2.3.1 (785)",
+      "scope": "VERSION_QUERY_ONLY"
+    },
+    "rekernel": {
+      "symbols": [
+        "rekernel_genl_family",
+        "rekernel_genl_get_version",
+        "rekernel_netlink_start",
+        "start_rekernel"
+      ],
+      "generic_netlink_transaction": "NOT_PERFORMED"
+    },
+    "networking_config": {
+      "macvlan": "y",
+      "bbr": "y",
+      "cake": "y",
+      "wireguard": "y",
+      "ip_set": "y",
+      "cifs": "y"
+    },
+    "vendor_memory_stack": {
+      "modules": [
+        "node_cache",
+        "zram",
+        "zsmalloc"
+      ],
+      "note_sha256": {
+        "node_cache": "24755a08ebe111a8c8b0bbf30e25a6b32c2a0527654efb68109265bd36ef2b02",
+        "zram": "e6c5c0c4c3cfa4ad9f5ea4828391459b3c556dc80a77fd9bd005df2699dc0280",
+        "zsmalloc": "531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035"
+      },
+      "pinned_vendor_note_match": "3/3",
+      "full_memory_elf_or_path_proof": false
+    },
+    "droidspaces": {
+      "package": "com.droidspaces.app",
+      "live_container": "NONE",
+      "namespace_runtime": "NOT_EXERCISED",
+      "per_container_pids_limit": "NOT_EXERCISED"
+    },
+    "shim_kernel_log_marker": "NOT_OBSERVED",
+    "kernel_log_feature_markers": "NONE_CAPTURED",
+    "image_sha256_attested_by_archive": false,
+    "verdict": "FULL_FEATURE_FASTBOOT_BOOT_RUNTIME_OBSERVED_NONFLASH",
+    "scope": "READ_ONLY_RUNTIME_OBSERVATION; NO_FLASH_OR_PERSISTENT_INSTALL"
+  }
+}

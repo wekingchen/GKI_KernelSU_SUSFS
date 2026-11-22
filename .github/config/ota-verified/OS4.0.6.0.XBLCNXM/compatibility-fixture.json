@@ -1,0 +1,32 @@
+{
+  "baseline_kernel_sha256": "4d524cfd60e2c0675247885bf54262b2dfebe158a807502c09c6625c73ee2917",
+  "boot_size": 41906176,
+  "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+  "compatibility_parameter": "pandora_rust_binder_eexist=1",
+  "formal_oem_gate": "BLOCKED",
+  "header_size": 1584,
+  "header_v4": {
+    "cmdline": "module_blacklist=kernelsu pandora_rust_binder_eexist=1",
+    "os_version": 0,
+    "reserved": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "header_version": 4,
+  "kernel_size": 41900544,
+  "ramdisk_region_b64": "",
+  "ramdisk_size": 0,
+  "safe_to_flash": false,
+  "schema": 2,
+  "shim_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+  "signature_size": 0,
+  "source": "pandora OS4.0.6.0 exact-r74 EEXIST real-device-tested FASTBOOT-BOOT-ONLY",
+  "stock_boot_sha256": "a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "suffix_b64": "",
+  "tested_boot_sha256": "028c0a268a1cd869ba0d3a29fc3263003fadb5babd15bf7189510e237745600c"
+}
