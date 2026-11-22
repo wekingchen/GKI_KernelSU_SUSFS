@@ -40,6 +40,7 @@ USE_BBG="${XIAOMI_OS4_USE_BBG:-1}"
 USE_REKERNEL="${XIAOMI_OS4_USE_REKERNEL:-1}"
 USE_NETWORKING="${XIAOMI_OS4_USE_NETWORKING:-1}"
 USE_CVE="${XIAOMI_OS4_USE_CVE:-1}"
+PANDORA_RUST_BINDER_EEXIST_SHIM="${OS4_PANDORA_RUST_BINDER_EEXIST_SHIM:-0}"
 
 # Legacy low-level controls remain supported so the immutable LKG workflow can
 # reproduce the already-verified image byte-for-byte.
@@ -62,6 +63,7 @@ check_bool() {
 }
 
 check_bool XIAOMI_OS4_SELECTABLE_BUILD "$CUSTOM_SELECTABLE"
+check_bool OS4_PANDORA_RUST_BINDER_EEXIST_SHIM "$PANDORA_RUST_BINDER_EEXIST_SHIM"
 
 if [[ "$CUSTOM_SELECTABLE" == "1" ]]; then
   case "$ROOT_MODE" in
@@ -216,6 +218,29 @@ make_ver="$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} /^SUBLEVEL = /{s=$3}
 [[ "$make_ver" == "$OS4_KERNEL_VERSION" ]] || { echo "::error::unexpected Makefile version $make_ver"; exit 1; }
 [[ "$(sed -n 's/^KMI_GENERATION=//p' "$SRC/build.config.constants")" == "$OS4_KMI_GENERATION" ]] || exit 1
 [[ "$(sed -n 's/^CLANG_VERSION=//p' "$SRC/build.config.constants")" == "$OS4_GKI_EXPECTED_CLANG" ]] || exit 1
+
+if [[ "$PANDORA_RUST_BINDER_EEXIST_SHIM" == "1" ]]; then
+  [[ "$NEW_OTA_MODE" == "1" ]] || {
+    echo "::error::pandora rust_binder EEXIST shim is forbidden on legacy/LKG builds"; exit 1;
+  }
+  [[ "$OS4_SYSTEM_BUILD" == "OS4.0.6.0.XBLCNXM" &&
+      "$OS4_GKI_TAG" == "android16-6.12-2026-03_r74" &&
+      "$OS4_GKI_COMMON_COMMIT" == "b1d12d482d767c50cb792d988e4479d3f75c342a" ]] || {
+    echo "::error::EEXIST shim is scoped only to the real-device-tested OS4.0.6 exact-r74 compatibility baseline"; exit 1;
+  }
+  expected_patch_sha="${OS4_PANDORA_RUST_BINDER_EEXIST_PATCH_SHA256:-}"
+  [[ "$expected_patch_sha" == "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee" ]] || {
+    echo "::error::EEXIST compatibility patch identity is not the tested patch"; exit 1;
+  }
+  python3 "$ROOT/scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py" --source "$SRC"
+  git -C "$SRC" diff -- kernel/module/main.c > "$RESULT/eexist-shim.patch"
+  actual_patch_sha="$(sha256sum "$RESULT/eexist-shim.patch" | awk '{print $1}')"
+  [[ "$actual_patch_sha" == "$expected_patch_sha" ]] || {
+    echo "::error::EEXIST patch drift: $actual_patch_sha"; exit 1;
+  }
+  grep -Fq 'pandora_rust_binder_eexist' "$SRC/kernel/module/main.c"
+  echo "PANDORA_RUST_BINDER_EEXIST_SHIM=APPLIED_VERIFIED_COMPAT_BASELINE"
+fi
 
 # Custom builds receive a per-run stable-upstream snapshot through OS4_*.
 # LKG reproduction injects the exact component set recorded in the movable LKG.
@@ -924,6 +949,13 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "USE_REKERNEL=$USE_REKERNEL"
   echo "USE_NETWORKING=$USE_NETWORKING"
   echo "USE_CVE=$USE_CVE"
+  echo "PANDORA_RUST_BINDER_EEXIST_SHIM=$PANDORA_RUST_BINDER_EEXIST_SHIM"
+  if [[ "$PANDORA_RUST_BINDER_EEXIST_SHIM" == "1" ]]; then
+    echo "COMPATIBILITY_BASELINE_KIND=${OS4_COMPATIBILITY_BASELINE_KIND:-UNKNOWN}"
+    echo "COMPATIBILITY_PATCH_SHA256=${OS4_PANDORA_RUST_BINDER_EEXIST_PATCH_SHA256:-UNKNOWN}"
+    echo "COMPATIBILITY_TESTED_IMAGE_SHA256=${OS4_COMPATIBILITY_TESTED_IMAGE_SHA256:-UNKNOWN}"
+    echo "COMPATIBILITY_TESTED_BOOT_SHA256=${OS4_COMPATIBILITY_TESTED_BOOT_SHA256:-UNKNOWN}"
+  fi
   echo "EXACT_LKG_SELECTION=$EXACT_LKG_SELECTION"
   echo "UPSTREAM_IDENTITY_MATCH_LKG=$UPSTREAM_IDENTITY_MATCH_LKG"
   echo "UPSTREAM_CHANGED_COMPONENTS=$(IFS=,; echo "${UPSTREAM_CHANGED_COMPONENTS[*]}")"
