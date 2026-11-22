@@ -271,9 +271,9 @@ class CompatibilityOTA(unittest.TestCase):
         self.assertIn("compatibility baseline identity mismatch: safe_to_flash", created.stderr)
 
     def test_prepare_delegates_to_exact_compatibility_baseline_validator(self):
-        image = b"Linux version " + self.record["kernel_release"].encode() + b"\\0" + b"K" * 4096
+        image = b"Linux version " + self.record["kernel_release"].encode() + b"\0" + b"K" * 4096
         symvers = "".join(
-            f"0x{i:08x}\\tsym_{i}\\tvmlinux\\tEXPORT_SYMBOL\\n"
+            f"0x{i:08x}\tsym_{i}\tvmlinux\tEXPORT_SYMBOL\n"
             for i in range(100)
         ).encode()
         self.record["candidate_gki_image_sha256"] = digest(image)
@@ -286,7 +286,7 @@ class CompatibilityOTA(unittest.TestCase):
         candidate.mkdir()
         (candidate / "Image").write_bytes(image)
         (candidate / "Module.symvers").write_bytes(symvers)
-        (candidate / "final.config").write_text("CONFIG_MODVERSIONS=y\\n")
+        (candidate / "final.config").write_text("CONFIG_MODVERSIONS=y\n")
         (candidate / "gki-candidate.json").write_text(json.dumps({
             "candidate_tag": self.record["candidate_gki_tag"],
             "candidate_commit": self.record["candidate_gki_commit"],
@@ -295,21 +295,21 @@ class CompatibilityOTA(unittest.TestCase):
         }))
         (candidate / "stock-report.json").write_text(json.dumps(self.stock))
         (candidate / "locked-candidate.env").write_text(
-            f"OTA_GKI_TAG={self.record['candidate_gki_tag']}\\n"
-            f"OTA_GKI_COMMIT={self.record['candidate_gki_commit']}\\n"
-            "OTA_KERNEL_VERSION=6.12.69\\n"
-            "OTA_KMI=android16-6\\n"
-            f"OTA_BUILD={self.build}\\n"
-            f"OTA_INPUT_SHA256={self.record['stock_input_sha256']}\\n"
+            f"OTA_GKI_TAG={self.record['candidate_gki_tag']}\n"
+            f"OTA_GKI_COMMIT={self.record['candidate_gki_commit']}\n"
+            "OTA_KERNEL_VERSION=6.12.69\n"
+            "OTA_KMI=android16-6\n"
+            f"OTA_BUILD={self.build}\n"
+            f"OTA_INPUT_SHA256={self.record['stock_input_sha256']}\n"
         )
         (candidate / "build-metadata.txt").write_text(
-            f"SOURCE_GKI_TAG={self.record['candidate_gki_tag']}\\n"
-            f"SOURCE_GKI_COMMIT={self.record['candidate_gki_commit']}\\n"
-            f"SOURCE_SELECTION={self.record['candidate_selection_reason']}\\n"
-            f"STOCK_UNAME={self.record['kernel_release']}\\n"
-            f"KERNEL_RELEASE={self.record['kernel_release']}\\n"
-            f"IMAGE_SHA256={digest(image)}\\n"
-            f"SYMVERS_SHA256={digest(symvers)}\\n"
+            f"SOURCE_GKI_TAG={self.record['candidate_gki_tag']}\n"
+            f"SOURCE_GKI_COMMIT={self.record['candidate_gki_commit']}\n"
+            f"SOURCE_SELECTION={self.record['candidate_selection_reason']}\n"
+            f"STOCK_UNAME={self.record['kernel_release']}\n"
+            f"KERNEL_RELEASE={self.record['kernel_release']}\n"
+            f"IMAGE_SHA256={digest(image)}\n"
+            f"SYMVERS_SHA256={digest(symvers)}\n"
         )
         output = self.root / "verified-ota-source.env"
         prepared = self.run_cmd(
