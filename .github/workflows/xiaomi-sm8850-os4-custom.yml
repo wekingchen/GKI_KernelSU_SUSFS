@@ -772,6 +772,7 @@ jobs:
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
           python3 scripts/xiaomi-os4/test_ota_development_switch.py
           python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py
+          python3 scripts/xiaomi-os4/test_repack_fastboot_boot_v4_growth.py
           python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
