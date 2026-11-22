@@ -76,8 +76,6 @@ def main():
                 f"expected={data[first:first+32]!r} actual={actual[first:first+32]!r}"
             )
         print("Manager 私有副本可复现：PASS")
-    else:
-        print("Manager 私有副本可复现：PASS")
 
 
 if __name__ == "__main__":
