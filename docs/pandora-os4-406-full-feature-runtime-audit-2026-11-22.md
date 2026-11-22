@@ -83,3 +83,12 @@
 6. 原 OS4.0.5 R62 LKG、其 fixture 和 legacy 构建路径不被覆盖。
 
 本次目的只是恢复 OS4.0.6 版本化、受门禁保护的自定义**编译**路线；不是宣布 OEM ABI 问题已经解决。
+
+
+## Windows / ADB 操作约定（长期）
+
+- 用户侧执行入口统一使用 Windows 原生 CMD + `adb.exe`。
+- 不再要求用户运行 PowerShell 脚本，也不再把复杂 Android shell 语句层层拼接进 `adb shell su -c` 参数。
+- 需要执行多条 Android shell 检查时，由 CMD 将完整 POSIX shell 脚本通过 ADB stdin 传给单次 Root shell；用户只需运行一个 `.cmd`。
+- 交付前必须先检查 CMD 编码/换行、远端 Shell 语法（dash / BusyBox ash）、文件完整性和只读边界；静态检查不得冒称真机端到端通过。
+- 任何会修改设备状态的操作必须单独标明，不能混入只读采集器。
