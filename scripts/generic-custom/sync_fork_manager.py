@@ -65,8 +65,17 @@ def main():
     if args.write:
         PRIVATE.write_bytes(data)
         print("已从当前上游原件确定性生成 BakaSU Manager 隔离副本")
-    elif not PRIVATE.exists() or PRIVATE.read_bytes() != data:
-        raise SystemExit("fork-only Manager 偏离了上游原件+确定性 BakaSU 版本校验叠加")
+    else:
+        actual = PRIVATE.read_bytes() if PRIVATE.exists() else b""
+        if actual != data:
+            limit = min(len(actual), len(data))
+            first = next((i for i in range(limit) if actual[i] != data[i]), limit)
+            raise SystemExit(
+                "fork-only Manager 偏离了上游原件+确定性 BakaSU 版本校验叠加；"
+                f"expected_bytes={len(data)} actual_bytes={len(actual)} first_diff={first} "
+                f"expected={data[first:first+32]!r} actual={actual[first:first+32]!r}"
+            )
+        print("Manager 私有副本可复现：PASS")
     else:
         print("Manager 私有副本可复现：PASS")
 
