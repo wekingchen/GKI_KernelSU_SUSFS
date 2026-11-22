@@ -103,6 +103,32 @@ class RepackGrowth(unittest.TestCase):
         self.assertIn("pandora_rust_binder_eexist=1", result.stdout)
         self.assertIn("module_blacklist=kernelsu", result.stdout)
 
+    def test_real_repo_os406_fixture_accepts_nonflash_growth(self):
+        real_fixture = ROOT / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/compatibility-fixture.json"
+        fixture = json.loads(real_fixture.read_text(encoding="utf-8"))
+        self.assertEqual(fixture["stock_build"], BUILD)
+        self.assertFalse(fixture["safe_to_flash"])
+        self.assertEqual(fixture["header_v4"]["cmdline"],
+                         "module_blacklist=kernelsu pandora_rust_binder_eexist=1")
+
+        # Cross the real recorded boot-file envelope by one byte of kernel
+        # payload. Alignment then requires exactly one extra 4 KiB page.
+        real_image_size = fixture["boot_size"] - 4096 + 1
+        marker = RELEASE.encode() + b"\0"
+        image = marker + b"K" * (real_image_size - len(marker))
+        self.image.write_bytes(image)
+        self.image_sha = digest(image)
+        self.fixture = real_fixture
+
+        result = self.run_repack("--fastboot-boot-only-allow-growth")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        expected_size = fixture["boot_size"] + 4096
+        self.assertEqual(self.output.stat().st_size, expected_size)
+        self.assertIn(f"output_size={expected_size}", result.stdout)
+        self.assertIn("boot_file_growth=4096", result.stdout)
+        self.assertIn("FINAL_BOOT_V4_AUDIT=PASS", result.stdout)
+        self.assertIn("FLASHABLE=NO", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
