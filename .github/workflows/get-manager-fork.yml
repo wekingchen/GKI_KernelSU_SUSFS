@@ -224,7 +224,7 @@ jobs:
                 --arg source "https://github.com/$NOVA_GITHUB_REPO/releases/download/" '
                 [ .[] | if type == "array" then .[] else . end | select(.draft != true) | .assets[]? |
                   select(.browser_download_url | strings | startswith($source)) |
-                  (.name | capture("^SukiSU_Nova_[A-Za-z0-9._-]+_(?<version>[0-9]+)-arm64-v8a-release\\.apk$")) as $apk |
+                  (.name | capture("^SukiSU_Nova_[A-Za-z0-9._-]+_(?<version>[0-9]+)-arm64-v8a-release\.apk$")) as $apk |
                   ($apk.version | tonumber) as $version | select($version >= $min and $version <= $max) |
                   [$version, .name, .browser_download_url]
                 ] | sort_by(-.[0])[] | .[1:] | @tsv') || return 1
@@ -420,7 +420,7 @@ jobs:
 
             for APK in "${BAKASU_APKS[@]}"; do
               APK_NAME=$(basename "$APK")
-              if [[ "$APK_NAME" =~ _([0-9]+)-arm64-v8a-release\\.apk$ ]]; then
+              if [[ "$APK_NAME" =~ _([0-9]+)-arm64-v8a-release\.apk$ ]]; then
                 APK_KSU_VERSION="${BASH_REMATCH[1]}"
               else
                 echo "::error::无法从 BakaSU Manager 文件名解析版本码: $APK_NAME"
@@ -433,7 +433,7 @@ jobs:
               echo "BakaSU Manager 版本校验通过: $APK_NAME (KSU $APK_KSU_VERSION <= $TARGET_KSU_VERSION)"
             done
 
-            printf '%s\\n' "${BAKASU_APKS[@]}"
+            printf '%s\n' "${BAKASU_APKS[@]}"
           else
             echo "$DOWNLOAD_LIST" | while IFS=$'\t' read -r NAME URL; do
               SAFE_NAME=$(echo "$NAME" | tr '/ ' '__')
