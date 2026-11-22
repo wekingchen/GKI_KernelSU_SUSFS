@@ -2,7 +2,8 @@
 """Build a fastboot-boot-only Android boot v4 image directly from the
 real-device-tested pandora fixture plus a candidate kernel Image.
 
-The fixture contains the exact tested 4096-byte header and preserved
+The fixture contains either the exact tested 4096-byte header page or the
+1584-byte boot-v4 header struct (zero-padded to one page), plus preserved
 ramdisk/suffix regions, so a baseline kernel rebuild is not required.
 """
 from __future__ import annotations
@@ -70,6 +71,11 @@ def main() -> None:
     ap.add_argument("--expected-release", required=True)
     ap.add_argument("--expected-build", required=True)
     ap.add_argument("--expected-output-sha256")
+    ap.add_argument(
+        "--fastboot-boot-only-allow-growth",
+        action="store_true",
+        help="Allow a NONFLASH test image to grow beyond the stock boot-file length when the candidate kernel is larger.",
+    )
     args = ap.parse_args()
 
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
@@ -84,7 +90,38 @@ def main() -> None:
         fail("fixture is not the expected boot-v4 layout")
 
     try:
-        header = bytearray(base64.b64decode(fixture["header_page_b64"], validate=True))
+        if "header_page_b64" in fixture:
+            header = bytearray(base64.b64decode(fixture["header_page_b64"], validate=True))
+        elif "header_struct_b64" in fixture:
+            header_struct = base64.b64decode(fixture["header_struct_b64"], validate=True)
+            if len(header_struct) != HEADER_V4_SIZE:
+                fail("fixture boot-v4 header struct length invalid")
+            header = bytearray(header_struct + b"\0" * (PAGE_SIZE - len(header_struct)))
+        elif "header_v4" in fixture:
+            hv4 = fixture["header_v4"]
+            if not isinstance(hv4, dict):
+                fail("fixture structured boot-v4 header invalid")
+            header = bytearray(PAGE_SIZE)
+            header[:8] = BOOT_MAGIC
+            struct.pack_into("<I", header, 8, fixture.get("kernel_size", 0))
+            struct.pack_into("<I", header, 12, fixture.get("ramdisk_size", 0))
+            struct.pack_into("<I", header, 16, hv4.get("os_version", -1))
+            struct.pack_into("<I", header, 20, HEADER_V4_SIZE)
+            reserved = hv4.get("reserved")
+            if reserved != [0, 0, 0, 0]:
+                fail("fixture structured boot-v4 reserved fields drift")
+            struct.pack_into("<4I", header, 24, *reserved)
+            struct.pack_into("<I", header, 40, 4)
+            cmdline = hv4.get("cmdline")
+            if not isinstance(cmdline, str):
+                fail("fixture structured boot-v4 cmdline invalid")
+            cmd = cmdline.encode("ascii", "strict")
+            if len(cmd) + 1 > CMDLINE_SIZE:
+                fail("fixture structured boot-v4 cmdline too long")
+            header[CMDLINE_OFFSET:CMDLINE_OFFSET + len(cmd)] = cmd
+            struct.pack_into("<I", header, 1580, fixture.get("signature_size", 0))
+        else:
+            fail("fixture header payload missing")
         ramdisk_region = base64.b64decode(fixture["ramdisk_region_b64"], validate=True)
         suffix = base64.b64decode(fixture["suffix_b64"], validate=True)
     except Exception as exc:
@@ -120,10 +157,17 @@ def main() -> None:
         # New OTA fixtures preserve the fixed same-OTA stock boot partition
         # length as a compact integer instead of embedding megabytes of NULs.
         target_size = fixture.get("boot_size")
-        if (not isinstance(target_size, int) or
-            target_size < PAGE_SIZE + align(len(image)) or
-            target_size > 200 * 1024 * 1024):
-            fail("candidate cannot fit in this OTA's recorded boot image")
+        required_size = PAGE_SIZE + align(len(image))
+        if not isinstance(target_size, int) or target_size <= PAGE_SIZE or target_size > 200 * 1024 * 1024:
+            fail("invalid recorded boot image size")
+        if required_size > target_size:
+            if not args.fastboot_boot_only_allow_growth:
+                fail("candidate cannot fit in this OTA's recorded boot image")
+            # Explicit development-only exception: fastboot boot loads this image
+            # transiently. Never use this size-growth path for a flashable image.
+            if fixture.get("safe_to_flash") is not False:
+                fail("boot growth requires a NONFLASH fixture")
+            target_size = required_size
         if (ramdisk_size != 0 or fixture.get("signature_size") != 0
             or ramdisk_region or suffix):
             fail("schema 2 only supports zero-ramdisk/zero-signature/zero-suffix boot")
@@ -155,6 +199,9 @@ def main() -> None:
     print(f"candidate_release={args.expected_release}")
     print(f"guarded_cmdline={guarded_cmdline.decode('ascii', errors='replace')}")
     print(f"output_sha256={out_sha}")
+    print(f"output_size={len(out)}")
+    print(f"stock_boot_file_size={fixture.get('boot_size','UNKNOWN')}")
+    print(f"boot_file_growth={max(0, len(out) - int(fixture.get('boot_size', len(out))))}")
     print("FINAL_BOOT_V4_AUDIT=PASS")
     print("FLASHABLE=NO")
     print("USE=fastboot boot ONLY")
