@@ -224,7 +224,7 @@ jobs:
                 --arg source "https://github.com/$NOVA_GITHUB_REPO/releases/download/" '
                 [ .[] | if type == "array" then .[] else . end | select(.draft != true) | .assets[]? |
                   select(.browser_download_url | strings | startswith($source)) |
-                  (.name | capture("^SukiSU_Nova_[A-Za-z0-9._-]+_(?<version>[0-9]+)-arm64-v8a-release\.apk$")) as $apk |
+                  (.name | capture("^SukiSU_Nova_[A-Za-z0-9._-]+_(?<version>[0-9]+)-arm64-v8a-release\\.apk$")) as $apk |
                   ($apk.version | tonumber) as $version | select($version >= $min and $version <= $max) |
                   [$version, .name, .browser_download_url]
                 ] | sort_by(-.[0])[] | .[1:] | @tsv') || return 1
