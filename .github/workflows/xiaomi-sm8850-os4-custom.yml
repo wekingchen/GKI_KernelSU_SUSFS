@@ -713,7 +713,7 @@ jobs:
 
 
   ota-build:
-    name: "pandora / 当前已验证新 OTA / 自定义内核（IMG + 实验性 AnyKernel3）"
+    name: "pandora / 已验证兼容基线 / 自定义内核（compat 模式严格 boot-only）"
     needs: [select-baseline, resolve-upstreams]
     if: needs.select-baseline.outputs.mode == 'ota'
     runs-on: ubuntu-24.04
@@ -765,9 +765,14 @@ jobs:
           bash -n scripts/xiaomi-os4/apply-os3-parity-extras.sh
           bash -n scripts/xiaomi-os4/apply-os4-selected-extras.sh
           python3 -m py_compile scripts/xiaomi-os4/ota-development-pointer.py \
+            scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py \
+            scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py \
             scripts/xiaomi-os4/check-ota-feature-abi.py \
             scripts/xiaomi-os4/check-ota-anykernel-evidence.py \
             scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          python3 scripts/xiaomi-os4/test_ota_development_switch.py
+          python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py
+          python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
           sudo apt-get update -qq
@@ -792,7 +797,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/xiaomi-os4/ccache-ota-*
-          key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh') }}
+          key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py', 'scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py', 'scripts/xiaomi-os4/check-ota-feature-abi.py') }}
 
       - name: "只使用最新稳定上游，在新 OTA GKI 上尝试功能编译"
         shell: bash
