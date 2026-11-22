@@ -39,7 +39,7 @@ OVERLAY = """            if ! download_bakasu_spoof; then
               echo "BakaSU Manager 版本校验通过: $APK_NAME (KSU $APK_KSU_VERSION <= $TARGET_KSU_VERSION)"
             done
 
-            printf '%s\\n' "${BAKASU_APKS[@]}" """.encode("utf-8")
+            printf '%s\\n' "${BAKASU_APKS[@]}" """.rstrip().encode("utf-8")
 
 
 def generate() -> bytes:
