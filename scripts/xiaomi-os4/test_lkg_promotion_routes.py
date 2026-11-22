@@ -49,6 +49,11 @@ class Routes(unittest.TestCase):
     def test_ota_after_new_lkg(self):
         self.assertEqual(self.check(current=True),"ota")
 
+    def test_eexist_compatibility_artifact_is_never_promotable(self):
+        compat = "pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-" + RID
+        with self.assertRaisesRegex(ValueError, "boot-only and can never be promoted"):
+            self.check(a=list_(asset(compat)))
+
     def test_repair_without_requiring_expired_source_artifact(self):
         self.assertEqual(MOD.route(RID,None,None,True,repair=True),"repair")
 
