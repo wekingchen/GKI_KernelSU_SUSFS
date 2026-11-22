@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 BUILD = re.compile(r"^OS[0-9]+\.[0-9.]+[A-Z0-9]+$")
@@ -284,8 +285,7 @@ def cmd_select(a):
             "compatibility_mode=" + ("1" if compat else "0"),
         ]
     else:
-        fields = ["mode=legacy", "build=" + build,
-                  "record_path=", "fixture_path=", "compatibility_mode=0"]
+        fields = ["mode=legacy", "build=" + build]
     a.output.write_text("\n".join(fields) + "\n", encoding="utf-8")
     print(f"CUSTOM_BUILD_MODE={mode} BUILD={build} COMPATIBILITY={fields[-1].split('=',1)[1]}")
 
