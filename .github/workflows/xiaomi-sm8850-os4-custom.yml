@@ -910,7 +910,7 @@ jobs:
           GKI 基线已经由用户真机确认，**本次功能版并未因此获得启动验证**。
           同一次构建提供 FASTBOOT-BOOT-ONLY.img 与未验证 AnyKernel3 安装包。
           **强烈建议先用 fastboot boot 临时测试**，勿直接 fastboot flash。
-          AnyKernel3 会持久修改活动 boot；若启动失败可能需要 fastboot 恢复。
+          AnyKernel3 会持久修改活动 boot；在真机验证通过前，不建议进行 AnyKernel3 持久安装；若启动失败可能需要 fastboot 恢复。
           两个文件中的内核均为同一个 Image；不要求再次提交测试才能取得安装包。
           该功能版不会自动晋升 LKG，Gen 3 LKG 与旧版 boot fixture 保持不变。
           EOF
