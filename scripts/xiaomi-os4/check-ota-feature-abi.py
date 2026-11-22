@@ -40,8 +40,19 @@ def main():
     a = ap.parse_args()
     rec = json.loads(a.baseline_record.read_text())
     sha = lambda x: hashlib.sha256(x.read_bytes()).hexdigest()
-    if rec.get("status") != "HUMAN_ATTESTED_BASELINE_BOOTED" or rec.get("safe_to_flash") is not False:
-        abort("base is not the verified, nonflashable OTA")
+    status = rec.get("status")
+    allowed_status = {
+        "HUMAN_ATTESTED_BASELINE_BOOTED",
+        "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED",
+    }
+    if status not in allowed_status or rec.get("safe_to_flash") is not False:
+        abort("base is not a verified, nonflashable OTA development baseline")
+    compat = status == "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED"
+    if compat:
+        if rec.get("formal_oem_gate") != "BLOCKED":
+            abort("compatibility baseline must keep formal OEM gate BLOCKED")
+        if rec.get("next_stage") != "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH":
+            abort("compatibility baseline is not allowed for nonflash feature adaptation")
     if sha(a.baseline_symvers) != rec.get("module_symvers_sha256"):
         abort("baseline Module.symvers changed since verification")
     meta = dict(line.split("=", 1) for line in a.feature_metadata.read_text().splitlines() if "=" in line)
@@ -55,6 +66,13 @@ def main():
         abort("custom Module.symvers does not match build metadata")
     if meta.get("FLASHABLE") != "NO" or meta.get("SELECTABLE_BUILD") != "1":
         abort("custom mode is not the guarded unverified selectable build")
+    if compat:
+        if meta.get("PANDORA_RUST_BINDER_EEXIST_SHIM") != "1":
+            abort("compatibility feature build omitted the verified EEXIST shim")
+        if meta.get("COMPATIBILITY_BASELINE_KIND") != rec.get("compatibility_kind"):
+            abort("compatibility baseline kind drift")
+        if meta.get("COMPATIBILITY_PATCH_SHA256") != rec.get("compatibility_patch_sha256"):
+            abort("compatibility patch identity drift")
 
     ref = read_exports(a.baseline_symvers)
     cur = read_exports(a.feature_symvers)
@@ -76,6 +94,9 @@ def main():
         "gate": "PASS" if not changed else "BLOCKED",
         "safe_to_flash": False,
         "full_parity_lkg_promoted": False,
+        "baseline_status": status,
+        "compatibility_baseline": compat,
+        "formal_oem_gate": "BLOCKED" if compat else "NOT_APPLICABLE_TO_THIS_GATE",
     }
     a.report.parent.mkdir(parents=True, exist_ok=True)
     a.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
