@@ -55,11 +55,16 @@
 
 相应负例覆盖旧 LKG 错配新 OTA、用户确认包哈希篡改、缺少标准 `verification.json` 的真实 Gen7 路线。**该项须以追加修复合并后的真实 dev 快照输出 `LKG_ARCHIVED` 才算闭环**，不以工作流绿色代替正确状态。
 
-### E. 历史 ABI 归档回放仍依赖可变的当前 stock-input
+### E. 历史 ABI 归档回放原件已独立冻结（已执行、待新引用回归）
 
-当前真实回放参考 `scripts/xiaomi-os4/ota-v2-references/pandora-os4-406-raw-oem-abi.json` 的 `source.stock_tag` 为 `pandora-os4-stock-input`。这是**会被下次 OTA 替换的唯一固定输入 Release**，而历史候选归档只保留 GKI Image、Module.symvers 和报告，没有将原始 OS4.0.6 `xm.zip` 一并锁进独立永久归档。因此下次真正替换固定 stock-input 后，继续对旧 OS4.0.6 执行同一真实回放可能正确地因 SHA 不符而失败；不能把这种失败误判为 OEM ABI 被改变，也不能为了变绿跳过 SHA 校验。
+审计初期发现：历史回放引用的 `pandora-os4-stock-input` 会在下次 OTA 到来时被替换，使旧 OS4.0.6 原始 ABI 测试失去复现材料。现已在不触碰固定 stock Release 与 Gen7 的前提下完成一次真实冻结交易：
 
-**后续发布门槛：** 在下次接受新的 stock-input 前，先把当前已核对的 OS4.0.6 `xm.zip`（stock SHA `bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8`）固化到独立不可覆盖的、只读可验证来源归档，并把历史回放改为读取该精确归档。当前代码尚未完成这项独立归档事务，列为下次 OTA 前的 P1，不允许静默忽略。
+- 首次尝试采用 Tag 发布后上传出现“release not found”，重试仍失败，未生成有效参考归档。已改成 **Draft 先行、数字 Release/Asset ID 上传、字节 SHA 独立回检后才公开**，失败时不公开空归档。
+- [历史冻结 Run #2](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/45141107858) `success`；[永久参考 Release](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-ota-v2-os406-raw-stock-reference) 已公开为 prerelease，非 Draft，唯一附件 `pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip`，**88,003,109 字节**，SHA-256 `bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8`，与原始参考完全一致。
+- 回放参考 `ota-v2-references/pandora-os4-406-raw-oem-abi.json` 已改指向 `pandora-ota-v2-os406-raw-stock-reference`，而不是未来会更新的 `pandora-os4-stock-input`。验证完成后，删除一次性冻结脚本与工作流，保留它们的 PR 历史/Run 日志和永久参考 Release 供审计。
+- 上述 ZIP 是**取得 Root 后的活动设备快照**，不是证明来自 OEM 官方且从未修改的镜像；仅供历史原始 ABI 阻断复现，绝不当可刷机包。冻结协议要求 tag/附件固定不覆盖，若发生未经授权的变化会因 SHA 校验失败。
+
+后续验收以切换引用的 PR CI 对这个独立 Release **重新执行全量真实 OEM checker，并得到 BLOCKED** 为准。这样未来 OTA 替换当前 stock-input 时，旧回放仍拥有独立可检验的原始字节。
 
 ### F. 文档版本漂移
 
@@ -82,4 +87,4 @@
 - 仍保留正常的用户 Root 准备、电脑临时启动、运行时验收和 LKG 确认，未来兼容补丁可能需要开发者根据诊断制定。
 - 只读历史回放、契约测试和独立安全门禁可自动跑；不能把任一工作流绿色状态单独当作刷机许可。
 
-**完成标准：** 相关 PR 的静态/负例回归、真实历史 ABI BLOCKED 回放和上游隔离门禁成功，且追加修复合并后 dev 的可信阶段快照能够核对 Gen7、始终 `safe_to_flash=false`。未来真正新 OTA 的实机补采仍未验证；上文 P1 历史参考 stock 永久归档是下次 OTA 替换前必须处理的独立剩余项。
+**完成标准：** 相关 PR 的静态/负例回归、真实历史 ABI BLOCKED 回放和上游隔离门禁成功，且追加修复合并后 dev 的可信阶段快照能够核对 Gen7、始终 `safe_to_flash=false`。未来真正新 OTA 的实机补采仍未验证；历史 stock 参考已独立冻结，最终以新引用的真实 BLOCKED 重放回归验收为准。
