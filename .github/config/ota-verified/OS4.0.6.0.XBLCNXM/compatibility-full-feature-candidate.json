@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "FASTBOOT_BOOT_RUNTIME_OBSERVED_NONFLASH",
+  "status": "STANDARD_CUSTOM_WORKFLOW_FASTBOOT_BOOT_VERIFIED_NONFLASH",
   "device": "pandora",
   "stock_build": "OS4.0.6.0.XBLCNXM",
   "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
@@ -70,7 +70,7 @@
   "stock_boot_file_size": 41906176,
   "required_fastboot_boot_size": 44404736,
   "fastboot_boot_growth_bytes": 2498560,
-  "next_stage": "RESTORE_STANDARD_OS4_CUSTOM_BUILD_ROUTE_NONFLASH",
+  "next_stage": "STANDARD_OS4_CUSTOM_BUILD_ROUTE_RESTORED_NONFLASH",
   "formal_oem_gate": "BLOCKED",
   "safe_to_flash": false,
   "anykernel3_built": false,
@@ -297,5 +297,89 @@
     "image_sha256_attested_by_archive": false,
     "verdict": "FULL_FEATURE_FASTBOOT_BOOT_RUNTIME_OBSERVED_NONFLASH",
     "scope": "READ_ONLY_RUNTIME_OBSERVATION; NO_FLASH_OR_PERSISTENT_INSTALL"
+  },
+  "standard_workflow_candidate": {
+    "workflow": "小米17 Pro OS4 / 自定义内核",
+    "run_number": 37,
+    "run_id": 45047763911,
+    "artifact_id": 14764239826,
+    "artifact_name": "pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-45047763911",
+    "image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+    "module_symvers_sha256": "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e",
+    "fastboot_boot_sha256": "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27",
+    "fastboot_boot_size": 44404736,
+    "boot_v4_header_audit": "PASS",
+    "abi_gate": "PASS",
+    "baseline_exports_preserved": 18798,
+    "added_core_exports": 86,
+    "missing_or_crc_changed_total": 0,
+    "upstreams": {
+      "bakasu": {
+        "ref": "main",
+        "commit": "2734e0bc155759955880f5fb99be640fc5b92156"
+      },
+      "susfs": {
+        "ref": "gki-android16-6.12",
+        "commit": "9b0b13f069673b9b07b713a5c66977de4d62b175"
+      },
+      "nomount": {
+        "ref": "v2.3.1",
+        "commit": "dcd77d03e9912f397a586d7da81694d1628f170e"
+      },
+      "droidspaces": {
+        "ref": "v7.2.0",
+        "commit": "cdadb9eb5d0f86aacffff60776333e6f6b73a30a"
+      },
+      "ntsync": {
+        "ref": "main",
+        "commit": "dc0f76bedd790b7738e5695509297ee71ca4a2c2"
+      },
+      "bbg": {
+        "ref": "v1.1",
+        "commit": "d4f7302190b83246266598eb5d59c6b36fa22bdc"
+      },
+      "rekernel": {
+        "ref": "11.7",
+        "commit": "e67cd94c524c27503cb340f8bbab594eca95dbef"
+      }
+    },
+    "safe_to_flash": false,
+    "anykernel3_built": false,
+    "persistent_flash": false,
+    "lkg_promotion": false
+  },
+  "standard_workflow_live_evidence": {
+    "source": "USER_MANUAL_CMD_OUTPUT",
+    "device": "pandora",
+    "stock_build": "OS4.0.6.0.XBLCNXM",
+    "boot_completed": true,
+    "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+    "root": {
+      "uid": 0,
+      "context": "u:r:ksu:s0"
+    },
+    "binder": {
+      "impl": "c",
+      "active_impl": "c",
+      "rust_binder_proc_modules": "ABSENT"
+    },
+    "active_lsm": [
+      "capability",
+      "landlock",
+      "safesetid",
+      "selinux",
+      "bpf",
+      "baseband_guard"
+    ],
+    "loaded_vendor_modules": [
+      "node_cache",
+      "zram",
+      "zsmalloc"
+    ],
+    "kernelsu_lkm_loaded": false,
+    "runtime_verdict": "PASS_STANDARD_WORKFLOW_FASTBOOT_BOOT_BASIC_RUNTIME",
+    "scope": "MANUAL_CMD_RUNTIME_OBSERVATION_AFTER_FASTBOOT_BOOT",
+    "formal_oem_gate": "BLOCKED",
+    "safe_to_flash": false
   }
 }
