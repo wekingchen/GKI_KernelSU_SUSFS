@@ -38,7 +38,17 @@ App 接收状态绑定 Asset ID 与源 SHA：
 4. OEM ABI 阶段逐项检查同 OTA 模块 vermagic 和导入 `vmlinux` 符号 CRC；只有 `eligible_for_fastboot_boot=true` 才生成 `UNVERIFIED-FASTBOOT-BOOT-ONLY.img`。
 5. 同时上传独立小型 `pandora-OTA-MOBILE-FEEDBACK-<build>-<run>` Artifact，保存 Run、commit、build、预期 uname、IMG SHA 和文件名；App 不必下载整个 boot 才能预填表单。没有该文件的旧候选仍需手填实际 IMG SHA。
 
-静态检查不覆盖全部驱动运行时。没有待测 IMG 的报告不能当作可启动包。App 0.13.0 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
+静态检查不覆盖全部驱动运行时。没有待测 IMG 的报告不能当作可启动包。
+
+**OTA V2（兼容性诊断）**：正式自动候选的 OEM ABI Job 会在原有检查器运行后，
+把同一份 ABI JSON 转换为诊断状态、原因分类和只读补证建议，并把
+ota-v2-diagnostic.json / ota-v2-diagnostic.md 连同原始报告上传至原 ABI Artifact。
+ABI_BLOCKED_DIAGNOSABLE 仅表示“已定位到阻断线索”，
+AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW 表示来源/审计信息不足，
+都不允许生成待测 boot；STATIC_ABI_PASS_REQUIRES_REAL_DEVICE_TEST
+只开放旧有未验证 fastboot boot 候选，不等于持久安装和 LKG。
+诊断失败或与原始 checker 矛盾时，流程继续 fail-closed。详见
+[Pandora OTA V2 真实回放与生产诊断](pandora-ota-v2-real-evidence-replay.md)。App 0.13.0 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
 
 ## 电脑临时启动，手机提交原表单
 
