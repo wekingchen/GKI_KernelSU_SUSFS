@@ -127,6 +127,27 @@ class StageSnapshots(unittest.TestCase):
             self.assertEqual(result['stage'],'ABI_BLOCKED')
             self.assertFalse(result['safe_to_flash'])
 
+    def test_same_build_but_changed_stock_digest_or_asset_is_not_lkg(self):
+        import json,os,tempfile
+        from unittest.mock import patch
+        build='OS4.0.6.0.XBLCNXM'
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'.github/config').mkdir(parents=True)
+            pointer=root/'.github/config/ota-lkg-current.json'
+            pointer.write_text(json.dumps(dict(stock_build=build,
+                                               stock_input_sha256='a'*64,
+                                               stock_release_asset_id=123)))
+            old=Path.cwd();os.chdir(root)
+            try:
+                with patch.object(m,'api',side_effect=AssertionError('no remote lookup')):
+                    for id,sha in ((124,'a'*64),(123,'b'*64)):
+                        result=dict(stage='ABI_BLOCKED',release_assets=[],safe_to_flash=False)
+                        self.assertFalse(m.versioned_lkg_snapshot(result,build,dict(id=id),sha,root))
+                        self.assertEqual(result['stage'],'ABI_BLOCKED')
+                        self.assertFalse(result['safe_to_flash'])
+            finally:
+                os.chdir(old)
+
     def test_exact_stock_but_corrupt_gen7_archive_stays_fail_closed(self):
         import contextlib,json,os,tempfile
         from unittest.mock import patch
