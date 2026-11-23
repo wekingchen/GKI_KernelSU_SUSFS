@@ -8,6 +8,7 @@ on:
       - ".github/config/ota-development-current.json"
       - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/**"
       - ".github/workflows/xiaomi-sm8850-os4-custom.yml"
+      - ".github/workflows/xiaomi-sm8850-os4-promote-lkg.yml"
       - ".github/workflows/pandora-os4-compat-custom-build-route-tests.yml"
       - "scripts/xiaomi-os4/build-r62-features.sh"
       - "scripts/xiaomi-os4/ota-development-pointer.py"
@@ -75,6 +76,8 @@ jobs:
             scripts/xiaomi-os4/test_ota_compat_anykernel_cmdline.py
           ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
             .github/workflows/xiaomi-sm8850-os4-custom.yml
+          ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
+            .github/workflows/xiaomi-sm8850-os4-promote-lkg.yml
 
       - name: "OS4.0.6 兼容路由、来源锁与 EEXIST 准备器测试"
         shell: bash
@@ -111,14 +114,20 @@ jobs:
           assert fixture["safe_to_flash"] is False
           assert pointer["full_parity_lkg_promoted"] is False
           assert lkg["status"] == "USER_PROMOTED_OTA_LKG"
-          assert lkg["generation"] == 6
+          assert lkg["generation"] >= 6
           assert lkg["stock_build"] == pointer["build"]
+          anchor = lkg if lkg["generation"] == 6 else json.loads(
+              (root / ".github/config/ota-lkg-history/gen6.json").read_text()
+          )
+          assert anchor["generation"] == 6
+          assert anchor["stock_build"] == lkg["stock_build"]
+          assert anchor["gki_commit"] == lkg["gki_commit"]
           assert persistent["status"] == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
           assert persistent["actual_persistent_install_verified"] is True
           assert persistent["lkg_promotion"] is True
-          assert persistent["feature_workflow_run_id"] == lkg["source_run_id"]
-          assert persistent["feature_image_sha256"] == lkg["image_sha256"]
-          assert persistent["package_sha256"] == lkg["anykernel_sha256"]
+          assert persistent["feature_workflow_run_id"] == anchor["source_run_id"]
+          assert persistent["feature_image_sha256"] == anchor["image_sha256"]
+          assert persistent["package_sha256"] == anchor["anykernel_sha256"]
           print("PANDORA_406_COMPAT_BASELINE=NONFLASH")
           print("PANDORA_406_PERSISTENT_CUSTOM_MECHANISM=UNLOCKED_BY_GEN6")
           PY
