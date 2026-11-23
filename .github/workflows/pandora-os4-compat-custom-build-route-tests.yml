@@ -25,6 +25,11 @@ on:
       - "scripts/xiaomi-os4/cross-ota-lkg.py"
       - "scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py"
       - "scripts/xiaomi-os4/run-cross-ota-lkg.sh"
+      - "scripts/xiaomi-os4/check-lkg-dev-advance.py"
+      - "scripts/xiaomi-os4/test_lkg_dev_advance.py"
+      - "scripts/xiaomi-os4/check-ota-lkg-recovery.py"
+      - "scripts/xiaomi-os4/test_ota_lkg_recovery.py"
+      - "scripts/xiaomi-os4/resume-cross-ota-lkg-draft.sh"
       - "scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh"
       - "scripts/xiaomi-os4/package-validated-anykernel3.sh"
       - "scripts/xiaomi-os4/check-ota-anykernel-evidence.py"
@@ -54,6 +59,7 @@ jobs:
           set -euo pipefail
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
+          bash -n scripts/xiaomi-os4/resume-cross-ota-lkg-draft.sh
           bash -n scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           python3 -m py_compile \
@@ -69,6 +75,10 @@ jobs:
             scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py \
             scripts/xiaomi-os4/select-lkg-promotion-route.py \
             scripts/xiaomi-os4/cross-ota-lkg.py \
+            scripts/xiaomi-os4/check-lkg-dev-advance.py \
+            scripts/xiaomi-os4/check-ota-lkg-recovery.py \
+            scripts/xiaomi-os4/test_lkg_dev_advance.py \
+            scripts/xiaomi-os4/test_ota_lkg_recovery.py \
             scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py \
             scripts/xiaomi-os4/check-ota-anykernel-evidence.py \
             scripts/xiaomi-os4/test_ota_anykernel_evidence.py \
@@ -93,6 +103,8 @@ jobs:
           python3 scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py -v
           python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
           python3 scripts/xiaomi-os4/test_cross_ota_lkg.py -v
+          python3 scripts/xiaomi-os4/test_lkg_dev_advance.py -v
+          python3 scripts/xiaomi-os4/test_ota_lkg_recovery.py -v
 
       - name: "验证 compatibility 开发基线保持非刷机，同时 Gen 6 解锁持久自定义机制"
         shell: bash

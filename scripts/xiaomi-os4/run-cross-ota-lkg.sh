@@ -31,6 +31,30 @@ COMPAT_PERSISTENT=0
 COMPAT_CUSTOM=0
 [[ "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" ]] && COMPAT_CUSTOM=1
 
+# A previous transaction may have completed the exact kernel rebuild and
+# SHA-verified draft but failed only because dev advanced before pointer commit.
+# Reuse that immutable evidence ONLY after a full independent source/archive
+# replay. Wrong source or altered drafts fail closed; no redundant 15m rebuild.
+if [[ "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" && -s .github/config/ota-lkg-current.json ]]; then
+  NEXT_GEN="$(jq -er '.generation+1' .github/config/ota-lkg-current.json)"
+  NEXT_TAG="pandora-os4-lkg-gen$NEXT_GEN"
+  RELEASE_LIST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+  MATCHES="$(jq -r --arg tag "$NEXT_TAG" '[.[] | select(.tag_name==$tag)] | length' <<<"$RELEASE_LIST")"
+  [[ "$MATCHES" =~ ^[0-9]+$ && "$MATCHES" -le 1 ]] || {
+    echo "::error::ambiguous existing LKG draft"; exit 1;
+  }
+  if [[ "$MATCHES" == 1 ]]; then
+    jq -e --arg tag "$NEXT_TAG"       '[.[] | select(.tag_name==$tag)] | length==1 and .[0].draft==true' \
+      <<<"$RELEASE_LIST" >/dev/null || {
+      echo "::error::next generation already has a non-draft Release"; exit 1;
+    }
+    echo "[LKG] Existing next-gen draft detected: $NEXT_TAG; independently revalidate and resume."
+    export SOURCE_SHA
+    bash scripts/xiaomi-os4/resume-cross-ota-lkg-draft.sh
+    exit 0
+  fi
+fi
+
 A="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
 if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
   ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
@@ -286,8 +310,34 @@ python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK/check-release"
 # If the final publish fails after merge, a separate verified repair step
 # can publish this already-complete draft without rebuilding / re-promoting.
 # Pointer moves only after successful independent Release verification.
+# A long independent rebuild may overlap an unrelated OTA companion/docs PR.
+# Only the narrowly enumerated benign paths may advance dev; kernel, LKG,
+# stock input, build and promotion policies remain fail closed.
+LIVE_DEV="$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)"
+if [[ "$LIVE_DEV" != "$BASE_SHA" ]]; then
+  [[ "$LIVE_DEV" =~ ^[a-f0-9]{40}$ ]] || exit 1
+  git fetch --no-tags --quiet origin dev
+  [[ "$(git rev-parse FETCH_HEAD)" == "$LIVE_DEV" ]] || {
+    echo "::error::dev moved during fetch; keep verified draft, pointer untouched"; exit 1;
+  }
+  git merge-base --is-ancestor "$BASE_SHA" "$LIVE_DEV" || {
+    echo "::error::dev changed non-fast-forward; keep verified draft, pointer untouched"; exit 1;
+  }
+  git diff --name-only --no-renames "$BASE_SHA" "$LIVE_DEV" > "$WORK/dev-advance-paths.txt"
+  python3 scripts/xiaomi-os4/check-lkg-dev-advance.py \
+    --paths-file "$WORK/dev-advance-paths.txt" || {
+    echo "::error::dev changed in security-relevant files; keep verified draft, pointer untouched"; exit 1;
+  }
+  cmp -s .github/config/ota-lkg-current.json \
+    <(git show "$LIVE_DEV:.github/config/ota-lkg-current.json") || {
+    echo "::error::LKG pointer changed concurrently; keep verified draft, pointer untouched"; exit 1;
+  }
+  git switch --detach --quiet "$LIVE_DEV"
+  BASE_SHA="$LIVE_DEV"
+  echo "LKG_DEV_BENIGN_ADVANCE=PASS ref=$BASE_SHA"
+fi
 [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
- echo "::error::dev changed during build; recovery Release preserved, pointer untouched"; exit 1;
+ echo "::error::dev changed again before LKG PR; verified draft preserved"; exit 1;
 }
 CURRENT=".github/config/ota-lkg-current.json"
 HISTORY=""
