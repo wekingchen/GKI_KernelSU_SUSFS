@@ -221,18 +221,18 @@ if [ -f "$SPLITIMG/cmdline.txt" ]; then
 else
   current_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
 fi
-blacklist_count="$(echo "$current_cmdline" | tr ' ' '\\n' | grep -c '^module_blacklist=' || true)";
+blacklist_count="$(echo "$current_cmdline" | tr ' ' '\n' | grep -c '^module_blacklist=' || true)";
 [ "$blacklist_count" -eq 1 ] || abort "Ambiguous module_blacklist in compatibility boot";
-compat_blacklist="$(echo "$current_cmdline" | tr ' ' '\\n' | grep '^module_blacklist=' | cut -d= -f2-)";
-echo "$compat_blacklist" | tr ',' '\\n' | grep -qx 'kernelsu' ||
+compat_blacklist="$(echo "$current_cmdline" | tr ' ' '\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$compat_blacklist" | tr ',' '\n' | grep -qx 'kernelsu' ||
   abort "KernelSU LKM blacklist missing in compatibility boot";
-if echo "$compat_blacklist" | tr ',' '\\n' | grep -qx 'rust_binder'; then
+if echo "$compat_blacklist" | tr ',' '\n' | grep -qx 'rust_binder'; then
   abort "rust_binder must not be blacklisted in the verified EEXIST contract";
 fi
 
-eexist_count="$(echo "$current_cmdline" | tr ' ' '\\n' | grep -c '^pandora_rust_binder_eexist=' || true)";
+eexist_count="$(echo "$current_cmdline" | tr ' ' '\n' | grep -c '^pandora_rust_binder_eexist=' || true)";
 [ "$eexist_count" -le 1 ] || abort "Ambiguous pandora_rust_binder_eexist in boot cmdline";
-eexist="$(echo "$current_cmdline" | tr ' ' '\\n' | grep '^pandora_rust_binder_eexist=' || true)";
+eexist="$(echo "$current_cmdline" | tr ' ' '\n' | grep '^pandora_rust_binder_eexist=' || true)";
 if [ "$eexist" ]; then
   [ "$eexist" = "pandora_rust_binder_eexist=1" ] ||
     abort "Conflicting pandora_rust_binder_eexist value";
@@ -245,15 +245,15 @@ if [ -f "$SPLITIMG/cmdline.txt" ]; then
 else
   final_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
 fi
-eexist_final_count="$(echo "$final_cmdline" | tr ' ' '\\n' | grep -c '^pandora_rust_binder_eexist=1$' || true)";
+eexist_final_count="$(echo "$final_cmdline" | tr ' ' '\n' | grep -c '^pandora_rust_binder_eexist=1$' || true)";
 [ "$eexist_final_count" -eq 1 ] ||
   abort "EEXIST compatibility parameter not present exactly once after patch";
-final_blacklist_count="$(echo "$final_cmdline" | tr ' ' '\\n' | grep -c '^module_blacklist=' || true)";
+final_blacklist_count="$(echo "$final_cmdline" | tr ' ' '\n' | grep -c '^module_blacklist=' || true)";
 [ "$final_blacklist_count" -eq 1 ] || abort "Ambiguous module_blacklist after compatibility patch";
-final_blacklist="$(echo "$final_cmdline" | tr ' ' '\\n' | grep '^module_blacklist=' | cut -d= -f2-)";
-echo "$final_blacklist" | tr ',' '\\n' | grep -qx 'kernelsu' ||
+final_blacklist="$(echo "$final_cmdline" | tr ' ' '\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$final_blacklist" | tr ',' '\n' | grep -qx 'kernelsu' ||
   abort "KernelSU LKM blacklist missing after compatibility patch";
-if echo "$final_blacklist" | tr ',' '\\n' | grep -qx 'rust_binder'; then
+if echo "$final_blacklist" | tr ',' '\n' | grep -qx 'rust_binder'; then
   abort "rust_binder blacklist violates verified compatibility contract";
 fi
 """
