@@ -28,10 +28,147 @@ MAX_MODULE = 40 * 1024 * 1024
 MAX_COMPRESSED_ARCHIVE = 600 * 1024 * 1024
 MAX_MODULES = 4096
 SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+MODULE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def modinfo_field(sections: dict[str, bytes], key: str) -> str:
+    prefix = (key + "=").encode()
+    values = [x[len(prefix):] for x in sections.get(".modinfo", b"").split(b"\0")
+              if x.startswith(prefix)]
+    if len(values) > 1:
+        raise ValueError("ambiguous module info field: " + key)
+    return values[0].decode("ascii", "strict") if values else ""
+
+
+def module_identity(path: str, data: bytes, sections: dict[str, bytes]) -> dict:
+    name = modinfo_field(sections, "name")
+    if not name:
+        base = path.rsplit("/", 1)[-1]
+        name = re.sub(r"\.ko(?:\.(?:zst|xz|gz))?$", "", base, flags=re.I)
+    if not MODULE_NAME.fullmatch(name):
+        raise ValueError("invalid module identity name")
+    note = sections.get(".note.gnu.build-id")
+    return {
+        "path": path,
+        "module_name": name,
+        "sha256": sha(data),
+        "note_sha256": sha(note) if note else None,
+    }
+
+
+def load_runtime_selection(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    item = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(item, dict):
+        raise ValueError("runtime selection must be a JSON object")
+    return item
+
+
+def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
+                               metadata: dict[str, str], symvers_path: Path,
+                               feature_image: Path | None,
+                               feature_abi_report: Path | None) -> dict:
+    if selection.get("schema") != 1 or selection.get("status") != "HUMAN_ATTESTED_RUNTIME_MODULE_SELECTION":
+        raise ValueError("runtime selection record is not human-attested")
+    expected = {
+        "device": "pandora",
+        "stock_build": stock.get("build"),
+        "stock_input_sha256": stock.get("ota_source_id"),
+        "kernel_release": stock.get("uname"),
+        "candidate_gki_commit": gki.get("candidate_commit"),
+        "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+        "compatibility_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+        "gate_scope": "EXACT_OS406_EEXIST_RUNTIME_SELECTED_MODULE_GRAPH",
+        "safe_to_flash": False,
+        "persistent_install_verified": False,
+        "lkg_promotion": False,
+    }
+    for key, value in expected.items():
+        if selection.get(key) != value:
+            raise ValueError("runtime selection identity mismatch: " + key)
+    if metadata.get("PANDORA_RUST_BINDER_EEXIST_SHIM") != "1":
+        raise ValueError("feature metadata does not enable verified EEXIST shim")
+    if metadata.get("COMPATIBILITY_BASELINE_KIND") != selection["compatibility_kind"]:
+        raise ValueError("feature metadata compatibility kind drift")
+    if metadata.get("COMPATIBILITY_PATCH_SHA256") != selection["compatibility_patch_sha256"]:
+        raise ValueError("feature metadata compatibility patch drift")
+
+    runtime = selection.get("runtime")
+    if not isinstance(runtime, dict):
+        raise ValueError("runtime selection missing runtime object")
+    required_runtime = {
+        "boot_completed": True,
+        "binder_impl": "c",
+        "binder_active_impl": "c",
+        "rust_binder_sysfs": "ABSENT",
+        "rust_binder_proc_modules": "ABSENT",
+        "kernelsu_lkm_proc_modules": "ABSENT",
+        "root_context": "u:r:ksu:s0",
+        "active_lsm_contains_baseband_guard": True,
+    }
+    for key, value in required_runtime.items():
+        if runtime.get(key) != value:
+            raise ValueError("runtime selection missing direct runtime proof: " + key)
+    if runtime.get("loaded_required_modules") != ["node_cache", "zram", "zsmalloc"]:
+        raise ValueError("runtime selection required module list drift")
+
+    workflow = selection.get("standard_workflow")
+    if not isinstance(workflow, dict):
+        raise ValueError("runtime selection missing standard workflow identity")
+    for key in ("image_sha256", "module_symvers_sha256", "fastboot_boot_sha256"):
+        if not HEX64.fullmatch(workflow.get(key, "")):
+            raise ValueError("runtime selection invalid workflow hash: " + key)
+    if workflow.get("boot_v4_audit") != "PASS" or workflow.get("run_id") != 45047763911:
+        raise ValueError("runtime selection workflow attestation drift")
+    if sha(symvers_path.read_bytes()) != workflow["module_symvers_sha256"]:
+        raise ValueError("runtime-selected Module.symvers does not match attested standard workflow")
+
+    if feature_image is None or feature_abi_report is None:
+        raise ValueError("runtime selection requires feature Image and feature ABI report")
+    if sha(feature_image.read_bytes()) != workflow["image_sha256"]:
+        raise ValueError("runtime-selected feature Image hash mismatch")
+    if stock["uname"].encode("ascii") not in feature_image.read_bytes():
+        raise ValueError("runtime-selected feature Image missing stock uname marker")
+    abi = json.loads(feature_abi_report.read_text(encoding="utf-8"))
+    if (abi.get("gate") != "PASS" or abi.get("missing_or_crc_changed_total") != 0
+            or abi.get("feature_symvers_sha256") != workflow["module_symvers_sha256"]
+            or abi.get("build") != stock.get("build")
+            or abi.get("kernel_release") != stock.get("uname")
+            or abi.get("source_commit") != gki.get("candidate_commit")):
+        raise ValueError("runtime-selected feature ABI report does not certify this Image/Symvers source")
+
+    identities = selection.get("module_identity_evidence")
+    if not isinstance(identities, dict) or identities.get("same_stock_build") is not True:
+        raise ValueError("runtime module identity evidence missing")
+    if not HEX64.fullmatch(identities.get("evidence_sha256", "")):
+        raise ValueError("runtime module identity evidence hash invalid")
+    selected = identities.get("selected_modules")
+    if not isinstance(selected, dict) or set(selected) != {"node_cache", "zram", "zsmalloc"}:
+        raise ValueError("runtime selected module set must be exact")
+    for name, item in selected.items():
+        if not isinstance(item, dict):
+            raise ValueError("runtime selected module record invalid: " + name)
+        if not HEX64.fullmatch(item.get("module_sha256", "")):
+            raise ValueError("runtime selected module binary hash invalid: " + name)
+        if not HEX64.fullmatch(item.get("runtime_note_sha256", "")):
+            raise ValueError("runtime selected module note hash invalid: " + name)
+
+    suppressed = selection.get("suppressed_modules")
+    if not isinstance(suppressed, dict) or set(suppressed) != {"rust_binder"}:
+        raise ValueError("runtime suppressed module set must contain only rust_binder")
+    rust = suppressed["rust_binder"]
+    if (not HEX64.fullmatch(rust.get("module_sha256", ""))
+            or rust.get("mechanism") != "EXACT_EEXIST_AFTER_BLACKLIST_BEFORE_MODVERSION"
+            or rust.get("required_runtime_parameter") != "pandora_rust_binder_eexist=1"
+            or rust.get("replacement_runtime") != "C_BINDER_DIRECTLY_OBSERVED"):
+        raise ValueError("runtime rust_binder suppression contract drift")
+    return selection
 
 
 def unpack_module(data: bytes, name: str) -> bytes:
@@ -258,6 +395,9 @@ def main() -> int:
     parser.add_argument("--candidate-report", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--symvers", type=Path, required=True)
+    parser.add_argument("--runtime-selection", type=Path)
+    parser.add_argument("--feature-image", type=Path)
+    parser.add_argument("--feature-abi-report", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     a = parser.parse_args()
     report = {"schema": 1, "gate": "BLOCKED", "eligible_for_fastboot_boot": False,
