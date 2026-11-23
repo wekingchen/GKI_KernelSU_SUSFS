@@ -148,6 +148,18 @@ class DiagnosticTaskContract(unittest.TestCase):
             verifier.verify(self.task,self.report,self.evidence,raw+b" "*32768,
                             hashlib.sha256(raw+b" "*32768).hexdigest())
 
+    def test_review_run_identity_and_binary_download_are_explicit(self):
+        workflow=(BASE.parents[1]/".github/workflows/pandora-os4-ota-diagnostic-intake.yml").read_text()
+        self.assertIn('run-name: "Pandora OTA diagnosis / source-',workflow)
+        for token in ("inputs.source_run_id", "inputs.release_id", "inputs.asset_id"):
+            self.assertIn(token,workflow)
+        self.assertIn('gh release download "$TAG"',workflow)
+        self.assertIn('--pattern \'diagnostic-evidence.json\'',workflow)
+        self.assertIn('EXPECTED_SHA',workflow)
+        self.assertIn('verify-ota-v2-diagnostic-evidence.py',workflow)
+        self.assertIn('REVIEW_REQUIRED',workflow)
+        self.assertNotIn('gh release edit "$TAG" --draft=false',workflow)
+
 
 if __name__=="__main__":
     unittest.main()
