@@ -54,6 +54,46 @@ jobs:
           echo "STOCK_ZIP=${STOCKS[0]}" >> "$GITHUB_ENV"
           echo "TESTED_BOOT=${TESTED_BOOTS[0]}" >> "$GITHUB_ENV"
 
+      - name: "审计原厂 boot v4 尾部结构"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$STOCK_ZIP" <<'PY' | tee "$RUNNER_TEMP/stock-boot-layout.txt"
+          import hashlib, struct, sys, zipfile
+          from pathlib import Path
+          zpath = Path(sys.argv[1])
+          with zipfile.ZipFile(zpath) as z:
+              matches = [i for i in z.infolist()
+                         if not i.is_dir() and i.filename.rsplit("/",1)[-1].startswith("boot")
+                         and i.filename.rsplit("/",1)[-1].endswith(".img")]
+              assert len(matches) == 1, [x.filename for x in matches]
+              b = z.read(matches[0])
+          page=4096
+          ks=struct.unpack_from("<I",b,8)[0]
+          rs=struct.unpack_from("<I",b,12)[0]
+          hv=struct.unpack_from("<I",b,40)[0]
+          hs=struct.unpack_from("<I",b,20)[0]
+          ss=struct.unpack_from("<I",b,1580)[0]
+          align=lambda n:(n+page-1)//page*page
+          payload_end=page+align(ks)+align(rs)+align(ss)
+          tail=b[payload_end:]
+          print("stock_size",len(b))
+          print("kernel_size",ks)
+          print("ramdisk_size",rs)
+          print("signature_size",ss)
+          print("header_version",hv)
+          print("header_size",hs)
+          print("payload_end",payload_end)
+          print("tail_size",len(tail))
+          print("tail_sha256",hashlib.sha256(tail).hexdigest())
+          print("tail_nonzero_bytes",sum(x!=0 for x in tail))
+          print("last64_hex",b[-64:].hex())
+          print("last64_magic",repr(b[-64:-60]))
+          if b[-64:-60] == b"AVBf":
+              magic, maj, minor, original_size, vbmeta_offset, vbmeta_size = struct.unpack_from(">4sIIQQQ", b, len(b)-64)
+              print("avb_footer",magic,maj,minor,original_size,vbmeta_offset,vbmeta_size)
+          PY
+
       - name: "从原厂 boot 重建持久安装目标语义"
         shell: bash
         run: |
@@ -75,9 +115,12 @@ jobs:
           sha256sum "$OUT" | tee -a "$RUNNER_TEMP/persistent-equivalence.txt"
 
       - name: "上传等价证明"
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-persistent-boot-equivalence
-          path: ${{ runner.temp }}/persistent-equivalence.txt
+          path: |
+            ${{ runner.temp }}/persistent-equivalence.txt
+            ${{ runner.temp }}/stock-boot-layout.txt
           if-no-files-found: error
           retention-days: 30
