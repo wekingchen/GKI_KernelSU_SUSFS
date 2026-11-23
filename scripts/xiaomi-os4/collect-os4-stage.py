@@ -147,7 +147,7 @@ def versioned_lkg_snapshot(result, build, source, source_digest, root):
     result.update(stage='LKG_ARCHIVED',
                   source_run_id=run_id, source_head_sha=head,
                   milestones=['GKI_BUILT', 'LKG_ARCHIVED'],
-                  detail=(f'OS4.0.6 同版本用户确认的 Gen {generation} 已正式归档；'
+                  detail=(f'{build} 同版本用户确认的 Gen {generation} 已正式归档；'
                           '历史原厂静态 OEM ABI 阻断不等于对已验证同版 LKG 的撤销，'
                           '也不能用此 LKG 放行下一次 OTA。'))
     return True
