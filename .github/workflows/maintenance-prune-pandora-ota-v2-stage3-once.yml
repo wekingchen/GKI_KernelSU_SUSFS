@@ -26,11 +26,11 @@ jobs:
           pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/126")"
           jq -e --arg head "$target" --arg sha "$expected" \
             '.merged == true and .base.ref == "dev" and .head.ref == $head and .head.sha == $sha' <<<"$pr" >/dev/null
-          upstream_code="$(curl -sS -o /dev/null -w '%{http_code}' \
-            -H 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/zzh20188/GKI_KernelSU_SUSFS/branches/$target")"
-          [[ "$upstream_code" == 404 ]] || {
-            echo "::error::Could not prove the branch is local-only ($upstream_code)"; exit 1;
+          # Use the public upstream Git reference, not the anonymous REST API
+          # (which can return 403 rate limit even for an absent branch).
+          upstream_ref="$(git ls-remote https://github.com/zzh20188/GKI_KernelSU_SUSFS.git "refs/heads/$target")"
+          [[ -z "$upstream_ref" ]] || {
+            echo "::error::Branch exists on upstream; refusing local cleanup"; exit 1;
           }
           actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$target" --jq .object.sha)"
           [[ "$actual" == "$expected" ]] || {
