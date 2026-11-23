@@ -632,6 +632,20 @@ def main() -> int:
                         # Any duplicate provider is ambiguous even if CRCs agree.
                         if candidates:
                             ambiguous.append(f"{name}:{symbol}:vmlinux+OEM")
+                            if len(ambiguous_details) < 50:
+                                ambiguous_details.append({
+                                    "consumer": name,
+                                    "symbol": symbol,
+                                    "expected_crc": f"0x{expected_crc:08x}",
+                                    "vmlinux_crc": f"0x{exports[symbol]:08x}",
+                                    "providers": [{
+                                        "module": provider,
+                                        "actual_crc": f"0x{crc:08x}",
+                                        "crc_matches": crc == expected_crc,
+                                    } for provider, crc in candidates[:12]],
+                                    "provider_crc_variants": len({crc for _provider, crc in candidates}),
+                                    "kind": "vmlinux+OEM",
+                                })
                             continue
                         core_imports += 1
                         if exports[symbol] != expected_crc:
