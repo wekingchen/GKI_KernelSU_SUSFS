@@ -8,6 +8,9 @@ on:
       - ".github/workflows/pandora-os4-ota-v2-evidence-replay.yml"
       - "scripts/xiaomi-os4/ota-v2-abi-diagnostics.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostics.py"
+      - "scripts/xiaomi-os4/test_ota_v2_production_integration.py"
+      - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
       - "docs/pandora-ota-v2-real-evidence-replay.md"
   pull_request:
@@ -15,6 +18,9 @@ on:
       - ".github/workflows/pandora-os4-ota-v2-evidence-replay.yml"
       - "scripts/xiaomi-os4/ota-v2-abi-diagnostics.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostics.py"
+      - "scripts/xiaomi-os4/test_ota_v2_production_integration.py"
+      - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
+      - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
   workflow_dispatch:
 
@@ -37,8 +43,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/test_ota_v2_diagnostics.py
-          python3 -m unittest discover -s scripts/xiaomi-os4 -p test_ota_v2_diagnostics.py -v
+          python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/test_ota_v2_diagnostics.py scripts/xiaomi-os4/test_ota_v2_production_integration.py
+          bash -n scripts/xiaomi-os4/run-ota-v2-diagnostics.sh
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_v2_*.py' -v
 
   replay-os406:
     name: "下载真实 OS4.0.6 stock + GKI → 重跑 OEM ABI → 历史 BLOCKED 比对"
@@ -98,6 +105,15 @@ jobs:
             --metadata "$DIR/candidate/build-metadata.txt" \
             --symvers "$DIR/candidate/Module.symvers" \
             --output "$DIR/oem-abi-replayed.json"
+          # Run the very same bridge called by the production OTA OEM job.
+          bash scripts/xiaomi-os4/run-ota-v2-diagnostics.sh \
+            "$DIR/oem-abi-replayed.json" \
+            "$DIR/ota-v2-production-diagnostic.json" \
+            "$DIR/ota-v2-production-diagnostic.md"
+          jq -e '.status == "ABI_BLOCKED_DIAGNOSABLE"
+            and .fastboot_boot_eligible == false
+            and .auto_waiver_applied == false' \
+            "$DIR/ota-v2-production-diagnostic.json" >/dev/null
           python3 scripts/xiaomi-os4/ota-v2-abi-diagnostics.py \
             --abi-report "$DIR/oem-abi-replayed.json" \
             --reference "$REFERENCE" \
@@ -110,6 +126,11 @@ jobs:
             and .reference_replay.matched == true
             and .reference_replay.historical_gate_still_blocked == true' \
             "$DIR/ota-v2-diagnostic.json" >/dev/null
+          jq -e --slurpfile production "$DIR/ota-v2-production-diagnostic.json" '
+            .status == $production[0].status and
+            .oem_gate == $production[0].oem_gate and
+            .fastboot_boot_eligible == $production[0].fastboot_boot_eligible
+          ' "$DIR/ota-v2-diagnostic.json" >/dev/null
           cat "$DIR/ota-v2-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: "保留诊断与回放证据（无 boot，无可刷包）"
@@ -119,6 +140,8 @@ jobs:
           name: pandora-ota-v2-os406-readonly-replay-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/pandora-ota-v2/oem-abi-replayed.json
+            ${{ runner.temp }}/pandora-ota-v2/ota-v2-production-diagnostic.json
+            ${{ runner.temp }}/pandora-ota-v2/ota-v2-production-diagnostic.md
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-diagnostic.json
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-summary.md
           if-no-files-found: warn
