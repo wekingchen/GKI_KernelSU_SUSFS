@@ -803,6 +803,12 @@ jobs:
         with:
           path: ~/.cache/xiaomi-os4/ccache-ota-*
           key: pandora-ota-features-${{ needs.select-baseline.outputs.build }}-${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py', 'scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py', 'scripts/xiaomi-os4/check-ota-feature-abi.py') }}
+          # Warm fallback is restricted to the identical OTA build. ccache itself
+          # validates compiler/options/content; the actual CCACHE_DIR remains
+          # additionally partitioned by immutable OS4_GKI_COMMON_COMMIT.
+          # A new upstream snapshot may use previous matching kernel objects.
+          restore-keys: |
+            pandora-ota-features-${{ needs.select-baseline.outputs.build }}-
 
       - name: "只使用最新稳定上游，在新 OTA GKI 上尝试功能编译"
         shell: bash
