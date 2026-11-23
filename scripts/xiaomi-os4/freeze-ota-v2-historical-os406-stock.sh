@@ -16,16 +16,28 @@ BUILD="$(jq -er '.source.stock_build' "$REF")"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/download"
-EXISTING=""
-if EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" 2>/dev/null)"; then
-  jq -e --arg tag "$TAG" '
-    .tag_name == $tag and .draft == false and .prerelease == true
+# Use the authenticated releases list because GitHub's "get by tag" API
+# intentionally hides drafts; never assume a 404 means a draft is absent.
+LIST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+MATCHES="$(jq --arg tag "$TAG" '[.[] | select(.tag_name == $tag)]' <<<"$LIST")"
+[[ "$(jq 'length' <<<"$MATCHES")" -le 1 ]] || {
+  echo "::error::Ambiguous immutable archive Release identity"; exit 1;
+}
+EXISTING="$(jq -c '.[0] // empty' <<<"$MATCHES")"
+if [[ -n "$EXISTING" ]]; then
+  jq -e --arg tag "$TAG" --arg sha "$EXPECTED" '
+    .tag_name == $tag and .prerelease == true
+    and (.body | contains($sha))
+    and ((.assets | length) <= 1)
   ' <<<"$EXISTING" >/dev/null || {
-    echo "::error::Existing historical Release is not the exact published prerelease"; exit 1;
+    echo "::error::Existing historical Release identity changed"; exit 1;
   }
 fi
-CURRENT_ASSET=""
-if [[ -z "$EXISTING" ]] || [[ "$(jq '.assets | length' <<<"$EXISTING")" == 0 ]]; then
+ASSET_ID=""
+if [[ -n "$EXISTING" ]]; then
+  ASSET_ID="$(jq -r --arg name "$NAME" '.assets[]? | select(.name == $name) | .id' <<<"$EXISTING")"
+fi
+if [[ -z "$ASSET_ID" ]]; then
   SOURCE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
   jq -e --arg name "$NAME" --arg sha "$EXPECTED" '
     .draft == false and .tag_name == "pandora-os4-stock-input"
@@ -81,22 +93,64 @@ Source is ROOTED_ACTIVE_DEVICE_SNAPSHOT_NOT_VERIFIED_STOCK, NOT a factory-origin
 NOT_FLASHABLE; no automatic boot, persistent installation or LKG authorization.
 This historical replay reference is immutable by protocol and never follows future stock-input.
 EOF
-    gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-      --prerelease --latest=false --title "pandora OS4.0.6 historical OEM ABI raw reference (NO FLASH)" \
-      --notes-file "$WORK/notes.md"
+    echo "::notice::Creating private-by-default Draft by numeric GitHub Release API"
+    EXISTING="$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+      -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+      -f name="pandora OS4.0.6 historical OEM ABI raw reference (NO FLASH)" \
+      -f body="$(cat "$WORK/notes.md")" -F draft=true -F prerelease=true)"
   fi
-  gh release upload "$TAG" "$WORK/$NAME" --repo "$GITHUB_REPOSITORY"
+  RELEASE_ID="$(jq -er '.id' <<<"$EXISTING")"
+  [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+  jq -e --arg tag "$TAG" --arg sha "$EXPECTED" '
+    .tag_name == $tag and .draft == true and .prerelease == true and
+    (.body | contains($sha))
+  ' <<<"$EXISTING" >/dev/null || {
+    echo "::error::Archive must be unpublished before its asset is uploaded"; exit 1;
+  }
+  echo "::notice::Uploading verified stock bytes to Draft by numeric Release ID"
+  UPLOADED="$(curl --fail --location --silent --show-error --retry 2 \
+    --request POST \
+    --header "Authorization: Bearer $GH_TOKEN" \
+    --header "Accept: application/vnd.github+json" \
+    --header "Content-Type: application/zip" \
+    --data-binary "@$WORK/$NAME" \
+    "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$NAME")"
+  ASSET_ID="$(jq -er --arg name "$NAME" '.id as $id |
+    select(.name == $name and .state == "uploaded" and .size > 0) | $id' <<<"$UPLOADED")"
+  [[ "$ASSET_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
 fi
-RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG")"
-jq -e --arg tag "$TAG" --arg name "$NAME" --arg sha "$EXPECTED" '
-  .tag_name == $tag and .draft == false and .prerelease == true
+# A complete already-published archive is also checked here; never overwrite it.
+RELEASE_ID="$(jq -er '.id' <<<"$EXISTING")"
+[[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ && "$ASSET_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+jq -e --arg tag "$TAG" --arg name "$NAME" --arg sha "$EXPECTED" --argjson asset "$ASSET_ID" '
+  .tag_name == $tag and .prerelease == true and (.body | contains($sha))
   and (.assets | length == 1)
-  and ([.assets[] | select(.name == $name and .state == "uploaded"
-    and .digest == ("sha256:" + $sha) and .size > 0)] | length == 1)
+  and ([.assets[] | select(.id == $asset and .name == $name
+    and .state == "uploaded" and .digest == ("sha256:" + $sha)
+    and .size > 0)] | length == 1)
 ' <<<"$RELEASE" >/dev/null || { echo "::error::Frozen reference identity incorrect"; exit 1; }
-gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$NAME" --dir "$WORK/download"
+echo "::notice::Downloading the numeric archive asset for independent SHA check"
+curl --fail --location --silent --show-error --retry 2 \
+  --header "Authorization: Bearer $GH_TOKEN" \
+  --header "Accept: application/octet-stream" \
+  --output "$WORK/download/$NAME" \
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
 test -s "$WORK/download/$NAME"
 [[ "$(sha256sum "$WORK/download/$NAME" | cut -d' ' -f1)" == "$EXPECTED" ]] || exit 1
+if [[ "$(jq -r '.draft' <<<"$RELEASE")" == true ]]; then
+  echo "::notice::SHA matched; publishing the complete read-only prerelease"
+  gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+    -F draft=false -F prerelease=true >/dev/null
+fi
+RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+jq -e --arg tag "$TAG" --arg name "$NAME" --arg sha "$EXPECTED" '
+  .tag_name == $tag and .draft == false and .prerelease == true and
+  (.assets | length == 1) and
+  ([.assets[] | select(.name == $name and .digest == ("sha256:" + $sha))] | length == 1)
+' <<<"$RELEASE" >/dev/null || {
+  echo "::error::Archive Release was not safely published"; exit 1;
+}
 echo "PANDORA_OS406_HISTORICAL_STOCK_ARCHIVE=PASS tag=$TAG SHA=$EXPECTED"
 {
   echo "### Pandora OTA V2 historical input frozen (read-only)"
