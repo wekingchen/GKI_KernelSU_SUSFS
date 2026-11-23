@@ -13,8 +13,6 @@ on:
       - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
       - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
-      - "scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh"
-      - ".github/workflows/pandora-ota-v2-freeze-os406-reference.yml"
       - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
       - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
@@ -30,8 +28,6 @@ on:
       - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
       - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
-      - "scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh"
-      - ".github/workflows/pandora-ota-v2-freeze-os406-reference.yml"
       - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
       - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
@@ -60,7 +56,6 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/test_ota_v2_diagnostics.py scripts/xiaomi-os4/test_ota_v2_production_integration.py
           bash -n scripts/xiaomi-os4/run-ota-v2-diagnostics.sh
-          bash -n scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_v2_*.py' -v
 
   replay-os406:
@@ -81,7 +76,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends zstd lz4 jq
 
-      - name: "从固定 Release 下载真实输入与候选，并核验来源"
+      - name: "从永久冻结的独立历史 Reference 下载真实输入与候选，并核验来源"
         shell: bash
         run: |
           set -euo pipefail
