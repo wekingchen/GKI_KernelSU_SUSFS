@@ -12,6 +12,10 @@ on:
       - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
       - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
+      - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
+      - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
+      - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
+      - ".github/workflows/pandora-os4-ota-diagnostic-intake.yml"
       - "docs/pandora-ota-v2-real-evidence-replay.md"
   pull_request:
     paths:
@@ -22,6 +26,10 @@ on:
       - "scripts/xiaomi-os4/run-ota-v2-diagnostics.sh"
       - ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
       - "scripts/xiaomi-os4/ota-v2-references/**"
+      - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
+      - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
+      - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
+      - ".github/workflows/pandora-os4-ota-diagnostic-intake.yml"
   workflow_dispatch:
 
 permissions:
@@ -131,6 +139,21 @@ jobs:
             .oem_gate == $production[0].oem_gate and
             .fastboot_boot_eligible == $production[0].fastboot_boot_eligible
           ' "$DIR/ota-v2-diagnostic.json" >/dev/null
+          # Replaying an archived BLOCKED case can demonstrate task generation,
+          # but cannot authorize use against a current LKG device.
+          RUN_HEAD="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/44888223032" --jq .head_sha)"
+          python3 scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py \
+            --diagnostic "$DIR/ota-v2-production-diagnostic.json" \
+            --source-run 44888223032 --source-head "$RUN_HEAD" \
+            --output "$DIR/ota-v2-diagnostic-task.json"
+          jq -e '
+            .schema == "pandora-ota-diagnostic-task-v1"
+            and .source_run_id == 44888223032
+            and .stock_build == "OS4.0.6.0.XBLCNXM"
+            and ([.checks[].id] == ["binder_runtime","loaded_module_identity"])
+            and (.commands | length) == 0
+            and .safe_to_flash == false and .device_write_allowed == false
+          ' "$DIR/ota-v2-diagnostic-task.json" >/dev/null
           cat "$DIR/ota-v2-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: "保留诊断与回放证据（无 boot，无可刷包）"
@@ -142,6 +165,7 @@ jobs:
             ${{ runner.temp }}/pandora-ota-v2/oem-abi-replayed.json
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-production-diagnostic.json
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-production-diagnostic.md
+            ${{ runner.temp }}/pandora-ota-v2/ota-v2-diagnostic-task.json
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-diagnostic.json
             ${{ runner.temp }}/pandora-ota-v2/ota-v2-summary.md
           if-no-files-found: warn
