@@ -14,7 +14,7 @@ final class DiagnosisCollector {
     private static final Set<String> MODULES=new LinkedHashSet<>(
             Arrays.asList("rust_binder","kernelsu","node_cache","zram","zsmalloc"));
     private static final Pattern HEX=Pattern.compile("^[a-f0-9]{64}$");
-    private static final int MAX_OUTPUT=32768;
+    private static final int MAX_OUTPUT=128*1024; // only in memory; serialized evidence remains <=32 KiB
     private DiagnosisCollector(){}
 
     static JSONObject capture(DiagnosisClient.Task task)throws Exception {
