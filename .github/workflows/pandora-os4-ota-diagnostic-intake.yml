@@ -1,0 +1,123 @@
+name: "小米17 Pro OS4 / OTA 诊断补采安全接收（只读审核）"
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "阻断的 OTA 自动候选来源 Run ID"
+        type: string
+        required: true
+      release_id:
+        description: "手机诊断 Draft Release ID"
+        type: string
+        required: true
+      asset_id:
+        description: "诊断证据附件 Asset ID"
+        type: string
+        required: true
+      evidence_sha256:
+        description: "本次手机补采 JSON SHA-256"
+        type: string
+        required: true
+
+run-name: "Pandora OTA diagnosis / source-${{ inputs.source_run_id }}"
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  review:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "只读核验手机 Draft、来源 Run、原始 ABI 和当前 OTA"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run_id }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          ASSET_ID: ${{ inputs.asset_id }}
+          EXPECTED_SHA: ${{ inputs.evidence_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN" =~ ^[1-9][0-9]{0,15}$ &&
+             "$RELEASE_ID" =~ ^[1-9][0-9]{0,15}$ &&
+             "$ASSET_ID" =~ ^[1-9][0-9]{0,15}$ &&
+             "$EXPECTED_SHA" =~ ^[a-f0-9]{64}$ ]] || {
+            echo "::error::诊断提交编号/哈希格式不合法"; exit 1;
+          }
+          DIR="$RUNNER_TEMP/pandora-v2-review"
+          mkdir -p "$DIR/source"
+          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")"
+          jq -e --argjson id "$SOURCE_RUN" '
+            .id == $id and .head_branch == "dev" and .status == "completed"
+            and .conclusion == "success"
+            and .path == ".github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml"
+            and (.event == "release" or .event == "schedule" or .event == "workflow_dispatch")
+            and (.head_sha | test("^[a-f0-9]{40}$"))' <<<"$RUN" >/dev/null || exit 1
+          HEAD="$(jq -r .head_sha <<<"$RUN")"
+          RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          jq -e --argjson id "$RELEASE_ID" --arg run "$SOURCE_RUN" '
+            .id == $id and .draft == true and .prerelease == true
+            and (.tag_name | test("^pandora-ota-diagnostic-" + $run + "-[a-f0-9]{32}$"))
+            and ([.assets[] | select(.name == "diagnostic-evidence.json")] | length == 1)' <<<"$RELEASE" >/dev/null || exit 1
+          jq -e --argjson id "$ASSET_ID" --arg digest "$EXPECTED_SHA" '
+            [.assets[] | select(.id == $id and .name == "diagnostic-evidence.json"
+              and .state == "uploaded" and .size > 0 and .size <= 32768
+              and .digest == ("sha256:" + $digest))] | length == 1' <<<"$RELEASE" >/dev/null || exit 1
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          echo "$STOCK" > "$DIR/stock-release.json"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "pandora-OTA-OEM-ABI-TESTBOOT-$(jq -r '.assets[0].name | empty' "$DIR/stock-release.json")-$SOURCE_RUN" \
+            --dir "$DIR/source" 2>/dev/null && {
+            echo "::error::Incorrect placeholder path unexpectedly matched"; exit 1;
+          } || true
+          # Determine build from the signed-by-provenance stock input's exact name.
+          mapfile -t ASSET_NAMES < <(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .name' "$DIR/stock-release.json")
+          [[ "${#ASSET_NAMES[@]}" == 1 ]] || exit 1
+          STOCK_NAME="${ASSET_NAMES[0]}"
+          BUILD="$(sed -nE 's/^pandora-stock-(OS[0-9]+\.[0-9.]+[A-Z0-9]+)-_[ab]-xm\.zip$/\1/p' <<<"$STOCK_NAME")"
+          [[ -n "$BUILD" ]] || { echo "::error::无法确认固定 OTA 的 Build"; exit 1; }
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "pandora-OTA-OEM-ABI-TESTBOOT-$BUILD-$SOURCE_RUN" --dir "$DIR/source"
+          test -s "$DIR/source/ota-v2-diagnostic-task.json"
+          test -s "$DIR/source/ota-abi-report.json"
+          jq -e --argjson run "$SOURCE_RUN" --arg head "$HEAD" --arg build "$BUILD" '
+            .source_run_id == $run and .source_head_sha == $head
+            and .stock_build == $build and .status == "ABI_BLOCKED_DIAGNOSABLE"
+            and .device_write_allowed == false and .safe_to_flash == false
+            and .promote_lkg == false and .requires_manual_review == true
+            and (.commands | length == 0)
+          ' "$DIR/source/ota-v2-diagnostic-task.json" >/dev/null || exit 1
+          STOCK_SHA="$(jq -r .stock_input_sha256 "$DIR/source/ota-v2-diagnostic-task.json")"
+          jq -e --arg digest "$STOCK_SHA"             '[.assets[] | select(.name | endswith("xm.zip")) |
+              select(.digest == ("sha256:" + $digest))] | length == 1' "$DIR/stock-release.json" >/dev/null || exit 1
+          gh api -H 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" > "$DIR/diagnostic-evidence.json"
+          [[ "$(sha256sum "$DIR/diagnostic-evidence.json" | cut -d' ' -f1)" == "$EXPECTED_SHA" ]] || exit 1
+          python3 scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py \
+            --task "$DIR/source/ota-v2-diagnostic-task.json" \
+            --oem-report "$DIR/source/ota-abi-report.json" \
+            --evidence "$DIR/diagnostic-evidence.json" \
+            --expected-sha "$EXPECTED_SHA" \
+            --output "$DIR/diagnostic-review.json"
+          echo "### OTA V2 只读补采核验" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 阶段：REVIEW_REQUIRED（仍需分析，不自动解除 ABI 阻断）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 原始 OTA 来源 Run：#$SOURCE_RUN" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 诊断 Draft Release：#$RELEASE_ID（不公开发布）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 已确认固件 Build：$BUILD" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **不生成 boot，不自动刷机或晋升 LKG。**" >> "$GITHUB_STEP_SUMMARY"
+      - name: "保存核验结果与只读证据"
+        if: success()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OTA-V2-DIAGNOSTIC-REVIEW-${{ inputs.source_run_id }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pandora-v2-review/diagnostic-review.json
+            ${{ runner.temp }}/pandora-v2-review/diagnostic-evidence.json
+          if-no-files-found: error
+          retention-days: 30
