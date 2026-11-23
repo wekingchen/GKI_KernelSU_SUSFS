@@ -29,7 +29,8 @@ NOISY_CI_NAMES = frozenset({
     "小米17 Pro OS4 / EEXIST 自定义构建路由回归",
     "小米17 Pro OS4 / SUSFS 固定上游源码兼容验证",
 })
-OLD_SINGLE_USE = ("仓库维护 / ", "维护 / 清理", ".github/workflows/maintenance-prune-")
+OLD_SINGLE_USE = ("仓库维护 / ", "维护 / 清理", ".github/workflows/maintenance-prune-",
+                  ".github/workflows/pandora-actions-history-hygiene.yml")
 NON_DELETABLE_EVENTS = {"workflow_dispatch", "repository_dispatch", "workflow_run", "release"}
 RUN_ID_RE = re.compile(r"(?<!\d)\d{10,12}(?!\d)")
 MAX_DELETIONS = 650
@@ -66,6 +67,7 @@ def referenced_run_ids(repo: Path) -> set[int]:
         45124613997, 45128727756, 45135431152, 45139674561,
         45141955267, 45141107858, 45142648013, 45142882806,
         44888223032, 44925895903, 41280701707,
+        45196414652,  # Successful OTA V2 branch/CI cleanup transaction (34 removed).
     })
     return refs
 
