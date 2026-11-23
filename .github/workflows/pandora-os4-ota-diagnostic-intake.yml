@@ -20,7 +20,7 @@ on:
         type: string
         required: true
 
-run-name: "Pandora OTA diagnosis / source-${{ inputs.source_run_id }}"
+run-name: "Pandora OTA diagnosis / source-${{ inputs.source_run_id }} / release-${{ inputs.release_id }} / asset-${{ inputs.asset_id }}"
 permissions:
   contents: read
   actions: read
@@ -91,8 +91,12 @@ jobs:
           STOCK_SHA="$(jq -r .stock_input_sha256 "$DIR/source/ota-v2-diagnostic-task.json")"
           jq -e --arg digest "$STOCK_SHA"             '[.assets[] | select(.name | endswith("xm.zip")) |
               select(.digest == ("sha256:" + $digest))] | length == 1' "$DIR/stock-release.json" >/dev/null || exit 1
-          gh api -H 'Accept: application/octet-stream' \
-            "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" > "$DIR/diagnostic-evidence.json"
+          # gh release download handles the binary asset API redirect correctly.
+          # Release ID/tag and exact asset identity were checked above.
+          TAG="$(jq -r .tag_name <<<"$RELEASE")"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'diagnostic-evidence.json' --dir "$DIR"
+          [[ -s "$DIR/diagnostic-evidence.json" ]] || exit 1
           [[ "$(sha256sum "$DIR/diagnostic-evidence.json" | cut -d' ' -f1)" == "$EXPECTED_SHA" ]] || exit 1
           python3 scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py \
             --task "$DIR/source/ota-v2-diagnostic-task.json" \
