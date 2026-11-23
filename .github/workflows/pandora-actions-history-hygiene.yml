@@ -57,6 +57,7 @@ jobs:
     permissions:
       contents: read
       actions: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
