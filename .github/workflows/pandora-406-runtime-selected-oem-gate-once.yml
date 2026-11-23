@@ -87,6 +87,7 @@ jobs:
             runtime_selected_modules,
             runtime_inactive_duplicate_modules,
             runtime_suppressed_modules,
+            runtime_equivalent_provider_overlaps,
             unresolved_examples: .unresolved_kernel_imports[:12],
             ambiguous_examples: .ambiguous_providers[:20]
           }' "$R"
@@ -104,7 +105,8 @@ jobs:
             .ambiguous_split_crc == 0 and
             .runtime_selection_status == "APPLIED_FAIL_CLOSED" and
             (.runtime_suppressed_modules | length) == 1 and
-            (.runtime_inactive_duplicate_modules | length) == 2
+            (.runtime_inactive_duplicate_modules | length) == 2 and
+            (.runtime_equivalent_provider_overlaps | length) == 1
           ' "$R" >/dev/null
           echo "RUNTIME_SELECTED_OEM_GATE=PASS"
           jq '{
