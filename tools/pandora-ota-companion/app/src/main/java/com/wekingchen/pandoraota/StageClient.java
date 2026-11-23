@@ -70,7 +70,9 @@ final class StageClient {
         String next(){
             switch(stage){
                 case "GKI_BUILT":return "查看 OEM ABI 结果；附件过期时从永久候选显式恢复。";
-                case "ABI_BLOCKED":return "如需补证，点击下方「查看补采建议」；ABI 未通过前禁止启动测试。";
+                case "ABI_BLOCKED":return json.optBoolean("diagnostic_task_available",false)
+                    ? "可通过下方入口只读补采，提交后仍须人工检查；ABI 未通过前禁止启动测试。"
+                    : "ABI 已阻断，但还没有可信手机补采任务；先查看 GitHub 诊断报告，禁止启动测试。";
                 case "TESTBOOT_READY":case "WAITING_HUMAN":return "由电脑 fastboot boot，手机测试后填写真机反馈。";
                 case "BASELINE_VERIFIED":return "可以开始同版本功能适配；基线验证不代表自定义内核稳定。";
                 case "CUSTOM_UNVERIFIED":return "先核对版本并测试；稳定后由你明确确认晋升 LKG。";
@@ -109,6 +111,8 @@ final class StageClient {
             }
         }
         require(count==1,"固定输入事务待恢复，暂不展示阶段结论");
+        require(!j.optBoolean("diagnostic_task_available",false) || "ABI_BLOCKED".equals(stage),
+                "不允许非阻断阶段请求手机补采");
         JSONArray proofs=j.getJSONArray("release_assets");
         require(proofs.length()<=8&&("NO_NEW_OTA".equals(stage)||proofs.length()>=2)
             &&(!"LKG_ARCHIVED".equals(stage)||proofs.length()>=3),"缺少候选/归档校验证据");

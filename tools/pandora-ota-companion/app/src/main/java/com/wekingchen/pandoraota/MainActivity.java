@@ -1714,7 +1714,8 @@ public final class MainActivity extends Activity {
                             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     stageState.setText(styled);
                     stageState.setTextColor(state.stage.equals("ABI_BLOCKED") ? WARNING : INK);
-                    if (state.stage.equals("ABI_BLOCKED")) {
+                    if (state.stage.equals("ABI_BLOCKED") &&
+                            state.json.optBoolean("diagnostic_task_available",false)) {
                         diagnosisButton.setText("查看补采建议   →");
                         diagnosisButton.setVisibility(View.VISIBLE);
                     } else {

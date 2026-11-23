@@ -34,7 +34,9 @@ class DiagnosticTaskContract(unittest.TestCase):
             ]
         }
         self.task=maker.build_task(self.diagnosis,12345,"c"*40)
-        self.report={"gate":"BLOCKED","eligible_for_fastboot_boot":False,
+        self.report={"schema":1,"gate":"BLOCKED","eligible_for_fastboot_boot":False,
+                     "flashable":False,"failed_modules":[],"unresolved_kernel_imports":[],
+                     "ambiguous_providers":[],"crc_mismatches":[],
                      "stock_input_sha256":self.task["stock_input_sha256"],
                      "stock_build":self.task["stock_build"],
                      "candidate_commit":self.task["candidate_commit"]}
@@ -73,6 +75,23 @@ class DiagnosticTaskContract(unittest.TestCase):
         self.assertFalse(self.task["device_write_allowed"])
         self.assertFalse(self.task["safe_to_flash"])
         self.assertTrue(self.task["requires_manual_review"])
+
+    def test_task_and_oem_report_cannot_silently_waive_block(self):
+        self.task["commands"]=["echo noop"]
+        with self.assertRaises(ValueError):self.verify()
+        self.task["commands"]=[]
+        self.task["safe_to_flash"]=True
+        with self.assertRaises(ValueError):self.verify()
+        self.task["safe_to_flash"]=False
+        self.task["issues"][0]["code"]="READ_ANY_PATH"
+        with self.assertRaises(ValueError):self.verify()
+
+    def test_original_report_requires_real_schema_and_negative_authorization(self):
+        self.report["flashable"]=True
+        with self.assertRaises(ValueError):self.verify()
+        self.report["flashable"]=False
+        self.report["schema"]=2
+        with self.assertRaises(ValueError):self.verify()
 
     def test_received_evidence_requires_review_never_unlocks_abi(self):
         accepted=self.verify()

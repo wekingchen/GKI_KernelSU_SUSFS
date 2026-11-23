@@ -89,8 +89,10 @@ jobs:
             and (.commands | length == 0)
           ' "$DIR/source/ota-v2-diagnostic-task.json" >/dev/null || exit 1
           STOCK_SHA="$(jq -r .stock_input_sha256 "$DIR/source/ota-v2-diagnostic-task.json")"
-          jq -e --arg digest "$STOCK_SHA"             '[.assets[] | select(.name | endswith("xm.zip")) |
-              select(.digest == ("sha256:" + $digest))] | length == 1' "$DIR/stock-release.json" >/dev/null || exit 1
+          jq -e --arg digest "$STOCK_SHA" '
+            [.assets[] | select(.name | endswith("xm.zip")) |
+              select(.digest == ("sha256:" + $digest))] | length == 1
+          ' "$DIR/stock-release.json" >/dev/null || exit 1
           # GitHub Draft releases can 404 via tag lookup. The exact release and
           # uploaded asset IDs were already verified; download those bytes by
           # numeric ID, without resolving an untrusted or unlisted Draft tag.
@@ -112,7 +114,17 @@ jobs:
             --evidence "$DIR/diagnostic-evidence.json" \
             --expected-sha "$EXPECTED_SHA" \
             --output "$DIR/diagnostic-review.json"
+          # Read-only diagnosis based on the verified task, exact uploaded bytes and
+          # unchanged BLOCKED OEM report. Never launch a build from this workflow.
+          python3 scripts/xiaomi-os4/plan-ota-v2-recovery.py \
+            --task "$DIR/source/ota-v2-diagnostic-task.json" \
+            --oem-report "$DIR/source/ota-abi-report.json" \
+            --evidence "$DIR/diagnostic-evidence.json" \
+            --review "$DIR/diagnostic-review.json" \
+            --output "$DIR/diagnostic-recovery-plan.json" \
+            --markdown "$DIR/diagnostic-recovery-plan.md"
           echo "### OTA V2 只读补采核验" >> "$GITHUB_STEP_SUMMARY"
+          cat "$DIR/diagnostic-recovery-plan.md" >> "$GITHUB_STEP_SUMMARY"
           echo "- 阶段：REVIEW_REQUIRED（仍需分析，不自动解除 ABI 阻断）" >> "$GITHUB_STEP_SUMMARY"
           echo "- 原始 OTA 来源 Run：#$SOURCE_RUN" >> "$GITHUB_STEP_SUMMARY"
           echo "- 诊断 Draft Release：#$RELEASE_ID（不公开发布）" >> "$GITHUB_STEP_SUMMARY"
@@ -126,5 +138,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pandora-v2-review/diagnostic-review.json
             ${{ runner.temp }}/pandora-v2-review/diagnostic-evidence.json
+            ${{ runner.temp }}/pandora-v2-review/diagnostic-recovery-plan.json
+            ${{ runner.temp }}/pandora-v2-review/diagnostic-recovery-plan.md
           if-no-files-found: error
           retention-days: 30
