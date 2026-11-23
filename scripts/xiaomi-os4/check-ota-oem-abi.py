@@ -184,7 +184,66 @@ def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
             or rust.get("required_runtime_parameter") != "pandora_rust_binder_eexist=1"
             or rust.get("replacement_runtime") != "C_BINDER_DIRECTLY_OBSERVED"):
         raise ValueError("runtime rust_binder suppression contract drift")
+
+    overlaps = selection.get("equivalent_provider_overlaps")
+    if not isinstance(overlaps, list) or len(overlaps) != 1:
+        raise ValueError("runtime equivalent provider overlap set must be exact")
+    seen = set()
+    for item in overlaps:
+        if not isinstance(item, dict):
+            raise ValueError("runtime equivalent provider overlap must be an object")
+        required = {
+            "consumer", "symbol", "expected_crc", "vmlinux_crc",
+            "oem_provider", "oem_provider_crc", "justification",
+        }
+        if set(item) != required:
+            raise ValueError("runtime equivalent provider overlap schema drift")
+        key = (item["consumer"], item["symbol"], item["oem_provider"])
+        if key in seen:
+            raise ValueError("duplicate runtime equivalent provider overlap")
+        seen.add(key)
+        if (not isinstance(item["consumer"], str)
+                or not isinstance(item["oem_provider"], str)
+                or not SYMBOL.fullmatch(item["symbol"])):
+            raise ValueError("invalid runtime equivalent provider overlap identity")
+        for field in ("expected_crc", "vmlinux_crc", "oem_provider_crc"):
+            if not re.fullmatch(r"0x[0-9a-f]{8}", item[field]):
+                raise ValueError("invalid runtime equivalent provider overlap CRC: " + field)
+        if not (item["expected_crc"] == item["vmlinux_crc"] == item["oem_provider_crc"]):
+            raise ValueError("runtime equivalent provider overlap CRCs are not identical")
+        if item["justification"] != "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH":
+            raise ValueError("runtime equivalent provider overlap justification drift")
     return selection
+
+
+def resolve_runtime_equivalent_overlap(selection: dict, consumer: str, symbol: str,
+                                       expected_crc: int, vmlinux_crc: int,
+                                       candidates: list[tuple[str, int]]) -> dict | None:
+    """Accept only an exact, pre-attested same-CRC vmlinux/OEM overlap.
+
+    This is deliberately narrower than a generic "same CRC is safe" rule:
+    consumer path, symbol, provider path and all three CRCs must match the
+    version-scoped runtime record exactly.
+    """
+    if len(candidates) != 1:
+        return None
+    provider, provider_crc = candidates[0]
+    if not (expected_crc == vmlinux_crc == provider_crc):
+        return None
+    observed = {
+        "consumer": consumer,
+        "symbol": symbol,
+        "expected_crc": f"0x{expected_crc:08x}",
+        "vmlinux_crc": f"0x{vmlinux_crc:08x}",
+        "oem_provider": provider,
+        "oem_provider_crc": f"0x{provider_crc:08x}",
+        "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH",
+    }
+    matches = [item for item in selection.get("equivalent_provider_overlaps", [])
+               if item == observed]
+    if len(matches) != 1:
+        return None
+    return observed
 
 
 def apply_runtime_module_selection(records: list[dict], selection: dict,
@@ -621,6 +680,7 @@ def main() -> int:
             ambiguous_details = []
             ambiguous_same_crc = 0
             ambiguous_split_crc = 0
+            runtime_equivalent_overlaps = []
             dependencies = {}
             for record in records:
                 name = record["path"]
@@ -629,8 +689,18 @@ def main() -> int:
                 for symbol, expected_crc in imported.items():
                     candidates = providers.get(symbol, [])
                     if symbol in exports:
-                        # Any duplicate provider is ambiguous even if CRCs agree.
+                        # Duplicate vmlinux/OEM providers remain ambiguous by default.
+                        # The exact OS4.0.6 runtime-selected graph has one observed
+                        # overlap whose consumer/provider paths and all CRCs are pinned.
                         if candidates:
+                            overlap = (resolve_runtime_equivalent_overlap(
+                                runtime_selection, name, symbol, expected_crc,
+                                exports[symbol], candidates)
+                                if runtime_selection is not None else None)
+                            if overlap is not None:
+                                runtime_equivalent_overlaps.append(overlap)
+                                core_imports += 1
+                                continue
                             ambiguous.append(f"{name}:{symbol}:vmlinux+OEM")
                             if len(ambiguous_details) < 50:
                                 ambiguous_details.append({
@@ -682,6 +752,14 @@ def main() -> int:
                             })
                     else:
                         report["unresolved_kernel_imports"].append(f"{name}:{symbol}")
+            if runtime_selection is not None:
+                expected_overlaps = runtime_selection.get("equivalent_provider_overlaps", [])
+                if len(runtime_equivalent_overlaps) != len(expected_overlaps):
+                    raise ValueError("runtime equivalent provider overlap evidence was not fully consumed")
+                if {json.dumps(x, sort_keys=True) for x in runtime_equivalent_overlaps} != {
+                        json.dumps(x, sort_keys=True) for x in expected_overlaps}:
+                    raise ValueError("runtime equivalent provider overlap identity drift")
+            report["runtime_equivalent_provider_overlaps"] = runtime_equivalent_overlaps
             report["ambiguous_providers"] = ambiguous
             report["ambiguous_provider_details"] = ambiguous_details
             report["ambiguous_same_crc"] = ambiguous_same_crc
