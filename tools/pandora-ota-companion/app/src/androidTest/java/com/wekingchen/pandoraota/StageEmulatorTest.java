@@ -48,6 +48,15 @@ public class StageEmulatorTest {
         JSONObject noop=stage("NO_NEW_OTA").put("detail","仅为 NOOP");
         assertTrue(new StageClient.State(noop).friendlyDetail().contains("无需重复处理"));
     }
+    @Test public void diagnosisShortcutRequiresAbiBlockedTaskFlag()throws Exception{
+        JSONObject noop=stage("NO_NEW_OTA").put("diagnostic_task_available",true);
+        reject(noop,run(),fixed());
+        StageClient.State abiWithoutTask=new StageClient.State(stage("ABI_BLOCKED"));
+        assertTrue(abiWithoutTask.next().contains("没有可信"));
+        StageClient.State abiWithTask=new StageClient.State(
+                stage("ABI_BLOCKED").put("diagnostic_task_available",true));
+        assertTrue(abiWithTask.next().contains("只读补采"));
+    }
     @Test public void noopEnvelopeCannotClaimAnyOtherStageWithoutEvidence()throws Exception{
         StageClient.validateEnvelope(stage("NO_NEW_OTA"),run(),fixed());
         for(String name:StageClient.STAGES){if(name.equals("NO_NEW_OTA"))continue;reject(stage(name),run(),fixed());}
