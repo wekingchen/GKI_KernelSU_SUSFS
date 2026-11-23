@@ -25,6 +25,9 @@ on:
       - "scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py"
       - "scripts/xiaomi-os4/run-cross-ota-lkg.sh"
       - "scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh"
+      - "scripts/xiaomi-os4/package-validated-anykernel3.sh"
+      - "scripts/xiaomi-os4/check-ota-anykernel-evidence.py"
+      - "scripts/xiaomi-os4/test_ota_anykernel_evidence.py"
       - "scripts/xiaomi-os4/test_cross_ota_lkg.py"
       - "scripts/xiaomi-os4/test_ota_development_switch.py"
       - "scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py"
@@ -49,6 +52,7 @@ jobs:
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
           bash -n scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh
+          bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           python3 -m py_compile \
             scripts/xiaomi-os4/ota-development-pointer.py \
             scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py \
@@ -62,7 +66,9 @@ jobs:
             scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py \
             scripts/xiaomi-os4/select-lkg-promotion-route.py \
             scripts/xiaomi-os4/cross-ota-lkg.py \
-            scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py
+            scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py \
+            scripts/xiaomi-os4/check-ota-anykernel-evidence.py \
+            scripts/xiaomi-os4/test_ota_anykernel_evidence.py
           ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
             .github/workflows/xiaomi-sm8850-os4-custom.yml
 
@@ -71,6 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/xiaomi-os4/test_ota_development_switch.py -v
+          python3 scripts/xiaomi-os4/test_ota_anykernel_evidence.py -v
           python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py -v
           python3 scripts/xiaomi-os4/test_repack_fastboot_boot_v4_growth.py -v
           python3 scripts/xiaomi-os4/test_runtime_selected_oem_gate.py -v
@@ -78,7 +85,7 @@ jobs:
           python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
           python3 scripts/xiaomi-os4/test_cross_ota_lkg.py -v
 
-      - name: "验证正式 pointer 指向唯一的 nonflash compatibility baseline"
+      - name: "验证 compatibility 开发基线保持非刷机，同时 Gen 6 解锁持久自定义机制"
         shell: bash
         run: |
           set -euo pipefail
@@ -89,11 +96,23 @@ jobs:
           pointer = json.loads((root / ".github/config/ota-development-current.json").read_text())
           record = json.loads((root / pointer["record_path"]).read_text())
           fixture = json.loads((root / pointer["fixture_path"]).read_text())
+          lkg = json.loads((root / ".github/config/ota-lkg-current.json").read_text())
+          persistent = json.loads((root / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json").read_text())
           assert pointer["status"] == "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY"
           assert pointer["build"] == "OS4.0.6.0.XBLCNXM"
           assert record["formal_oem_gate"] == "BLOCKED"
           assert record["safe_to_flash"] is False
           assert fixture["safe_to_flash"] is False
           assert pointer["full_parity_lkg_promoted"] is False
-          print("PANDORA_406_COMPAT_POINTER=PASS_NONFLASH_ONLY")
+          assert lkg["status"] == "USER_PROMOTED_OTA_LKG"
+          assert lkg["generation"] == 6
+          assert lkg["stock_build"] == pointer["build"]
+          assert persistent["status"] == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
+          assert persistent["actual_persistent_install_verified"] is True
+          assert persistent["lkg_promotion"] is True
+          assert persistent["feature_workflow_run_id"] == lkg["source_run_id"]
+          assert persistent["feature_image_sha256"] == lkg["image_sha256"]
+          assert persistent["package_sha256"] == lkg["anykernel_sha256"]
+          print("PANDORA_406_COMPAT_BASELINE=NONFLASH")
+          print("PANDORA_406_PERSISTENT_CUSTOM_MECHANISM=UNLOCKED_BY_GEN6")
           PY

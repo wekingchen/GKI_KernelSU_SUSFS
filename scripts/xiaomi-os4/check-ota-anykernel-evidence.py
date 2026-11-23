@@ -47,24 +47,47 @@ def validate(record: dict, fixture: dict, abi: dict, meta: dict,
             "invalid build")
     require(bool(re.fullmatch(r"6\.12\.[0-9]+-android16-6-[A-Za-z0-9_.-]+", release)),
             "unsupported GKI/KMI release")
-    require(record.get("status") == "HUMAN_ATTESTED_BASELINE_BOOTED"
-            and record.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION"
-            and record.get("verification_mode") == "USER_ATTESTATION_NOT_REMOTE_HARDWARE_PROOF"
-            and record.get("device") == "pandora"
-            and record.get("safe_to_flash") is False
-            and record.get("full_parity_lkg_promoted") is False,
-            "pure GKI baseline not human-attested")
+    compat = record.get("status") == "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED"
+    if compat:
+        require(record.get("schema") == 2
+                and record.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH"
+                and record.get("verification_mode") == "USER_ATTESTATION_PLUS_READ_ONLY_RUNTIME_EVIDENCE"
+                and record.get("device") == "pandora"
+                and record.get("compatibility_kind") == "PANDORA_RUST_BINDER_EEXIST_SHIM"
+                and record.get("compatibility_parameter") == "pandora_rust_binder_eexist=1"
+                and record.get("safe_to_flash") is False
+                and record.get("persistent_flash") is False
+                and record.get("full_parity_lkg_promoted") is False,
+                "compatibility GKI baseline not accepted")
+    else:
+        require(record.get("status") == "HUMAN_ATTESTED_BASELINE_BOOTED"
+                and record.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION"
+                and record.get("verification_mode") == "USER_ATTESTATION_NOT_REMOTE_HARDWARE_PROOF"
+                and record.get("device") == "pandora"
+                and record.get("safe_to_flash") is False
+                and record.get("full_parity_lkg_promoted") is False,
+                "pure GKI baseline not human-attested")
     require(record.get("stock_build") == build
             and record.get("kernel_release") == release
             and record.get("observed_build") == build
             and record.get("observed_uname") == release,
             "recorded OTA identity disagrees with artifact")
-    require(fixture.get("schema") == 2 and fixture.get("safe_to_flash") is False
-            and fixture.get("stock_build") == build
-            and fixture.get("tested_boot_sha256") == record.get("candidate_boot_sha256")
-            and fixture.get("stock_input_sha256") == record.get("stock_input_sha256")
-            and fixture.get("baseline_kernel_sha256") == record.get("candidate_image_sha256"),
-            "different/unsafe OTA fixture")
+    if compat:
+        require(fixture.get("schema") == 2 and fixture.get("safe_to_flash") is False
+                and fixture.get("stock_build") == build
+                and fixture.get("tested_boot_sha256") == record.get("compatibility_boot_sha256")
+                and fixture.get("stock_input_sha256") == record.get("stock_input_sha256")
+                and fixture.get("baseline_kernel_sha256") == record.get("compatibility_image_sha256")
+                and fixture.get("compatibility_kind") == record.get("compatibility_kind")
+                and fixture.get("compatibility_parameter") == record.get("compatibility_parameter"),
+                "different/unsafe compatibility OTA fixture")
+    else:
+        require(fixture.get("schema") == 2 and fixture.get("safe_to_flash") is False
+                and fixture.get("stock_build") == build
+                and fixture.get("tested_boot_sha256") == record.get("candidate_boot_sha256")
+                and fixture.get("stock_input_sha256") == record.get("stock_input_sha256")
+                and fixture.get("baseline_kernel_sha256") == record.get("candidate_image_sha256"),
+                "different/unsafe OTA fixture")
     require(abi.get("gate") == "PASS"
             and abi.get("safe_to_flash") is False
             and abi.get("full_parity_lkg_promoted") is False
@@ -72,7 +95,8 @@ def validate(record: dict, fixture: dict, abi: dict, meta: dict,
             and abi.get("build") == build
             and abi.get("kernel_release") == release
             and abi.get("source_commit") == record.get("candidate_gki_commit")
-            and abi.get("baseline_symvers_sha256") == record.get("module_symvers_sha256"),
+            and abi.get("baseline_symvers_sha256") == record.get("module_symvers_sha256")
+            and (not compat or abi.get("compatibility_baseline") is True),
             "custom kernel failed same-OTA core ABI gate")
     expected = {
         "BUILD_KIND": "OTA_OS4_SELECTABLE_CUSTOM_UNVERIFIED",

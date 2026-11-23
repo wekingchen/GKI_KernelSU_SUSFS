@@ -65,6 +65,45 @@ class AnykernelEvidence(unittest.TestCase):
         self.assertEqual(self.meta["BUILD_KIND"], "OTA_OS4_SELECTABLE_CUSTOM_UNVERIFIED")
         self.assertFalse(self.record["full_parity_lkg_promoted"])
 
+    def make_compat(self):
+        self.record.update(
+            schema=2,
+            status="HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED",
+            next_stage="READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH",
+            verification_mode="USER_ATTESTATION_PLUS_READ_ONLY_RUNTIME_EVIDENCE",
+            persistent_flash=False,
+            compatibility_kind="PANDORA_RUST_BINDER_EEXIST_SHIM",
+            compatibility_parameter="pandora_rust_binder_eexist=1",
+            compatibility_boot_sha256="c" * 64,
+            compatibility_image_sha256="e" * 64,
+        )
+        self.fixture.update(
+            tested_boot_sha256="c" * 64,
+            baseline_kernel_sha256="e" * 64,
+            compatibility_kind="PANDORA_RUST_BINDER_EEXIST_SHIM",
+            compatibility_parameter="pandora_rust_binder_eexist=1",
+        )
+        self.abi["compatibility_baseline"] = True
+
+    def test_compatibility_baseline_can_package_unverified_feature_image(self):
+        self.make_compat()
+        self.check()
+        self.assertEqual(self.record["compatibility_parameter"],
+                         "pandora_rust_binder_eexist=1")
+        self.assertTrue(self.abi["compatibility_baseline"])
+
+    def test_compatibility_anykernel_fails_if_eexist_identity_drifts(self):
+        self.make_compat()
+        self.record["compatibility_parameter"] = "pandora_rust_binder_eexist=0"
+        with self.assertRaises(SystemExit):
+            self.check()
+
+    def test_compatibility_anykernel_fails_without_compat_abi_marker(self):
+        self.make_compat()
+        self.abi["compatibility_baseline"] = False
+        with self.assertRaises(SystemExit):
+            self.check()
+
     def test_fail_without_ota_gki_human_attestation(self):
         self.record["status"] = "NEW_OTA_CANDIDATE"
         with self.assertRaises(SystemExit):

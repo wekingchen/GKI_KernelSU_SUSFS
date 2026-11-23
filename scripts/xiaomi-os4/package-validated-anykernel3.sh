@@ -41,6 +41,13 @@ case "$MODE" in
     VALIDATION_LEVEL="OTA_CUSTOM_UNVERIFIED"
     DEFAULT_PACKAGE="Xiaomi17Pro-pandora-${EXPECTED_BUILD}-CUSTOM-run-${RUN_ID}-UNVERIFIED-AnyKernel3.zip"
     ;;
+  ota-compat-custom)
+    # The persistent EEXIST mechanism is LKG-verified for this OTA, but this
+    # exact feature Image is still CUSTOM_UNVERIFIED.
+    PROFILE_LABEL="OS4 compatibility custom kernel (UNVERIFIED)"
+    VALIDATION_LEVEL="OTA_COMPAT_CUSTOM_UNVERIFIED"
+    DEFAULT_PACKAGE="Xiaomi17Pro-pandora-${EXPECTED_BUILD}-COMPAT-CUSTOM-run-${RUN_ID}-UNVERIFIED-AnyKernel3.zip"
+    ;;
   *)
     echo "::error::unsupported XIAOMI_AK3_MODE: $MODE"
     exit 1
@@ -70,7 +77,7 @@ case "$MODE" in
     }
     python3 "$ROOT/scripts/xiaomi-os4/verify-lkg-image-equivalence.py" "$IMAGE"       --expected-size "$LKG_IMAGE_SIZE"       --build-id-payload-offset "$LKG_IMAGE_BUILD_ID_PAYLOAD_OFFSET"       --cert-offset "$LKG_IMAGE_MODULE_CERT_OFFSET"       --cert-length "$LKG_IMAGE_MODULE_CERT_LENGTH"       --expected-normalized-sha256 "$LKG_IMAGE_NORMALIZED_SHA256"
     ;;
-  custom|ota-custom)
+  custom|ota-custom|ota-compat-custom)
     # The caller must already have passed the common ABI/KMI lock.
     # Custom combinations are packaged for the user's OS3-style workflow,
     # but are deliberately marked UNVERIFIED until that exact combination
@@ -80,7 +87,7 @@ esac
 
 # The pure-GKI real-device attestation does not certify the feature Image.
 # Require immutable source, ABI and per-build evidence for new-OTA AnyKernel3.
-if [[ "$MODE" == "ota-custom" ]]; then
+if [[ "$MODE" == "ota-custom" || "$MODE" == "ota-compat-custom" ]]; then
   for key in XIAOMI_AK3_OTA_BASELINE_RECORD XIAOMI_AK3_OTA_FIXTURE XIAOMI_AK3_OTA_ABI_REPORT XIAOMI_AK3_OTA_METADATA; do
     test -s "${!key:-}" || { echo "::error::missing OTA evidence: $key"; exit 1; }
   done
@@ -177,6 +184,7 @@ else
   patch_cmdline "module_blacklist=" "module_blacklist=kernelsu";
 fi
 
+@@COMPAT_PATCH@@
 flash_boot;
 AK3EOF
 
@@ -188,19 +196,68 @@ path, profile, release, validation, build, mode = sys.argv[1:]
 p = Path(path)
 text = p.read_text()
 warning = (
-    'ui_print "WARNING: new OTA feature kernel has NOT been real-device tested.";'
-    if mode == "ota-custom" else
+    'ui_print "WARNING: this exact compatibility feature Image has NOT been real-device tested.";'
+    if mode == "ota-compat-custom" else
     (
-        'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
-        if mode == "custom" else
+        'ui_print "WARNING: new OTA feature kernel has NOT been real-device tested.";'
+        if mode == "ota-custom" else
         (
-            'ui_print "Current promoted LKG rebuild: real-device validation PASS.";'
-            if mode == "validated-rebuild"
-            else 'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+            'ui_print "WARNING: this exact custom feature combination has not been real-device validated.";'
+            if mode == "custom" else
+            (
+                'ui_print "Current promoted LKG rebuild: real-device validation PASS.";'
+                if mode == "validated-rebuild"
+                else 'ui_print "Full Parity rebuild path: real-device temporary-boot validation PASS.";'
+            )
         )
     )
 )
-if mode == "ota-custom":
+compat_patch = ""
+if mode == "ota-compat-custom":
+    compat_patch = r"""
+# Gen 6 proved this persistent C-Binder/EEXIST contract on OS4.0.6.
+if [ -f "$SPLITIMG/cmdline.txt" ]; then
+  current_cmdline="$(cat "$SPLITIMG/cmdline.txt")";
+else
+  current_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
+fi
+blacklist_count="$(echo "$current_cmdline" | tr ' ' '\\n' | grep -c '^module_blacklist=' || true)";
+[ "$blacklist_count" -eq 1 ] || abort "Ambiguous module_blacklist in compatibility boot";
+compat_blacklist="$(echo "$current_cmdline" | tr ' ' '\\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$compat_blacklist" | tr ',' '\\n' | grep -qx 'kernelsu' ||
+  abort "KernelSU LKM blacklist missing in compatibility boot";
+if echo "$compat_blacklist" | tr ',' '\\n' | grep -qx 'rust_binder'; then
+  abort "rust_binder must not be blacklisted in the verified EEXIST contract";
+fi
+
+eexist_count="$(echo "$current_cmdline" | tr ' ' '\\n' | grep -c '^pandora_rust_binder_eexist=' || true)";
+[ "$eexist_count" -le 1 ] || abort "Ambiguous pandora_rust_binder_eexist in boot cmdline";
+eexist="$(echo "$current_cmdline" | tr ' ' '\\n' | grep '^pandora_rust_binder_eexist=' || true)";
+if [ "$eexist" ]; then
+  [ "$eexist" = "pandora_rust_binder_eexist=1" ] ||
+    abort "Conflicting pandora_rust_binder_eexist value";
+else
+  patch_cmdline "pandora_rust_binder_eexist=" "pandora_rust_binder_eexist=1";
+fi
+
+if [ -f "$SPLITIMG/cmdline.txt" ]; then
+  final_cmdline="$(cat "$SPLITIMG/cmdline.txt")";
+else
+  final_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
+fi
+eexist_final_count="$(echo "$final_cmdline" | tr ' ' '\\n' | grep -c '^pandora_rust_binder_eexist=1$' || true)";
+[ "$eexist_final_count" -eq 1 ] ||
+  abort "EEXIST compatibility parameter not present exactly once after patch";
+final_blacklist_count="$(echo "$final_cmdline" | tr ' ' '\\n' | grep -c '^module_blacklist=' || true)";
+[ "$final_blacklist_count" -eq 1 ] || abort "Ambiguous module_blacklist after compatibility patch";
+final_blacklist="$(echo "$final_cmdline" | tr ' ' '\\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$final_blacklist" | tr ',' '\\n' | grep -qx 'kernelsu' ||
+  abort "KernelSU LKM blacklist missing after compatibility patch";
+if echo "$final_blacklist" | tr ',' '\\n' | grep -qx 'rust_binder'; then
+  abort "rust_binder blacklist violates verified compatibility contract";
+fi
+"""
+if mode in ("ota-custom", "ota-compat-custom"):
     # Do not alter historical R62 LKG package templates.
     text = text.replace("HyperOS 4 R62", "HyperOS @@EXPECTED_BUILD@@")
     text = text.replace("OS4 R62", "@@EXPECTED_BUILD@@")
@@ -210,6 +267,7 @@ replacements = {
     "@@VALIDATION_LEVEL@@": validation,
     "@@EXPECTED_BUILD@@": build,
     "@@CUSTOM_WARNING@@": warning,
+    "@@COMPAT_PATCH@@": compat_patch,
 }
 for old, new in replacements.items():
     text = text.replace(old, new)
@@ -231,11 +289,15 @@ AnyKernel3 and preserves the existing ramdisk.
 It also ensures module_blacklist contains kernelsu so the legacy KernelSU LKM
 cannot load alongside Built-in BakaSU.
 
-$(if [[ "$MODE" == "custom" || "$MODE" == "ota-custom" ]]; then
+$(if [[ "$MODE" == "custom" || "$MODE" == "ota-custom" || "$MODE" == "ota-compat-custom" ]]; then
   echo "WARNING: this exact custom feature combination has not completed a real-device boot validation."
   echo "Keep a known-good boot image available for recovery."
   if [[ "$MODE" == "ota-custom" ]]; then
     echo "Pure GKI boot validation does NOT certify this custom feature kernel."
+    echo "EXPERIMENTAL PERSISTENT INSTALL: test paired FASTBOOT-BOOT-ONLY.img first."
+  elif [[ "$MODE" == "ota-compat-custom" ]]; then
+    echo "The OS4.0.6 EEXIST persistent mechanism is Gen-6-LKG verified; this exact Image is not."
+    echo "Installer enforces pandora_rust_binder_eexist=1 and the kernelsu LKM blacklist."
     echo "EXPERIMENTAL PERSISTENT INSTALL: test paired FASTBOOT-BOOT-ONLY.img first."
   fi
 else

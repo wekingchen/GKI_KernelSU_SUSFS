@@ -75,6 +75,7 @@ jobs:
       record_path: ${{ steps.select.outputs.record_path }}
       fixture_path: ${{ steps.select.outputs.fixture_path }}
       compatibility_mode: ${{ steps.select.outputs.compatibility_mode }}
+      persistent_compat_enabled: ${{ steps.select.outputs.persistent_compat_enabled }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,7 +107,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/xiaomi-os4/ota-development-pointer.py select \
-            --stock-report "$RUNNER_TEMP/stock-report.json" --output "$GITHUB_OUTPUT"
+            --stock-report "$RUNNER_TEMP/stock-report.json" \
+            --lkg-pointer ".github/config/ota-lkg-current.json" \
+            --persistent-candidate ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json" \
+            --output "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
   resolve-upstreams:
@@ -897,14 +901,24 @@ jobs:
           cp "$FIX" "$OUT/fixture.json"
           cp "$RES/eexist-shim.patch" "$OUT/eexist-shim.patch" 2>/dev/null || true
           if [[ "$COMPATIBILITY_MODE" == "1" ]]; then
-            cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
+            if [[ "${{ needs.select-baseline.outputs.persistent_compat_enabled }}" == "1" ]]; then
+              cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
+          # $VERIFIED_BUILD / EEXIST 兼容自定义内核（持久机制已 LKG 验证）
+          本 OTA 的 C Binder + EEXIST 持久启动机制已经由 Gen 6 LKG 完成两次真实重启验证。
+          本次功能 Image 本身仍是 CUSTOM_UNVERIFIED，必须先用配套 FASTBOOT-BOOT-ONLY.img 临时启动测试。
+          同一次构建同时提供未验证 AnyKernel3；安装器会确保 module_blacklist 含 kernelsu，并确保 pandora_rust_binder_eexist=1。
+          禁止直接 fastboot flash；本次新功能组合不会自动晋升 LKG。
+          EOF
+            else
+              cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
           # $VERIFIED_BUILD / EEXIST 兼容自定义内核（仅临时启动）
           本产物基于已通过真机启动验证的 exact-r74 EEXIST 兼容基线。
           只生成 FASTBOOT-BOOT-ONLY.img；不生成 AnyKernel3，不允许持久刷写。
-          正式 OEM ABI gate 仍为 BLOCKED；71 个 OEM Rust Binder imports 与 27 个 zsmalloc provider ambiguity 不因本次启动成功而被删除。
+          正式持久兼容门禁尚未解锁。
           镜像增长仅对 safe_to_flash=false 的临时启动包开放。
           禁止 fastboot flash、AnyKernel3 安装及 LKG 晋升。
           EOF
+            fi
           else
             cat > "$OUT/README-EXPERIMENTAL-CUSTOM.md" <<EOF
           # $VERIFIED_BUILD / 新 OTA 自定义内核（未经真机功能版验证）
@@ -917,8 +931,10 @@ jobs:
           EOF
           fi
 
-      - name: "同时生成新 OTA 实验性 AnyKernel3（无须二次反馈）"
-        if: needs.select-baseline.outputs.compatibility_mode != '1'
+      - name: "同时生成新 OTA 实验性 AnyKernel3（持久机制需已有 LKG 证明）"
+        if: >-
+          needs.select-baseline.outputs.compatibility_mode != '1' ||
+          needs.select-baseline.outputs.persistent_compat_enabled == '1'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -927,9 +943,16 @@ jobs:
           set -euo pipefail
           RES="$RUNNER_TEMP/xiaomi-os4-integrated/results"
           OUT="$RUNNER_TEMP/ota-custom-output"
-          RECORD=".github/config/ota-verified/$VERIFIED_BUILD/verification.json"
-          FIXTURE=".github/config/ota-verified/$VERIFIED_BUILD/fixture.json"
+          RECORD="${{ needs.select-baseline.outputs.record_path }}"
+          FIXTURE="${{ needs.select-baseline.outputs.fixture_path }}"
           EXPECTED="$(jq -r .kernel_release "$RECORD")"
+          AK3_MODE="ota-custom"
+          if [[ "${{ needs.select-baseline.outputs.compatibility_mode }}" == "1" ]]; then
+            [[ "${{ needs.select-baseline.outputs.persistent_compat_enabled }}" == "1" ]] || {
+              echo "::error::compatibility 持久门禁未解锁"; exit 1;
+            }
+            AK3_MODE="ota-compat-custom"
+          fi
           CURRENT_STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
           [[ "$(jq -r '[.assets[] | select(.name | endswith("xm.zip"))] | length' <<<"$CURRENT_STOCK")" -eq 1 ]] || {
             echo "::error::当前 stock-input 数量异常，拒绝实验性安装包"; exit 1;
@@ -940,7 +963,7 @@ jobs:
           [[ "$(jq -r .gate "$RES/ota-custom-abi-report.json")" == "PASS" ]] || {
             echo "::error::功能内核 ABI 检查未通过，不能打包实验性 AnyKernel3"; exit 1;
           }
-          XIAOMI_AK3_MODE=ota-custom \
+          XIAOMI_AK3_MODE="$AK3_MODE" \
           XIAOMI_AK3_BUILD="$VERIFIED_BUILD" \
           XIAOMI_AK3_RELEASE="$EXPECTED" \
           XIAOMI_AK3_OTA_BASELINE_RECORD="$RECORD" \
@@ -967,8 +990,10 @@ jobs:
             echo "- 仅 LKG 晋升需要另外明确确认"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: "为跨 OTA 稳定晋升保留精确来源与全部功能提交快照"
-        if: needs.select-baseline.outputs.compatibility_mode != '1'
+      - name: "为后续真机验证 / LKG 晋升保留精确来源与全部功能提交快照"
+        if: >-
+          needs.select-baseline.outputs.compatibility_mode != '1' ||
+          needs.select-baseline.outputs.persistent_compat_enabled == '1'
         shell: bash
         env:
           BAKASU: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
@@ -1017,12 +1042,23 @@ jobs:
             rm -f "$OUT/image-reproducibility.env"
             echo "::warning::未知 GKI 证书/Build ID 格式，LKG 晋升暂被禁止"
           fi
-          python3 scripts/xiaomi-os4/cross-ota-lkg.py capture \
-            --artifact-dir "$OUT" --run-id "$GITHUB_RUN_ID" --head-sha "$GITHUB_SHA"
+          if [[ "${{ needs.select-baseline.outputs.compatibility_mode }}" != "1" ]]; then
+            python3 scripts/xiaomi-os4/cross-ota-lkg.py capture \
+              --artifact-dir "$OUT" --run-id "$GITHUB_RUN_ID" --head-sha "$GITHUB_SHA"
+          else
+            {
+              echo "SOURCE_SNAPSHOT=PASS"
+              echo "COMPAT_PERSISTENT_MECHANISM=LKG_VERIFIED"
+              echo "EXACT_IMAGE_RUNTIME_VALIDATION=NOT_DONE"
+              echo "LKG_PROMOTION=REQUIRES_TRUE_DEVICE_VALIDATION"
+            } > "$OUT/compatibility-persistent-unverified-status.txt"
+          fi
           (cd "$OUT" && sha256sum Image Module.symvers *.img *.zip > SHA256SUMS.txt)
 
-      - name: "标记 EEXIST 兼容构建为严格非刷机候选"
-        if: needs.select-baseline.outputs.compatibility_mode == '1'
+      - name: "标记尚未解锁持久机制的 EEXIST 兼容构建为严格非刷机候选"
+        if: >-
+          needs.select-baseline.outputs.compatibility_mode == '1' &&
+          needs.select-baseline.outputs.persistent_compat_enabled != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -1038,10 +1074,10 @@ jobs:
           } > "$OUT/compatibility-nonflash-status.txt"
           (cd "$OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
 
-      - name: "上传新版本自定义内核：兼容候选仅含 FASTBOOT-BOOT-ONLY"
+      - name: "上传新版本自定义内核"
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ needs.select-baseline.outputs.compatibility_mode == '1' && format('pandora-OTA-COMPAT-NONFLASH-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) || format('pandora-OTA-CUSTOM-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) }}
+          name: ${{ needs.select-baseline.outputs.compatibility_mode == '1' && needs.select-baseline.outputs.persistent_compat_enabled == '1' && format('pandora-OTA-COMPAT-CUSTOM-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) || needs.select-baseline.outputs.compatibility_mode == '1' && format('pandora-OTA-COMPAT-NONFLASH-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) || format('pandora-OTA-CUSTOM-{0}-run-{1}', needs.select-baseline.outputs.build, github.run_id) }}
           path: ${{ runner.temp }}/ota-custom-output/
           if-no-files-found: error
           compression-level: 0
@@ -1060,9 +1096,13 @@ jobs:
             echo "- 新 OTA core ABI preservation: 已强制检查"
             if [[ "${{ needs.select-baseline.outputs.compatibility_mode }}" == "1" ]]; then
               echo "- 兼容模式: exact-r74 EEXIST shim，补丁 SHA 固定"
-              echo "- 产物: 仅 FASTBOOT-BOOT-ONLY.img（允许非刷机镜像增长）"
-              echo "- 正式 OEM ABI gate: BLOCKED"
-              echo "- 不生成 AnyKernel3；禁止持久刷写和 LKG 晋升"
+              if [[ "${{ needs.select-baseline.outputs.persistent_compat_enabled }}" == "1" ]]; then
+                echo "- Gen 6 已证明该 OTA 的持久 EEXIST 机制；本次产物: FASTBOOT-BOOT-ONLY + CUSTOM_UNVERIFIED AnyKernel3"
+                echo "- 新功能 Image 仍需先临时启动验证；不会自动继承 LKG 身份"
+              else
+                echo "- 产物: 仅 FASTBOOT-BOOT-ONLY.img（允许非刷机镜像增长）"
+                echo "- 持久兼容门禁未解锁，不生成 AnyKernel3"
+              fi
             else
               echo "- 产物: FASTBOOT-BOOT-ONLY.img + OTA_CUSTOM_UNVERIFIED-AnyKernel3.zip"
               echo "- 两者使用相同 Image；临时启动通过前不建议持久安装"
