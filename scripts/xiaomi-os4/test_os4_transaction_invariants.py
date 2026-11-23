@@ -111,13 +111,15 @@ class TransactionSafety(unittest.TestCase):
 
     def test_release_recovery_cannot_bypass_current_pointer_and_checksums(self):
         self.assertIn('inputs.repair_draft_release', self.lifecycle)
-        self.assertIn('verify-ota-lkg-release.py --dir "$WORK" --tag "$TAG"',
+        self.assertIn('verify-ota-lkg-release.py --dir "$WORK/assets" --tag "$TAG"',
                       self.lifecycle)
-        self.assertIn('cmp -s "$POINTER" "$WORK/ota-lkg-promotion-record.json"',
+        self.assertIn('cmp -s "$POINTER" "$WORK/assets/ota-lkg-promotion-record.json"',
                       self.lifecycle)
+        self.assertIn('check-ota-lkg-draft-assets.py', self.lifecycle)
+        self.assertNotIn('gh release edit "$TAG" --draft=false', self.lifecycle)
         self.assertLess(
-            self.lifecycle.index('verify-ota-lkg-release.py --dir "$WORK" --tag "$TAG"'),
-            self.lifecycle.rindex('gh release edit "$TAG" --draft=false'))
+            self.lifecycle.index('verify-ota-lkg-release.py --dir "$WORK/assets" --tag "$TAG"'),
+            self.lifecycle.rindex('gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"'))
         self.assertIn('gh api "repos/$GITHUB_REPOSITORY/contents/.github/config/ota-lkg-current.json?ref=dev"',
                       self.lifecycle)
 

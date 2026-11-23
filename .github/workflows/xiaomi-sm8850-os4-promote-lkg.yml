@@ -571,24 +571,49 @@ jobs:
           jq -e '.status=="completed" and .conclusion=="success" and
             .event=="workflow_dispatch" and .head_branch=="dev" and
             .path==".github/workflows/xiaomi-sm8850-os4-custom.yml"' <<<"$SRC" >/dev/null
-          RELEASE="$(gh release view "$TAG" --json isDraft,body,assets)"
-          jq -e --arg s "SOURCE_RUN_ID=$SOURCE_RUN_ID" --arg p "PROMOTION_RUN_ID=$PROMO" '
-            .isDraft==true and (.body|contains($s) and contains($p))
-          ' <<<"$RELEASE" >/dev/null
           WORK="$(mktemp -d)"
           trap 'rm -rf "$WORK"' EXIT
-          gh release download "$TAG" --dir "$WORK"
-          MANIFEST="$WORK/SHA256SUMS-$TAG.txt"
-          [[ -s "$MANIFEST" && -s "$WORK/ota-lkg-promotion-record.json" ]] || exit 1
-          cmp -s "$POINTER" "$WORK/ota-lkg-promotion-record.json" || {
+          # Drafts can return 404 from the tag lookup. Resolve their unique
+          # numeric ID from an authenticated listing, then verify it directly.
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$WORK/releases.json"
+          RELEASE_ID="$(jq -er --arg t "$TAG" '[.[] | select(.tag_name==$t)] |
+            if length==1 and .[0].draft==true then .[0].id else error("no exact draft") end
+          ' "$WORK/releases.json")"
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$WORK/draft.json"
+          jq -e --arg t "$TAG" --arg s "SOURCE_RUN_ID=$SOURCE_RUN_ID" \
+            --arg p "PROMOTION_RUN_ID=$PROMO" --argjson id "$RELEASE_ID" '
+            .id==$id and .tag_name==$t and .draft==true and
+            (.body|contains($s) and contains($p))
+          ' "$WORK/draft.json" >/dev/null
+          python3 scripts/xiaomi-os4/check-ota-lkg-draft-assets.py \
+            --release "$WORK/draft.json" --tag "$TAG" \
+            --build "$(jq -er .stock_build "$POINTER")" \
+            --output "$WORK/assets.list"
+          mkdir -p "$WORK/assets"
+          while IFS='|' read -r ASSET_ID ASSET_NAME ASSET_SHA ASSET_SIZE; do
+            [[ "$ASSET_ID" =~ ^[1-9][0-9]*$ && "$ASSET_SIZE" =~ ^[1-9][0-9]*$ ]] || exit 1
+            curl --fail --location --silent --show-error --retry 2 \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "Accept: application/octet-stream" \
+              --output "$WORK/assets/$ASSET_NAME" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+            [[ "$(stat -c%s "$WORK/assets/$ASSET_NAME")" == "$ASSET_SIZE" ]] || exit 1
+            [[ "$(sha256sum "$WORK/assets/$ASSET_NAME" | cut -d' ' -f1)" == "$ASSET_SHA" ]] || exit 1
+          done < "$WORK/assets.list"
+          MANIFEST="$WORK/assets/SHA256SUMS-$TAG.txt"
+          [[ -s "$MANIFEST" && -s "$WORK/assets/ota-lkg-promotion-record.json" ]] || exit 1
+          cmp -s "$POINTER" "$WORK/assets/ota-lkg-promotion-record.json" || {
             echo "::error::Release 内记录不是已合并的 LKG"; exit 1;
           }
-          python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK" --tag "$TAG"
+          python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK/assets" --tag "$TAG"
           # Re-read the pointer to reject a concurrent later generation.
           CURRENT="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/config/ota-lkg-current.json?ref=dev" --jq .content | base64 -d)"
           cmp -s <(printf '%s\n' "$CURRENT") "$POINTER" || {
             echo "::error::稳定指针已变化，禁止发布过时版本"; exit 1;
           }
-          gh release edit "$TAG" --draft=false --latest=false
-          [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == false ]]
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -f make_latest=false > "$WORK/published.json"
+          jq -e --arg t "$TAG" --argjson id "$RELEASE_ID" \
+            '.id==$id and .tag_name==$t and .draft==false' "$WORK/published.json" >/dev/null
           echo "OTA_LKG_ARCHIVE_REPAIR=PASS $TAG" >> "$GITHUB_STEP_SUMMARY"
