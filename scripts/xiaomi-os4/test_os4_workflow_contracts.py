@@ -38,7 +38,10 @@ class WorkflowContracts(unittest.TestCase):
         self.assertIn("check-ota-feature-abi.py", source)
         self.assertIn("ccache-ota-*", source)
         self.assertIn("ota-custom-output/", source)
-        self.assertIn("XIAOMI_AK3_MODE=ota-custom", source)
+        self.assertIn('AK3_MODE="ota-custom"', source)
+        self.assertIn('AK3_MODE="ota-compat-custom"', source)
+        self.assertIn("persistent_compat_enabled", source)
+        self.assertIn("CUSTOM_UNVERIFIED", source)
 
     def test_new_ota_artifact_never_advertised_as_lkg(self):
         source = self.read("xiaomi-sm8850-os4-custom.yml")
