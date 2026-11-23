@@ -1,0 +1,110 @@
+name: "pandora OS4.0.6 runtime-selected OEM gate (one-off)"
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/pandora-406-runtime-selected-oem-gate-once.yml"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-module-selection.json"
+      - "scripts/xiaomi-os4/check-ota-oem-abi.py"
+      - "scripts/xiaomi-os4/test_runtime_selected_oem_gate.py"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-os406-runtime-selected-gate:
+    name: "真实 OS4.0.6 stock + #37 feature / 运行时选择 OEM ABI"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "安装只读审计依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd lz4 jq
+          python3 -m py_compile \
+            scripts/xiaomi-os4/check-ota-oem-abi.py \
+            scripts/xiaomi-os4/test_runtime_selected_oem_gate.py
+          python3 scripts/xiaomi-os4/test_runtime_selected_oem_gate.py -v
+
+      - name: "下载固定 stock、纯 GKI 来源记录与标准工作流 #37 Artifact"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/baseline" "$RUNNER_TEMP/feature"
+          gh release download pandora-os4-stock-input \
+            --repo "$GITHUB_REPOSITORY" --pattern '*xm.zip' --dir "$RUNNER_TEMP/stock"
+          gh release download pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'build-metadata.txt' --pattern 'gki-candidate.json' \
+            --pattern 'stock-report.json' --dir "$RUNNER_TEMP/baseline"
+          gh run download 45047763911 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-45047763911 \
+            --dir "$RUNNER_TEMP/feature"
+
+          mapfile -t STOCKS < <(find "$RUNNER_TEMP/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          [[ "${#STOCKS[@]}" -eq 1 ]]
+          [[ "$(sha256sum "${STOCKS[0]}" | awk '{print $1}')" == "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8" ]]
+          [[ "$(sha256sum "$RUNNER_TEMP/feature/Image" | awk '{print $1}')" == "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0" ]]
+          [[ "$(sha256sum "$RUNNER_TEMP/feature/Module.symvers" | awk '{print $1}')" == "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e" ]]
+          echo "STOCK_ZIP=${STOCKS[0]}" >> "$GITHUB_ENV"
+
+      - name: "重建真实运行时模块依赖图并要求 71/27 归零"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$STOCK_ZIP" \
+            --stock-report "$RUNNER_TEMP/baseline/stock-report.json" \
+            --candidate-report "$RUNNER_TEMP/baseline/gki-candidate.json" \
+            --metadata "$RUNNER_TEMP/baseline/build-metadata.txt" \
+            --symvers "$RUNNER_TEMP/feature/Module.symvers" \
+            --runtime-selection .github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-module-selection.json \
+            --feature-image "$RUNNER_TEMP/feature/Image" \
+            --feature-abi-report "$RUNNER_TEMP/feature/ota-custom-abi-report.json" \
+            --feature-metadata "$RUNNER_TEMP/feature/build-metadata.txt" \
+            --output "$RUNNER_TEMP/runtime-selected-oem-abi.json"
+
+          R="$RUNNER_TEMP/runtime-selected-oem-abi.json"
+          jq -e '
+            .gate == "CRC_VERMAGIC_AND_RUNTIME_SELECTION_MATCH_CANDIDATE" and
+            .formal_oem_gate == "PASS_RUNTIME_SELECTED_EXACT_OS406" and
+            .eligible_for_fastboot_boot == true and
+            .eligible_for_persistent_kernel_payload == false and
+            (.failed_modules | length) == 0 and
+            (.crc_mismatches | length) == 0 and
+            (.unresolved_kernel_imports | length) == 0 and
+            (.ambiguous_providers | length) == 0 and
+            .unresolved_rust_binder == 0 and
+            .ambiguous_same_crc == 0 and
+            .ambiguous_split_crc == 0 and
+            .runtime_selection_status == "APPLIED_FAIL_CLOSED" and
+            (.runtime_suppressed_modules | length) == 1 and
+            (.runtime_inactive_duplicate_modules | length) == 2
+          ' "$R" >/dev/null
+          echo "RUNTIME_SELECTED_OEM_GATE=PASS"
+          jq '{
+            gate, formal_oem_gate, imports_checked,
+            inventory_imports_before_runtime_selection,
+            unresolved: (.unresolved_kernel_imports|length),
+            ambiguous: (.ambiguous_providers|length),
+            runtime_selected_modules,
+            runtime_inactive_duplicate_modules,
+            runtime_suppressed_modules
+          }' "$R"
+
+      - name: "上传审计报告"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-runtime-selected-oem-gate
+          path: ${{ runner.temp }}/runtime-selected-oem-abi.json
+          if-no-files-found: error
+          retention-days: 30
