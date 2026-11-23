@@ -54,9 +54,18 @@ public final class DiagnosisReviewEmulatorTest {
                     .put("lkg_promotion",false);
             ByteArrayOutputStream buffer=new ByteArrayOutputStream();
             try(ZipOutputStream zip=new ZipOutputStream(buffer)){
-                for(String name:new String[]{"diagnostic-review.json","diagnostic-evidence.json"}){
+                JSONObject plan=new JSONObject().put("schema","pandora-ota-v2-recovery-plan-v1")
+                        .put("source_run_id",RUN).put("stock_build",BUILD)
+                        .put("stock_input_sha256",STOCK).put("evidence_sha256",SHA)
+                        .put("automatic_rebuild_authorized",false)
+                        .put("fastboot_boot_authorized",false).put("lkg_promotion_authorized",false)
+                        .put("actions",new JSONArray().put(
+                                new JSONObject().put("title","先核对 vendor_boot 提供者")));
+                for(String name:new String[]{"diagnostic-review.json","diagnostic-evidence.json",
+                        "diagnostic-recovery-plan.json"}){
                     zip.putNextEntry(new ZipEntry(name));
-                    zip.write((name.equals("diagnostic-review.json")?review.toString():"{}")
+                    zip.write((name.equals("diagnostic-review.json")?review.toString():
+                            name.equals("diagnostic-recovery-plan.json")?plan.toString():"{}")
                             .getBytes(StandardCharsets.UTF_8));
                     zip.closeEntry();
                 }
@@ -106,6 +115,7 @@ public final class DiagnosisReviewEmulatorTest {
         assertEquals("REVIEW_REQUIRED",state.state);
         assertEquals(REVIEW,state.runId);
         assertTrue(state.description.contains("ABI"));
+        assertTrue(state.description.contains("先核对 vendor_boot 提供者"));
         assertTrue(stub.paths.contains("actions/artifacts/444/zip"));
         stub.digest="f".repeat(64);
         try{client.latest(receipt,task());fail("Wrong upload proof accepted");}
