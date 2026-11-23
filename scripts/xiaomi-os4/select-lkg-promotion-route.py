@@ -89,6 +89,12 @@ def route(source_id: str, run: dict | None, artifacts: dict | None,
                 candidates.append("ota-compat-persistent")
                 continue
             fail("compatibility candidate lacks exact two-reboot persistent proof")
+        m_compat = re.fullmatch(r"pandora-OTA-COMPAT-CUSTOM-(OS[0-9]+\\.[0-9.]+[A-Z0-9]+)-run-([1-9][0-9]*)", name)
+        if m_compat and m_compat.group(1) == "OS4.0.6.0.XBLCNXM" and m_compat.group(2) == source_id:
+            if not has_ota_lkg:
+                fail("compat custom promotion requires a previously validated same-OTA LKG")
+            candidates.append("ota-compat-custom")
+            continue
         if name == f"pandora-OS4-R62-CUSTOM-run-{source_id}":
             candidates.append("legacy")
         m = re.fullmatch(r"pandora-OTA-CUSTOM-(OS[0-9]+\.[0-9.]+[A-Z0-9]+)-run-([1-9][0-9]*)", name)
