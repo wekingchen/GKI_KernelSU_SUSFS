@@ -28,7 +28,7 @@ public final class DiagnosisActivity extends Activity {
     private TextView taskInfo,readInfo,uploadInfo,scopeInfo;
     private Button loadButton,readButton,previewButton,submitButton,retryButton,releaseButton;
     private CheckBox reviewed;
-    private boolean busy;
+    private boolean busy,previewed;
     private String errorText="";
 
     @Override public void onCreate(Bundle state) {
@@ -105,7 +105,10 @@ public final class DiagnosisActivity extends Activity {
                 boolean changed=currentTask==null||currentTask.run!=task.run||
                         !currentTask.stockSha.equals(task.stockSha)||!currentTask.head.equals(task.head);
                 currentTask=task;
-                if(changed){evidence=null;receipt=null;reviewed.setChecked(false);}
+                if(changed){
+                    evidence=null;receipt=null;previewed=false;reviewed.setChecked(false);
+                    restoreSession(task);
+                }
                 taskInfo.setText(task.plainSummary()+"\n\n"+task.build+
                         "\n此次 GitHub 已确认有 "+task.issues.size()+" 类问题，需要 "+task.checks.size()+" 类只读检查。\n"+
                         "不会重新采集原始 boot 或 OEM 模块，也不会执行 GitHub 下发的命令。");
@@ -114,7 +117,11 @@ public final class DiagnosisActivity extends Activity {
                         task.checks.contains("binder_runtime")?
                         "仅检查 Binder 活动实现、Rust Binder 模块和相关启动参数是否存在。" :
                         "仅检查已加载模块及其 GNU Note 指纹，保持 vendor/system 来源严格区分。");
-                readInfo.setText("尚未采集");uploadInfo.setText("尚未提交");
+                readInfo.setText(evidence==null?"尚未采集":
+                        "已恢复本机保存的只读报告；提交前请再次预览。");
+                uploadInfo.setText(receipt==null?"尚未提交":receipt.dispatched?
+                        "GitHub 已确认附件并收到审核通知。请查看核验记录，仍不代表 ABI 通过。":
+                        "GitHub 草稿附件已保存；审核通知尚未确认，点击下方重新通知。");
                 renderControls();
             });
             return "已核验诊断来源";
@@ -127,7 +134,8 @@ public final class DiagnosisActivity extends Activity {
             JSONObject data=DiagnosisCollector.capture(task);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed()||currentTask!=task)return;
-                evidence=data;receipt=null;reviewed.setChecked(false);
+                evidence=data;receipt=null;previewed=false;reviewed.setChecked(false);
+                saveSession();
                 boolean partial="PARTIAL_READ_ONLY".equals(data.optString("status"));
                 readInfo.setText(partial?
                         "已取得部分信息；Root/模块指纹可能受限。仍可预览并作为不完整证据提交，但不能判定通过。" :
@@ -163,7 +171,11 @@ public final class DiagnosisActivity extends Activity {
             }
             summary.append("\n\n说明：此页没有完整 cmdline、模块地址或系统日志；仅提交这些结构化状态。");
             new AlertDialog.Builder(this).setTitle("只读报告预览")
-                    .setMessage(summary.toString()).setPositiveButton("确认",null).show();
+                    .setMessage(summary.toString())
+                    .setNegativeButton("继续检查",null)
+                    .setPositiveButton("已阅读报告",(dialog,button)->{
+                        previewed=true;renderControls();
+                    }).show();
         }catch(Exception e){readInfo.setText("无法预览：请重新只读采集");}
     }
     private void confirmUpload(){
@@ -187,7 +199,7 @@ public final class DiagnosisActivity extends Activity {
             DiagnosisUploader.Receipt r=new DiagnosisUploader(secrets.repo(),pat).upload(data);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed()||currentTask!=selected)return;
-                receipt=r;
+                receipt=r;saveSession();
                 uploadInfo.setText(r.dispatched?
                         "GitHub 已确认附件并通知审核。\n状态：等待只读审核；这不是 ABI 通过。" :
                         "GitHub 已确认草稿附件，但通知审核失败或结果未知。\n请使用下方「重新通知」，不要再次上传。");
@@ -205,6 +217,7 @@ public final class DiagnosisActivity extends Activity {
                 if(isFinishing()||isDestroyed()||receipt!=r)return;
                 receipt=new DiagnosisUploader.Receipt(r.releaseId,r.assetId,r.sourceRun,
                         r.sha,r.releaseUrl,r.tag,true);
+                saveSession();
                 uploadInfo.setText("审核工作流已收到通知。\n请在 GitHub 查看审核结果；仍不代表 ABI 已通过。");
                 renderControls();
             });
@@ -242,12 +255,61 @@ public final class DiagnosisActivity extends Activity {
         loadButton.setEnabled(!busy);
         readButton.setEnabled(!busy&&currentTask!=null&&receipt==null);
         previewButton.setEnabled(!busy&&evidence!=null);
-        submitButton.setEnabled(!busy&&currentTask!=null&&evidence!=null&&reviewed.isChecked()&&receipt==null);
+        reviewed.setEnabled(!busy&&evidence!=null&&previewed&&receipt==null);
+        submitButton.setEnabled(!busy&&currentTask!=null&&evidence!=null&&previewed&&reviewed.isChecked()&&receipt==null);
         retryButton.setVisibility(receipt!=null&&!receipt.dispatched?View.VISIBLE:View.GONE);
         retryButton.setEnabled(!busy);
         releaseButton.setVisibility(receipt!=null?View.VISIBLE:View.GONE);
         releaseButton.setEnabled(!busy);
     }
+    /** Only persist already-redacted evidence. Never save GitHub PAT or raw device logs. */
+    private void saveSession(){
+        try{
+            if(currentTask==null)return;
+            JSONObject state=new JSONObject().put("run",currentTask.run).put("build",currentTask.build)
+                    .put("head",currentTask.head).put("stock_sha",currentTask.stockSha)
+                    .put("evidence",evidence==null?JSONObject.NULL:evidence);
+            if(receipt!=null){
+                state.put("receipt",new JSONObject().put("release_id",receipt.releaseId)
+                        .put("asset_id",receipt.assetId).put("source_run",receipt.sourceRun)
+                        .put("sha",receipt.sha).put("tag",receipt.tag)
+                        .put("dispatched",receipt.dispatched));
+            }
+            getSharedPreferences("diagnostic_local",MODE_PRIVATE).edit()
+                    .putString("current",state.toString()).apply();
+        }catch(Exception ignored){/* Never override a verified task on storage failure. */}
+    }
+    private void restoreSession(DiagnosisClient.Task task){
+        try{
+            String raw=getSharedPreferences("diagnostic_local",MODE_PRIVATE).getString("current","");
+            if(raw.length()>45000)return;
+            JSONObject state=new JSONObject(raw);
+            if(state.optLong("run")!=task.run||!task.build.equals(state.optString("build"))
+                    ||!task.head.equals(state.optString("head"))
+                    ||!task.stockSha.equals(state.optString("stock_sha")))return;
+            JSONObject data=state.optJSONObject("evidence");
+            if(data!=null&&DiagnosisCollector.SCHEMA.equals(data.optString("schema"))
+                    &&data.optLong("source_run_id")==task.run
+                    &&task.stockSha.equals(data.optString("stock_input_sha256"))
+                    &&task.build.equals(data.optString("stock_build"))
+                    &&data.optBoolean("device_write_allowed",true)==false
+                    &&data.optBoolean("safe_to_flash",true)==false
+                    &&data.optBoolean("lkg_promotion",true)==false
+                    &&data.optJSONArray("checks")!=null&&data.getJSONArray("checks").toString()
+                            .equals(new JSONArray(task.checks).toString()))evidence=data;
+            JSONObject item=state.optJSONObject("receipt");
+            if(item!=null&&evidence!=null){
+                String tag=item.optString("tag"),sha=item.optString("sha");
+                if(item.optLong("source_run")==task.run&&item.optLong("release_id")>0
+                        &&item.optLong("asset_id")>0&&sha.matches("[a-f0-9]{64}")
+                        &&tag.matches("pandora-ota-diagnostic-"+task.run+"-[a-f0-9]{32}")){
+                    receipt=new DiagnosisUploader.Receipt(item.getLong("release_id"),item.getLong("asset_id"),
+                            task.run,sha,"",tag,item.optBoolean("dispatched"));
+                }
+            }
+        }catch(Exception ignored){/* Corrupt old drafts cannot become valid task evidence. */}
+    }
+
     private LinearLayout column(){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);return c;}
     private LinearLayout card(LinearLayout parent,String title,String sub){
         LinearLayout card=column();card.setPadding(dp(18),dp(17),dp(18),dp(18));
