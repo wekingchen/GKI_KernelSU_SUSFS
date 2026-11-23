@@ -62,5 +62,16 @@
   "gate_scope": "EXACT_OS406_EEXIST_RUNTIME_SELECTED_MODULE_GRAPH",
   "safe_to_flash": false,
   "persistent_install_verified": false,
-  "lkg_promotion": false
+  "lkg_promotion": false,
+  "equivalent_provider_overlaps": [
+    {
+      "consumer": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/net/9p/9pnet.ko",
+      "symbol": "netfs_write_subrequest_terminated",
+      "expected_crc": "0xce8adb59",
+      "vmlinux_crc": "0xce8adb59",
+      "oem_provider": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/fs/netfs/netfs.ko",
+      "oem_provider_crc": "0xce8adb59",
+      "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH"
+    }
+  ]
 }
