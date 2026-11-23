@@ -36,13 +36,13 @@ bash scripts/xiaomi-os4/verify-lkg-release.sh pandora-os4-lkg-gen4 ./gen4-downlo
 
 ## 复现与晋升的两条内部路线
 
-用户只有一个[将自定义构建晋升为 LKG](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)入口，必须确认原 Run 已启动、已持久安装且选用功能正常。
+你平时只用一个[晋升真机稳定内核为 LKG](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)入口，必须确认原 Run 已启动、已持久安装且选用功能正常。
 
 | 来源 | 后端行为 |
 | --- | --- |
-| 当前 R62 支持的构建 | 晋升后由 `xiaomi-sm8850-os4-lkg.yml` 复现，再由 `xiaomi-sm8850-os4-archive-lkg-release.yml` 下载核验并长期归档；它们是自动接力组件，不能因没有新 OTA 就删除 |
+| 历史 R62 路线（保留兼容） | 以前的 R62 晋升由 `xiaomi-sm8850-os4-lkg.yml` 复现，再由 `xiaomi-sm8850-os4-archive-lkg-release.yml` 归档。**当前 Gen7 已生效，不是让你重新启动旧 R62 晋升的入口** |
 | 已验证的新 OTA 功能版 | 同一晋升工作流内检出来源 Git SHA、锁定组件重编，严格比较配置/symvers/归一化 Image，先核验完整草稿资产，再晋升指针并公开该代 Release |
 
 历史 R62 Gen4 的复现与归档已实际成功；新 OTA OS4.0.6 的版本化路线已通过 Gen5/6/7 的实际操作，不能据此推出下次 OTA 也会自动兼容。
 
-若新 OTA 指针已经合并，但最后公开草稿失败，使用同一晋升入口的 `repair_draft_release`，核对当前代指针、来源和完整资产 SHA 后仅修复公开，不再次晋升、不生成新代次。详见[跨 OTA 交易与恢复](xiaomi-17-pro-os4-cross-ota-lkg.md)。
+若新版 LKG 指针已经合并，但最后公布草稿失败，才使用同一晋升入口的 `repair_draft_release`（草稿补发修复），核对当前代指针、来源和完整资产 SHA 后仅修复公开，不再次晋升、不生成新代次。详见[跨 OTA 交易与恢复](xiaomi-17-pro-os4-cross-ota-lkg.md)。
