@@ -92,3 +92,62 @@
 - 需要执行多条 Android shell 检查时，由 CMD 将完整 POSIX shell 脚本通过 ADB stdin 传给单次 Root shell；用户只需运行一个 `.cmd`。
 - 交付前必须先检查 CMD 编码/换行、远端 Shell 语法（dash / BusyBox ash）、文件完整性和只读边界；静态检查不得冒称真机端到端通过。
 - 任何会修改设备状态的操作必须单独标明，不能混入只读采集器。
+
+
+## 2026-11-23：标准自定义工作流 #37 真机临时启动通过
+
+本次不再使用一次性实验 workflow，而是直接验证已经恢复到 `dev` 的标准：
+
+`小米17 Pro OS4 / 自定义内核`
+
+Run：
+
+- run number：`#37`
+- run id：`45047763911`
+- artifact id：`14764239826`
+- artifact：`pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-45047763911`
+- Image SHA-256：`3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0`
+- Module.symvers SHA-256：`e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e`
+- FASTBOOT-BOOT-ONLY SHA-256：`230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27`
+- boot size：`44,404,736` bytes
+- boot-v4 audit：`PASS`
+- ABI preservation：18,798 baseline exports preserved，86 new exports，0 missing / CRC-changed
+
+用户通过 `fastboot boot` 进入 Android 后，手工 CMD 直接观察到：
+
+- `sys.boot_completed=1`
+- `uname -r=6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`
+- `su -c id` 返回 `uid=0(root)`，SELinux context `u:r:ksu:s0`
+- Binder `impl=c`
+- Binder `active_impl=c`
+- active LSM 含 `baseband_guard`
+- `/proc/modules` 中无 `rust_binder`
+- `/proc/modules` 中无 `kernelsu` LKM
+- `node_cache` / `zram` / `zsmalloc` 均正常加载
+
+因此，**标准 OS4 自定义编译 -> nonflash boot-v4 打包 -> 真机 fastboot boot -> Android 完整启动** 这条路线已闭环验证。
+
+### 与上一轮全功能候选的组件差异
+
+#37 解析的组件：
+
+- BakaSU：`2734e0bc155759955880f5fb99be640fc5b92156`
+- SUSFS：`9b0b13f069673b9b07b713a5c66977de4d62b175`
+- NoMount：`dcd77d03e9912f397a586d7da81694d1628f170e`
+- DroidSpaces：`cdadb9eb5d0f86aacffff60776333e6f6b73a30a`
+- NTSync：`dc0f76bedd790b7738e5695509297ee71ca4a2c2`
+- BBG：`d4f7302190b83246266598eb5d59c6b36fa22bdc`
+- Re-Kernel：`e67cd94c524c27503cb340f8bbab594eca95dbef`
+
+相较此前真机全功能审计，主要变化是 BakaSU 提交更新；SUSFS、NoMount、DroidSpaces、NTSync、BBG、Re-Kernel 均保持相同锁定提交。此次 `uid=0` 结果因此也为新 BakaSU 集成提供了基本真机运行证据。
+
+### 仍然没有解除的边界
+
+- formal OEM ABI gate：`BLOCKED`
+- 71 个 OEM Rust Binder unresolved imports：仍未解决
+- 27 个 zsmalloc provider ambiguity：仍未解决
+- AnyKernel3：不生成
+- 持久刷写：禁止
+- LKG 晋升：禁止
+
+本轮结论是：**标准 OS4 自定义编译和临时启动路线已经恢复并经真机验证；不是正式持久安装路线已经恢复。**
