@@ -127,6 +127,89 @@ class CrossOTALKGTest(unittest.TestCase):
         self.assertEqual(m["anykernel_sha256"], MOD.sha(self.zip))
         self.assertFalse(m["full_parity_lkg_promoted"])
 
+    def make_compat_persistent(self):
+        self.rec.update(
+            schema=2,
+            status="HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED",
+            next_stage="READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH",
+            persistent_flash=False,
+            compatibility_kind="PANDORA_RUST_BINDER_EEXIST_SHIM",
+            compatibility_parameter="pandora_rust_binder_eexist=1",
+            compatibility_image_sha256="1" * 64,
+            compatibility_boot_sha256="2" * 64,
+        )
+        self.fix.update(
+            tested_boot_sha256="2" * 64,
+            baseline_kernel_sha256="1" * 64,
+            compatibility_kind="PANDORA_RUST_BINDER_EEXIST_SHIM",
+        )
+        self.abi["compatibility_baseline"] = True
+
+        self.zip.unlink()
+        self.zip = self.source / "Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip"
+        with zipfile.ZipFile(self.zip, "w") as z:
+            z.writestr("Image", IMAGE)
+            z.writestr("anykernel.sh", "ui_print accepted")
+        persistent = {
+            "status":"PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY",
+            "actual_persistent_install_verified":True,
+            "lkg_promotion":True,
+            "feature_workflow_run_id":int(RUN),
+            "feature_image_sha256":sha(IMAGE),
+            "package_sha256":MOD.sha(self.zip),
+        }
+        runtime = {
+            "status":"PASS_RUNTIME_SELECTED_EXACT_OS406",
+            "feature_workflow_run_id":int(RUN),
+            "feature_image_sha256":sha(IMAGE),
+            "unresolved_kernel_imports":0,
+            "ambiguous_providers":0,
+            "crc_mismatches":0,
+            "failed_modules":0,
+            "actual_persistent_install_verified":True,
+            "lkg_promotion":True,
+        }
+        persistent_boot = {
+            "status":"PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37",
+            "feature_workflow_run_id":int(RUN),
+            "feature_image_sha256":sha(IMAGE),
+            "actual_persistent_install_verified":True,
+            "lkg_promotion":True,
+        }
+        for name,obj in (
+            ("persistent-candidate.json",persistent),
+            ("runtime-selected-oem-gate.json",runtime),
+            ("persistent-boot-equivalence.json",persistent_boot),
+        ):
+            (self.source/name).write_text(json.dumps(obj))
+        self.write()
+
+    def test_compat_persistent_source_requires_two_reboot_and_runtime_gate(self):
+        self.make_compat_persistent()
+        m=self.identify()
+        self.assertEqual(m["kind"],"PANDORA_OS4_OTA_COMPAT_PERSISTENT_SOURCE")
+        self.assertTrue(m["persistent_compatibility_source"])
+        self.assertEqual(m["real_device_feature_test"],"TWO_PERSISTENT_REBOOTS_PASS")
+        self.assertEqual(m["anykernel_sha256"],MOD.sha(self.zip))
+
+    def test_compat_persistent_source_fails_if_persistence_is_revoked(self):
+        self.make_compat_persistent()
+        p=self.source/"persistent-candidate.json"
+        obj=json.loads(p.read_text())
+        obj["actual_persistent_install_verified"]=False
+        p.write_text(json.dumps(obj))
+        with self.assertRaises(ValueError):
+            self.identify()
+
+    def test_compat_persistent_source_fails_if_runtime_ambiguity_returns(self):
+        self.make_compat_persistent()
+        p=self.source/"runtime-selected-oem-gate.json"
+        obj=json.loads(p.read_text())
+        obj["ambiguous_providers"]=1
+        p.write_text(json.dumps(obj))
+        with self.assertRaises(ValueError):
+            self.identify()
+
     def test_inert_metadata_may_contain_timestamp_and_commas(self):
         self.assertEqual(MOD.env(self.source / "build-metadata.txt")["UPSTREAM_CHANGED_COMPONENTS"],
                          "BAKASU,SUSFS,NOMOUNT")
