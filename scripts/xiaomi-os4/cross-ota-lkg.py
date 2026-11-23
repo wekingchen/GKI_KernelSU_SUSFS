@@ -22,6 +22,8 @@ FLAGS = ("ROOT_MODE", "SUSFS_EXTRA_FEATURES", "USE_NOMOUNT", "DROIDSPACES_ENABLE
 FILES = ("Image", "Module.symvers", "final.config", "build-metadata.txt",
          "ota-custom-abi-report.json", "verified-baseline.json", "fixture.json",
          "locked-upstreams.env")
+PERSISTENT_FILES = ("persistent-candidate.json", "runtime-selected-oem-gate.json",
+                    "persistent-boot-equivalence.json")
 
 
 def fail(s):
@@ -72,27 +74,82 @@ def identify(folder, run_id, source_sha):
     build, release = rec.get("stock_build"), rec.get("kernel_release")
     required(isinstance(build, str) and BUILD.fullmatch(build), "bad OS build")
     required(isinstance(release, str) and RELEASE.fullmatch(release), "bad kernel release")
-    required(rec.get("device") == "pandora"
-             and rec.get("status") == "HUMAN_ATTESTED_BASELINE_BOOTED"
-             and rec.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION"
-             and rec.get("safe_to_flash") is False
-             and rec.get("full_parity_lkg_promoted") is False, "unverified OTA GKI base")
-    required(rec.get("observed_build") == build and rec.get("observed_uname") == release,
-             "GKI baseline human report mismatch")
-    required(fix.get("schema") == 2 and fix.get("safe_to_flash") is False
-             and fix.get("stock_build") == build
-             and fix.get("tested_boot_sha256") == rec.get("candidate_boot_sha256")
-             and fix.get("stock_input_sha256") == rec.get("stock_input_sha256")
-             and fix.get("baseline_kernel_sha256") == rec.get("candidate_image_sha256"),
-             "wrong same-OTA boot fixture")
-    required(abi.get("gate") == "PASS" and abi.get("safe_to_flash") is False
-             and abi.get("full_parity_lkg_promoted") is False
-             and abi.get("missing_or_crc_changed_total") == 0
-             and abi.get("build") == build and abi.get("kernel_release") == release
-             and abi.get("source_commit") == rec.get("candidate_gki_commit")
-             and abi.get("baseline_symvers_sha256") == rec.get("module_symvers_sha256")
-             and abi.get("feature_symvers_sha256") == sha(folder / "Module.symvers"),
-             "custom core ABI no longer matches OTA source")
+    compat = rec.get("status") == "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED"
+    if compat:
+        required(rec.get("schema") == 2 and rec.get("device") == "pandora"
+                 and rec.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH"
+                 and rec.get("safe_to_flash") is False
+                 and rec.get("persistent_flash") is False
+                 and rec.get("full_parity_lkg_promoted") is False,
+                 "unverified compatibility GKI base")
+        required(rec.get("observed_build") == build and rec.get("observed_uname") == release,
+                 "compatibility baseline human report mismatch")
+        required(rec.get("compatibility_kind") == "PANDORA_RUST_BINDER_EEXIST_SHIM"
+                 and rec.get("compatibility_parameter") == "pandora_rust_binder_eexist=1",
+                 "wrong compatibility baseline kind")
+        required(fix.get("schema") == 2 and fix.get("safe_to_flash") is False
+                 and fix.get("stock_build") == build
+                 and fix.get("tested_boot_sha256") == rec.get("compatibility_boot_sha256")
+                 and fix.get("stock_input_sha256") == rec.get("stock_input_sha256")
+                 and fix.get("baseline_kernel_sha256") == rec.get("compatibility_image_sha256")
+                 and fix.get("compatibility_kind") == rec.get("compatibility_kind"),
+                 "wrong compatibility boot fixture")
+        required(abi.get("gate") == "PASS" and abi.get("compatibility_baseline") is True
+                 and abi.get("safe_to_flash") is False
+                 and abi.get("full_parity_lkg_promoted") is False
+                 and abi.get("missing_or_crc_changed_total") == 0
+                 and abi.get("build") == build and abi.get("kernel_release") == release
+                 and abi.get("source_commit") == rec.get("candidate_gki_commit")
+                 and abi.get("baseline_symvers_sha256") == rec.get("module_symvers_sha256")
+                 and abi.get("feature_symvers_sha256") == sha(folder / "Module.symvers"),
+                 "compatibility custom core ABI no longer matches OTA source")
+        persistent = load(folder / "persistent-candidate.json")
+        runtime = load(folder / "runtime-selected-oem-gate.json")
+        persistent_boot = load(folder / "persistent-boot-equivalence.json")
+        required(persistent.get("status") == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
+                 and persistent.get("actual_persistent_install_verified") is True
+                 and persistent.get("lkg_promotion") is True
+                 and persistent.get("feature_workflow_run_id") == int(run_id)
+                 and persistent.get("feature_image_sha256") == sha(folder / "Image"),
+                 "persistent candidate lacks exact two-reboot proof")
+        required(runtime.get("status") == "PASS_RUNTIME_SELECTED_EXACT_OS406"
+                 and runtime.get("feature_workflow_run_id") == int(run_id)
+                 and runtime.get("feature_image_sha256") == sha(folder / "Image")
+                 and runtime.get("unresolved_kernel_imports") == 0
+                 and runtime.get("ambiguous_providers") == 0
+                 and runtime.get("crc_mismatches") == 0
+                 and runtime.get("failed_modules") == 0
+                 and runtime.get("actual_persistent_install_verified") is True
+                 and runtime.get("lkg_promotion") is True,
+                 "runtime-selected OEM gate is not persistent-LKG ready")
+        required(persistent_boot.get("status") == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
+                 and persistent_boot.get("feature_workflow_run_id") == int(run_id)
+                 and persistent_boot.get("feature_image_sha256") == sha(folder / "Image")
+                 and persistent_boot.get("actual_persistent_install_verified") is True
+                 and persistent_boot.get("lkg_promotion") is True,
+                 "persistent boot equivalence is not LKG ready")
+    else:
+        required(rec.get("device") == "pandora"
+                 and rec.get("status") == "HUMAN_ATTESTED_BASELINE_BOOTED"
+                 and rec.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION"
+                 and rec.get("safe_to_flash") is False
+                 and rec.get("full_parity_lkg_promoted") is False, "unverified OTA GKI base")
+        required(rec.get("observed_build") == build and rec.get("observed_uname") == release,
+                 "GKI baseline human report mismatch")
+        required(fix.get("schema") == 2 and fix.get("safe_to_flash") is False
+                 and fix.get("stock_build") == build
+                 and fix.get("tested_boot_sha256") == rec.get("candidate_boot_sha256")
+                 and fix.get("stock_input_sha256") == rec.get("stock_input_sha256")
+                 and fix.get("baseline_kernel_sha256") == rec.get("candidate_image_sha256"),
+                 "wrong same-OTA boot fixture")
+        required(abi.get("gate") == "PASS" and abi.get("safe_to_flash") is False
+                 and abi.get("full_parity_lkg_promoted") is False
+                 and abi.get("missing_or_crc_changed_total") == 0
+                 and abi.get("build") == build and abi.get("kernel_release") == release
+                 and abi.get("source_commit") == rec.get("candidate_gki_commit")
+                 and abi.get("baseline_symvers_sha256") == rec.get("module_symvers_sha256")
+                 and abi.get("feature_symvers_sha256") == sha(folder / "Module.symvers"),
+                 "custom core ABI no longer matches OTA source")
     for k, v in {
         "BUILD_KIND": "OTA_OS4_SELECTABLE_CUSTOM_UNVERIFIED",
         "NEW_OTA_MODE": "1", "SYSTEM_BUILD": build,
@@ -148,12 +205,20 @@ def identify(folder, run_id, source_sha):
     image = (folder / "Image").read_bytes()
     required(release.encode() in image, "compiled Image release marker absent")
     boots = list(folder.glob("*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"))
-    zips = list(folder.glob("*-UNVERIFIED-AnyKernel3.zip"))
+    zips = (list(folder.glob("*-PERSISTENT-CANDIDATE-AnyKernel3.zip")) if compat
+            else list(folder.glob("*-UNVERIFIED-AnyKernel3.zip")))
     required(len(boots) == len(zips) == 1, "must have exactly one boot and one AnyKernel3")
     boot, zipfile = boots[0], zips[0]
-    required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
-             and build in zipfile.name and f"run-{run_id}-" in zipfile.name,
-             "wrong build/run in package name")
+    if compat:
+        required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
+                 and zipfile.name == "Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip",
+                 "wrong persistent compatibility package identity")
+        required(sha(zipfile) == persistent.get("package_sha256"),
+                 "persistent AnyKernel3 hash differs from two-reboot evidence")
+    else:
+        required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
+                 and build in zipfile.name and f"run-{run_id}-" in zipfile.name,
+                 "wrong build/run in package name")
     import zipfile as z
     with z.ZipFile(zipfile) as archive:
         required(archive.testzip() is None, "AnyKernel3 archive CRC error")
@@ -169,16 +234,22 @@ def identify(folder, run_id, source_sha):
                "--expected-image-sha256", sha(folder / "Image"),
                "--expected-release", release, "--expected-build", build,
                "--expected-output-sha256", sha(boot)]
+        if compat:
+            cmd.append("--fastboot-boot-only-allow-growth")
         process = run(cmd, capture_output=True, text=True)
         required(process.returncode == 0,
                  "source boot cannot be reproduced from same-OTA fixture: " + process.stderr[-500:])
     hashes = {p.name: sha(p) for p in (folder / n for n in FILES)}
+    if compat:
+        for name in PERSISTENT_FILES:
+            hashes[name] = sha(folder / name)
     if (folder / "image-reproducibility.env").exists():
         hashes["image-reproducibility.env"] = sha(folder / "image-reproducibility.env")
     hashes[boot.name] = sha(boot)
     hashes[zipfile.name] = sha(zipfile)
     manifest = {
-        "schema": 1, "kind": "PANDORA_OS4_OTA_CUSTOM_SOURCE",
+        "schema": 1, "kind": ("PANDORA_OS4_OTA_COMPAT_PERSISTENT_SOURCE"
+                                if compat else "PANDORA_OS4_OTA_CUSTOM_SOURCE"),
         "source_run_id": int(run_id), "source_head_sha": source_sha,
         "device": "pandora", "stock_build": build, "kernel_release": release,
         "stock_release_asset_id": rec.get("stock_release_asset_id"),
@@ -192,7 +263,9 @@ def identify(folder, run_id, source_sha):
         "selections": {k: md[k] for k in FLAGS},
         "upstream_commits": {k: pins["RESOLVED_" + k + "_COMMIT"] for k in COMPONENTS},
         "upstream_refs": upstream_refs,
-        "real_device_feature_test": "NOT_ATTESTED_AT_BUILD_TIME",
+        "real_device_feature_test": ("TWO_PERSISTENT_REBOOTS_PASS"
+                                     if compat else "NOT_ATTESTED_AT_BUILD_TIME"),
+        "persistent_compatibility_source": compat,
         "full_parity_lkg_promoted": False,
     }
     return manifest
