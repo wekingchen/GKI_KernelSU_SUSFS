@@ -111,6 +111,42 @@ jobs:
           python3 scripts/xiaomi-os4/test_ota_lkg_recovery.py -v
           python3 scripts/xiaomi-os4/test_ota_lkg_draft_assets.py -v
 
+      - name: "真实 GitHub API 只读冒烟：草稿数字 ID 与二进制 SHA256"
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="pandora-os4-lkg-gen$(jq -er '.generation+1' .github/config/ota-lkg-current.json)"
+          BUILD="$(jq -er .stock_build .github/config/ota-lkg-current.json)"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/draft-list.json"
+          ID="$(jq -r --arg tag "$TAG" '[.[] | select(.tag_name==$tag and .draft==true)] |
+            if length==1 then .[0].id else empty end' "$RUNNER_TEMP/draft-list.json")"
+          if [[ -z "$ID" ]]; then
+            echo "No next-gen draft; live draft endpoint test not applicable"
+            exit 0
+          fi
+          [[ "$ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID" > "$RUNNER_TEMP/draft-by-id.json"
+          python3 scripts/xiaomi-os4/check-ota-lkg-draft-assets.py \
+            --release "$RUNNER_TEMP/draft-by-id.json" --tag "$TAG" --build "$BUILD" \
+            --output "$RUNNER_TEMP/draft-assets.tsv"
+          README_ID="$(jq -er '[.assets[] | select(.name=="README-RECOVERY.md")] |
+            if length==1 then .[0].id else error("missing README") end' "$RUNNER_TEMP/draft-by-id.json")"
+          README_SHA="$(jq -er '[.assets[] | select(.name=="README-RECOVERY.md")] |
+            if length==1 then .[0].digest | sub("^sha256:";"") else error("missing digest") end' "$RUNNER_TEMP/draft-by-id.json")"
+          README_SIZE="$(jq -er '[.assets[] | select(.name=="README-RECOVERY.md")] |
+            if length==1 then .[0].size else error("missing size") end' "$RUNNER_TEMP/draft-by-id.json")"
+          curl --fail --location --silent --show-error --retry 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/octet-stream" \
+            --output "$RUNNER_TEMP/README-RECOVERY.md" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$README_ID"
+          [[ "$(stat -c%s "$RUNNER_TEMP/README-RECOVERY.md")" == "$README_SIZE" ]] || exit 1
+          [[ "$(sha256sum "$RUNNER_TEMP/README-RECOVERY.md" | cut -d' ' -f1)" == "$README_SHA" ]] || exit 1
+          echo "DRAFT_RELEASE_ASSET_BINARY_BY_ID=PASS id=$ID"
+
       - name: "验证 compatibility 开发基线保持非刷机，同时 Gen 6 解锁持久自定义机制"
         shell: bash
         run: |
