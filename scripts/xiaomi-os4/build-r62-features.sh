@@ -997,4 +997,10 @@ zstd -T2 -q -6 -f "$OUT/vmlinux" -o "$RESULT/vmlinux.zst"
   echo "VMLINUX_SYMVERS_LINES=$(wc -l < "$RESULT/vmlinux.symvers")"
 } > "$RESULT/build-metadata.txt"
 cat "$RESULT/build-metadata.txt"
+# Report actual post-build cache reuse, not just the cold/warm start state.
+# Diagnostic-only: failure to print statistics must not invalidate an Image.
+if command -v ccache >/dev/null 2>&1; then
+  echo "[OS4] ccache stats after Image + modules build:"
+  ccache --show-stats | tee "$RESULT/ccache-after-build.txt" || true
+fi
 echo "[OS4] R62 feature Image/Symvers built; NOT flashable, no AnyKernel3."
