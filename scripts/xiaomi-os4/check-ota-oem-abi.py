@@ -438,6 +438,11 @@ def main() -> int:
         release = metadata.get("KERNEL_RELEASE", "")
         if not release or release != stock.get("uname"):
             raise ValueError("GKI candidate kernel release does not equal OEM module vermagic release")
+        runtime_selection = load_runtime_selection(a.runtime_selection)
+        if runtime_selection is not None:
+            validate_runtime_selection(
+                runtime_selection, stock, gki, a.symvers,
+                a.feature_image, a.feature_abi_report, a.feature_metadata)
         exports = symvers(a.symvers)
         if sha(a.stock_zip.read_bytes()) != stock.get("ota_source_id"):
             raise ValueError("stock zip bytes changed after initial audit")
@@ -502,9 +507,9 @@ def main() -> int:
                         report["stock_rust_binder_sha256"] = sha(data)
                         report["stock_rust_binder_scmversion"] = revision or "NOT_RECORDED"
                         report["stock_rust_binder_imports"] = len(imported)
-                    records.append((name, imported))
-                    for symbol, crc in provided.items():
-                        providers.setdefault(symbol, []).append((name, crc))
+                    identity = module_identity(name, data, sections)
+                    identity.update(imported=imported, provided=provided)
+                    records.append(identity)
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
             # The stock vendor_boot (same SHA-bound OTA archive) carries early
@@ -527,13 +532,83 @@ def main() -> int:
                         full_vermagic_modules += 1
                     imported = imported_versions(sections)
                     provided = module_export_crcs(data)
-                    records.append((name, imported))
+                    identity = module_identity(name, data, sections)
+                    identity.update(imported=imported, provided=provided)
+                    records.append(identity)
                     early_accepted_modules += 1
                     early_import_count += len(imported)
-                    for symbol, crc in provided.items():
-                        providers.setdefault(symbol, []).append((name, crc))
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
+            inventory_imports_before_runtime_selection = sum(len(x["imported"]) for x in records)
+            runtime_inactive_modules = []
+            runtime_suppressed_modules = []
+            runtime_selected_modules = {}
+            if runtime_selection is not None:
+                selected = runtime_selection["module_identity_evidence"]["selected_modules"]
+                suppressed = runtime_selection["suppressed_modules"]
+
+                for module_name, evidence in selected.items():
+                    matches = [x for x in records
+                               if x["module_name"] == module_name
+                               and x["sha256"] == evidence["module_sha256"]]
+                    if len(matches) != 1:
+                        raise ValueError("runtime-selected module binary not unique: " + module_name)
+                    match = matches[0]
+                    if match["note_sha256"] != evidence["runtime_note_sha256"]:
+                        raise ValueError("runtime-selected GNU Note mismatch: " + module_name)
+                    runtime_selected_modules[module_name] = {
+                        "path": match["path"],
+                        "sha256": match["sha256"],
+                        "note_sha256": match["note_sha256"],
+                    }
+
+                rust_evidence = suppressed["rust_binder"]
+                rust_matches = [x for x in records
+                                if x["module_name"] == "rust_binder"
+                                and x["sha256"] == rust_evidence["module_sha256"]]
+                if len(rust_matches) != 1:
+                    raise ValueError("attested rust_binder binary is not unique in OEM inventory")
+                if report.get("stock_rust_binder_sha256") != rust_evidence["module_sha256"]:
+                    raise ValueError("runtime rust_binder suppression binary differs from stock audit")
+
+                active = []
+                for record in records:
+                    module_name = record["module_name"]
+                    if module_name == "rust_binder":
+                        if record["sha256"] != rust_evidence["module_sha256"]:
+                            raise ValueError("unexpected second rust_binder binary in runtime graph")
+                        runtime_suppressed_modules.append({
+                            "path": record["path"],
+                            "module_name": module_name,
+                            "sha256": record["sha256"],
+                            "imports": len(record["imported"]),
+                            "reason": rust_evidence["mechanism"],
+                        })
+                        continue
+                    if module_name in selected:
+                        if record["sha256"] != selected[module_name]["module_sha256"]:
+                            runtime_inactive_modules.append({
+                                "path": record["path"],
+                                "module_name": module_name,
+                                "sha256": record["sha256"],
+                                "reason": "SAME_MODULE_NAME_DIFFERENT_BINARY_NOT_SELECTED_BY_RUNTIME_NOTE",
+                            })
+                            continue
+                    active.append(record)
+                records = active
+                report["runtime_selection_status"] = "APPLIED_FAIL_CLOSED"
+                report["runtime_selected_modules"] = runtime_selected_modules
+                report["runtime_inactive_duplicate_modules"] = runtime_inactive_modules
+                report["runtime_suppressed_modules"] = runtime_suppressed_modules
+                report["runtime_selection_scope"] = runtime_selection["gate_scope"]
+                report["runtime_selection_workflow_run_id"] = runtime_selection["standard_workflow"]["run_id"]
+                report["runtime_selection_feature_image_sha256"] = runtime_selection["standard_workflow"]["image_sha256"]
+
+            providers = {}
+            for record in records:
+                for symbol, crc in record["provided"].items():
+                    providers.setdefault(symbol, []).append((record["path"], crc))
+
             total_imports = 0
             core_imports = 0
             oem_imports = 0
@@ -542,7 +617,9 @@ def main() -> int:
             ambiguous_same_crc = 0
             ambiguous_split_crc = 0
             dependencies = {}
-            for name, imported in records:
+            for record in records:
+                name = record["path"]
+                imported = record["imported"]
                 total_imports += len(imported)
                 for symbol, expected_crc in imported.items():
                     candidates = providers.get(symbol, [])
@@ -606,6 +683,7 @@ def main() -> int:
         report.update(stock_build=stock["build"], stock_input_sha256=stock["ota_source_id"],
                       candidate_commit=gki["candidate_commit"], kernel_release=release,
                       module_count=len(files), imports_checked=total_imports,
+                      inventory_imports_before_runtime_selection=inventory_imports_before_runtime_selection,
                       vendor_boot_modules_seen=len(early_modules),
                       vendor_boot_modules_in_graph=early_accepted_modules,
                       vendor_boot_identical_dlkm_aliases=early_byte_identical_aliases,
@@ -620,8 +698,20 @@ def main() -> int:
                 or report["crc_mismatches"] or report["ambiguous_providers"]
                 or total_imports == 0 or core_imports == 0):
             raise ValueError("OEM .ko CRC/vermagic/provider graph has errors or unresolved imports")
-        report.update(gate="CRC_AND_VERMAGIC_MATCH_CANDIDATE", eligible_for_fastboot_boot=True,
-                      reason="Static module version CRC check passed; OEM boot still needs human fastboot boot and runtime validation")
+        if runtime_selection is not None:
+            report.update(
+                gate="CRC_VERMAGIC_AND_RUNTIME_SELECTION_MATCH_CANDIDATE",
+                eligible_for_fastboot_boot=True,
+                eligible_for_persistent_kernel_payload=False,
+                formal_oem_gate="PASS_RUNTIME_SELECTED_EXACT_OS406",
+                reason=("Static OEM CRC/vermagic graph passes after applying only the exact "
+                        "human-attested OS4.0.6 runtime module selection: C Binder replaces "
+                        "suppressed rust_binder, and GNU Note identity selects vendor "
+                        "node_cache/zram/zsmalloc. Persistent boot equivalence remains a separate gate."),
+            )
+        else:
+            report.update(gate="CRC_AND_VERMAGIC_MATCH_CANDIDATE", eligible_for_fastboot_boot=True,
+                          reason="Static module version CRC check passed; OEM boot still needs human fastboot boot and runtime validation")
     except Exception as exc:
         report["reason"] = str(exc)[:300]
         print("::warning::OTA OEM ABI gate BLOCKED: " + report["reason"])
