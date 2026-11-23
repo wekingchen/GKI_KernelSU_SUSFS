@@ -210,6 +210,97 @@ class CrossOTALKGTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.identify()
 
+    def make_compat_custom(self):
+        self.make_compat_persistent()
+        for name in MOD.PERSISTENT_FILES:
+            (self.source / name).unlink()
+        self.zip.unlink()
+        self.zip = self.source / (
+            f"Xiaomi17Pro-pandora-{BUILD}-COMPAT-CUSTOM-run-{RUN}-UNVERIFIED-AnyKernel3.zip"
+        )
+        with zipfile.ZipFile(self.zip, "w") as z:
+            z.writestr("Image", IMAGE)
+            z.writestr("anykernel.sh", "ui_print accepted")
+        self.meta["PANDORA_RUST_BINDER_EEXIST_SHIM"] = "1"
+        self.meta["COMPATIBILITY_BASELINE_KIND"] = "PANDORA_RUST_BINDER_EEXIST_SHIM"
+        previous = {
+            "schema": 1, "generation": 6,
+            "status": "USER_PROMOTED_OTA_LKG",
+            "attestation": "USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF",
+            "stock_build": BUILD, "kernel_release": RELEASE,
+            "gki_commit": "e" * 40, "source_run_id": 777,
+            "image_sha256": "0" * 64,
+            "reproduction": {"symvers_sha256": self.abi["feature_symvers_sha256"]},
+        }
+        record = self.root / ".github/config/ota-lkg-current.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps(previous))
+        (self.source / MOD.COMPAT_CUSTOM_PROOF).write_text(json.dumps(previous))
+        evidence = self.root / ".github/config/ota-verified" / BUILD
+        evidence.mkdir(parents=True, exist_ok=True)
+        (evidence / "persistent-candidate.json").write_text(json.dumps({
+            "status": "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY",
+            "feature_workflow_run_id": 777,
+            "feature_image_sha256": "0" * 64,
+            "actual_persistent_install_verified": True,
+            "lkg_promotion": True,
+        }))
+        (evidence / "runtime-selected-oem-gate.json").write_text(json.dumps({
+            "status": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+            "feature_workflow_run_id": 777,
+            "feature_image_sha256": "0" * 64,
+            "feature_module_symvers_sha256": self.abi["feature_symvers_sha256"],
+            "unresolved_kernel_imports": 0, "ambiguous_providers": 0,
+            "crc_mismatches": 0, "failed_modules": 0,
+        }))
+        (evidence / "persistent-boot-equivalence.json").write_text(json.dumps({
+            "status": "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37",
+            "feature_workflow_run_id": 777,
+            "feature_image_sha256": "0" * 64,
+        }))
+        self.write()
+
+    def test_compat_custom_has_independent_attested_source_and_trusted_anchor(self):
+        self.make_compat_custom()
+        with patch.object(MOD, "ROOT", self.root):
+            result = self.identify()
+        self.assertEqual(result["kind"], "PANDORA_OS4_OTA_COMPAT_CUSTOM_SOURCE")
+        self.assertTrue(result["compat_custom_promotion"])
+        self.assertFalse(result["persistent_compatibility_source"])
+        self.assertEqual(result["real_device_feature_test"], "USER_ATTESTED_AT_PROMOTION")
+        self.assertIn(MOD.COMPAT_CUSTOM_PROOF, result["files"])
+        self.assertEqual(result["anykernel_sha256"], MOD.sha(self.zip))
+
+    def test_compat_custom_rejects_untrusted_previous_lkg(self):
+        self.make_compat_custom()
+        p = self.source / MOD.COMPAT_CUSTOM_PROOF
+        obj = json.loads(p.read_text())
+        obj["source_run_id"] = 888
+        p.write_text(json.dumps(obj))
+        with patch.object(MOD, "ROOT", self.root), self.assertRaises(ValueError):
+            self.identify()
+
+    def test_compat_custom_rejects_oem_abi_drift(self):
+        self.make_compat_custom()
+        p = self.root / ".github/config/ota-verified" / BUILD / "runtime-selected-oem-gate.json"
+        obj = json.loads(p.read_text())
+        obj["feature_module_symvers_sha256"] = "1" * 64
+        p.write_text(json.dumps(obj))
+        with patch.object(MOD, "ROOT", self.root), self.assertRaises(ValueError):
+            self.identify()
+
+    def test_compat_custom_rejects_missing_eexist_shim(self):
+        self.make_compat_custom()
+        self.meta["PANDORA_RUST_BINDER_EEXIST_SHIM"] = "0"
+        with patch.object(MOD, "ROOT", self.root), self.assertRaises(ValueError):
+            self.identify()
+
+    def test_compat_custom_rejects_relabelled_legacy_package(self):
+        self.make_compat_custom()
+        self.zip.rename(self.source / f"Xiaomi17Pro-pandora-{BUILD}-CUSTOM-run-{RUN}-UNVERIFIED-AnyKernel3.zip")
+        with patch.object(MOD, "ROOT", self.root), self.assertRaises(ValueError):
+            self.identify()
+
     def test_inert_metadata_may_contain_timestamp_and_commas(self):
         self.assertEqual(MOD.env(self.source / "build-metadata.txt")["UPSTREAM_CHANGED_COMPONENTS"],
                          "BAKASU,SUSFS,NOMOUNT")
