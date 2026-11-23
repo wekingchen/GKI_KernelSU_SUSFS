@@ -18,6 +18,8 @@ on:
       - "scripts/xiaomi-os4/check-ota-feature-abi.py"
       - "scripts/xiaomi-os4/check-ota-oem-abi.py"
       - "scripts/xiaomi-os4/test_runtime_selected_oem_gate.py"
+      - "scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py"
+      - "scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py"
       - "scripts/xiaomi-os4/select-lkg-promotion-route.py"
       - "scripts/xiaomi-os4/test_ota_development_switch.py"
       - "scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py"
@@ -49,6 +51,8 @@ jobs:
             scripts/xiaomi-os4/check-ota-feature-abi.py \
             scripts/xiaomi-os4/check-ota-oem-abi.py \
             scripts/xiaomi-os4/test_runtime_selected_oem_gate.py \
+            scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py \
+            scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py \
             scripts/xiaomi-os4/select-lkg-promotion-route.py
           ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
             .github/workflows/xiaomi-sm8850-os4-custom.yml
@@ -61,6 +65,7 @@ jobs:
           python3 scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py -v
           python3 scripts/xiaomi-os4/test_repack_fastboot_boot_v4_growth.py -v
           python3 scripts/xiaomi-os4/test_runtime_selected_oem_gate.py -v
+          python3 scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py -v
           python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
 
       - name: "验证正式 pointer 指向唯一的 nonflash compatibility baseline"
