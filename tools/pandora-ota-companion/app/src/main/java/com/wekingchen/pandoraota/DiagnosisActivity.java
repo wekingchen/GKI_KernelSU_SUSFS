@@ -161,7 +161,10 @@ public final class DiagnosisActivity extends Activity {
             if(binder!=null)summary.append("\n\nBinder：")
                     .append(binder.optString("impl","UNKNOWN")).append(" / ")
                     .append(binder.optString("active_impl","UNKNOWN"))
-                    .append("\nRust Binder 是否加载：").append(binder.isNull("rust_binder_loaded")?"未取得":binder.optBoolean("rust_binder_loaded")?"是":"否");
+                    .append("\nRust Binder 是否加载：").append(humanBool(binder,"rust_binder_loaded"))
+                    .append("\nKernelSU LKM 是否加载：").append(humanBool(binder,"kernelsu_lkm_loaded"))
+                    .append("\n启动参数是否屏蔽 KernelSU LKM：").append(humanBool(binder,"module_blacklist_kernelsu"))
+                    .append("\nEEXIST 兼容参数是否启用：").append(humanBool(binder,"eexist_parameter"));
             JSONObject modules=obs.optJSONObject("loaded_module_identity");
             if(modules!=null)for(String name:new String[]{"node_cache","zram","zsmalloc"}){
                 JSONObject item=modules.optJSONObject(name);
@@ -169,7 +172,11 @@ public final class DiagnosisActivity extends Activity {
                         .append(item.isNull("loaded")?"未取得":item.optBoolean("loaded")?"已加载":"未加载")
                         .append("；Note ").append(item.isNull("gnu_note_sha256")?"未取得":item.optString("gnu_note_sha256"));
             }
-            summary.append("\n\n说明：此页没有完整 cmdline、模块地址或系统日志；仅提交这些结构化状态。");
+            summary.append("\n\n来源提交：").append(evidence.optString("source_head_sha"))
+                    .append("\nOTA 输入 SHA：").append(evidence.optString("stock_input_sha256"))
+                    .append("\nGKI 提交：").append(evidence.optString("candidate_commit"))
+                    .append("\n采集时间戳：").append(evidence.optLong("captured_at_ms"))
+                    .append("\n\n说明：此页未收集完整 cmdline、模块地址或系统日志；上传的字段就是这些结构化状态和来源身份。");
             new AlertDialog.Builder(this).setTitle("只读报告预览")
                     .setMessage(summary.toString())
                     .setNegativeButton("继续检查",null)
@@ -177,6 +184,9 @@ public final class DiagnosisActivity extends Activity {
                         previewed=true;renderControls();
                     }).show();
         }catch(Exception e){readInfo.setText("无法预览：请重新只读采集");}
+    }
+    private String humanBool(JSONObject source,String key){
+        return source.isNull(key)||!source.has(key)?"未取得":source.optBoolean(key)?"是":"否";
     }
     private void confirmUpload(){
         if(currentTask==null||evidence==null||!reviewed.isChecked()||receipt!=null||busy)return;
