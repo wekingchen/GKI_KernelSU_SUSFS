@@ -1,6 +1,6 @@
 # 小米 17 Pro OS4：OTA、手机采集与真机反馈操作指南
 
-核对日期：2026-11-15（D02 软件修订实机采集、上传与 GitHub 回执均已验收）。适用 pandora；[当前状态](pandora-os4-guide.md)以机器可读指针和真实记录为准。当前稳定快照为 OS4.0.5.0.XBLCNXM / R62 Gen 4。
+核对日期：2026-11-23（OS4.0.6 Gen 6 真机闭环已完成）。适用 pandora；[当前状态](pandora-os4-guide.md)以机器可读指针和真实记录为准。当前稳定快照为 **OS4.0.6.0.XBLCNXM / Gen 6**。
 
 ## 一、先判断是否需要重新采集
 
@@ -98,7 +98,7 @@ adb shell cat /proc/modules
 
 Windows 10/11 可运行仓库最新 [`collect-pandora-stock-input.cmd`](../scripts/xiaomi-os4/collect-pandora-stock-input.cmd)，需要 adb、PowerShell、tar 和手机 Root；完整导出四分区、OEM 模块/数量清单、README、SHA256SUMS 后生成 xm.zip。模块数量或字节流出错即停止，不上传残包。
 
-人工更新固定 Release 前，必须完整备份旧附件并核验新输入；不能先删除唯一恢复输入，再验证新 ZIP。只更换附件未必触发 edited，可等北京时间 04:41 每日补查，或手动运行 OTA 主流程。**D02 软件修订**的手机采集与审核已经实机验证；真正更换 HyperOS Build / 内核的 OTA 自动候选、ABI、临时启动与固化仍待实物验证。
+人工更新固定 Release 前，必须完整备份旧附件并核验新输入；不能先删除唯一恢复输入，再验证新 ZIP。只更换附件未必触发 edited，可等北京时间 04:41 每日补查，或手动运行 OTA 主流程。**D02 软件修订**的手机采集与审核已经实机验证；真正跨 Build 的 **OS4.0.6** 也已完成 GKI/ABI 调查、临时启动、持久安装与 Gen 6 晋升。未来不同 OTA 仍需要独立验证，不得自动复用本轮版本特定兼容放行。
 
 ## 八、恢复与验证边界
 
@@ -108,4 +108,4 @@ Windows 10/11 可运行仓库最新 [`collect-pandora-stock-input.cmd`](../scrip
 
 软件更新页面的 `.D02` 标记不保证 `ro.mi.os.version.incremental` 含相同后缀。验收需要真实的 getprop、fingerprint 与 slot；`REVIEW_REQUIRED` 不能解读为内核不变、ABI 通过或新 LKG。
 
-当前 Gen 4 和旧 Gen 3 Release 只适用于各自已记录的系统，不是跨版本恢复包。下载并核验方式见 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md)。App 既有采集/上传/本地删除已真机验证，新增预检、状态轮询和反馈表单已通过模拟器/契约；不能因此宣称另一版真实 OTA 已端到端成功。
+当前 Gen 6、历史 Gen 5/Gen 4 Release 都只适用于各自记录的内核与系统输入，不是跨版本恢复包。下载并核验方式见 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md)。App 既有采集/上传/本地删除已真机验证，新增预检、状态轮询和反馈表单已通过模拟器/契约；不能因此宣称另一版真实 OTA 已端到端成功。
