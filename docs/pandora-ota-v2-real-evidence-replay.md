@@ -62,6 +62,12 @@ ota-abi-report.json 生成 ota-v2-diagnostic.json 和 ota-v2-diagnostic.md。
 完整 stock/GKI 归档**执行并与历史固定参考比对。
 回放成功仅意味着重现旧的 BLOCKED，不代表为任意新 OTA 建立兼容证书。
 
+## 第三阶段：来源绑定的可选只读手机诊断补采
+
+当正式 OEM checker 报告可定位的 ABI 阻断时，OTA 候选工作流追加生成 `ota-v2-diagnostic-task.json`，绑定 stock SHA、Build、原始 Run/head、GKI commit 和已知问题类型；任务中 `commands=[]`，不能下发远程执行指令。App 仅在可信阶段为 `ABI_BLOCKED` 时，在原有工作台的状态卡上显示一次性「查看补采建议」入口。原三页导航与日常 Root/OTA 采集不变。
+
+二级页沿用原生蓝白卡片与三步流程：看懂原因、读取白名单信息、预览并明确同意上传。采集结果按部分/完整区分，不发送原始 cmdline、模块地址、ELF 或内核日志。单独的 GitHub 诊断 Draft 接入 `pandora-os4-ota-diagnostic-intake.yml`，审核源 Run、当前 stock SHA、附件原始字节/哈希及 schema 后只生成 **REVIEW_REQUIRED** 的证据，绝不更新 OEM Gate 或 LKG。模拟器/真实归档回放只是对代码路径验证；真正新 OTA 的诊断仍需当次真机采集并审核。
+
 ## 尚未实现的能力
 
 本阶段没有自动发明 EEXIST 补丁、自动推断完整模块加载顺序、自动认定
