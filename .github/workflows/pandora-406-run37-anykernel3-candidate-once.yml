@@ -1,0 +1,108 @@
+name: "pandora OS4.0.6 run37 AnyKernel3 persistent candidate (one-off)"
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/pandora-406-run37-anykernel3-candidate-once.yml"
+      - "scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    name: "生成并审计 exact run37 持久候选"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "脚本和长期证据预检"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          b=Path(".github/config/ota-verified/OS4.0.6.0.XBLCNXM")
+          r=json.loads((b/"runtime-selected-oem-gate.json").read_text())
+          p=json.loads((b/"persistent-boot-equivalence.json").read_text())
+          assert r["status"]=="PASS_RUNTIME_SELECTED_EXACT_OS406"
+          assert r["eligible_for_persistent_kernel_payload"] is True
+          assert p["status"]=="PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
+          assert p["eligible_for_persistent_kernel_payload"] is True
+          assert p["actual_persistent_install_verified"] is False
+          assert p["anykernel3"]["audit"]=="PASS"
+          PY
+
+      - name: "下载标准工作流 #37 exact Image"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/run37"
+          gh run download 45047763911 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-45047763911 \
+            --dir "$RUNNER_TEMP/run37"
+          [[ "$(sha256sum "$RUNNER_TEMP/run37/Image" | awk '{print $1}')" == \
+            "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0" ]]
+
+      - name: "生成 AnyKernel3 持久候选"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/package"
+          scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh \
+            "$RUNNER_TEMP/run37/Image" "$RUNNER_TEMP/package" \
+            | tee "$RUNNER_TEMP/package-build.txt"
+
+      - name: "独立审计 ZIP 内容"
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="$(find "$RUNNER_TEMP/package" -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          [[ -n "$ZIP" ]]
+          unzip -t "$ZIP" >/dev/null
+
+          [[ "$(unzip -p "$ZIP" Image | sha256sum | awk '{print $1}')" == \
+            "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0" ]]
+
+          AK="$RUNNER_TEMP/anykernel.sh"
+          unzip -p "$ZIP" anykernel.sh > "$AK"
+          grep -Fq 'OS4.0.6.0.XBLCNXM' "$AK"
+          grep -Fq 'a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b' "$AK"
+          grep -Fq '100663296' "$AK"
+          grep -Fq 'module_blacklist=' "$AK"
+          grep -Fq 'pandora_rust_binder_eexist=1' "$AK"
+          grep -Fq 'flash_boot;' "$AK"
+          grep -Fq 'PATCH_VBMETA_FLAG=0' "$AK"
+          grep -Fq 'NO_MAGISK_CHECK=1' "$AK"
+
+          unzip -Z1 "$ZIP" | grep -Eq '(^|/)(init_boot|vendor_boot|vendor_kernel_boot|dtbo|vbmeta|boot)(_[ab])?\.img$' && {
+            echo "::error::forbidden partition image found"; exit 1;
+          } || true
+
+          sha256sum "$ZIP" | tee "$RUNNER_TEMP/candidate-SHA256.txt"
+          echo "RUN37_ANYKERNEL3_CANDIDATE_AUDIT=PASS" | tee "$RUNNER_TEMP/candidate-audit.txt"
+          echo "ACTUAL_PERSISTENT_INSTALL_VERIFIED=NO" | tee -a "$RUNNER_TEMP/candidate-audit.txt"
+          echo "LKG_PROMOTION=FORBIDDEN_UNTIL_TRUE_DEVICE_REBOOT_PASS" | tee -a "$RUNNER_TEMP/candidate-audit.txt"
+
+      - name: "上传持久候选"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OS4.0.6-run37-PERSISTENT-CANDIDATE
+          path: |
+            ${{ runner.temp }}/package/*.zip
+            ${{ runner.temp }}/package/*.zip.sha256
+            ${{ runner.temp }}/candidate-SHA256.txt
+            ${{ runner.temp }}/candidate-audit.txt
+            ${{ runner.temp }}/package-build.txt
+          if-no-files-found: error
+          retention-days: 30
