@@ -1,0 +1,130 @@
+name: 维护 / 清理已完成的本仓开发分支与 Actions
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/maintenance-cleanup-local-20261123.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    if: github.event.head_commit.message == 'chore: run one-shot local cleanup 2026-11-23'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail-closed cleanup of local-only branches and their runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          UPSTREAM: zzh20188/GKI_KernelSU_SUSFS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branches=(
+            "docs/pandora-os4-run37-runtime-verified"
+            "experiment/pandora-406-rust-binder-blacklist-testboot"
+            "feat/pandora-406-persistent-equivalence"
+            "feat/pandora-406-persistent-lkg-route"
+            "feat/pandora-406-post-lkg-standard-persistent-custom"
+            "feat/pandora-406-run37-anykernel3-candidate"
+            "feat/pandora-406-runtime-selected-oem-gate"
+            "fix/generic-custom-fork-only-gates"
+            "fix/pandora-os4-406-compat-custom-build-route"
+            "fix/pandora-os4-406-preflight-repack"
+            "fix/pandora-os4-406-repack-growth"
+            "verify/pandora-406-persistent-first-reboot"
+          )
+
+          api() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$@"
+          }
+
+          deleted_runs=0
+          deleted_branches=0
+
+          for branch in "${branches[@]}"; do
+            encoded="$(jq -rn --arg v "$branch" '$v|@uri')"
+
+            upstream_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${UPSTREAM}/branches/${encoded}")"
+
+            if [ "$upstream_code" = "200" ]; then
+              echo "::error::Refusing to touch upstream branch: $branch"
+              exit 1
+            fi
+            if [ "$upstream_code" != "404" ]; then
+              echo "::error::Cannot prove branch is absent upstream: $branch (HTTP $upstream_code)"
+              exit 1
+            fi
+
+            while :; do
+              payload="$(curl -fsSL -G \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                --data-urlencode "branch=$branch" \
+                --data-urlencode "per_page=100" \
+                "https://api.github.com/repos/${REPO}/actions/runs")"
+
+              mapfile -t run_ids < <(jq -r '.workflow_runs[].id' <<<"$payload")
+              [ "${#run_ids[@]}" -eq 0 ] && break
+
+              for run_id in "${run_ids[@]}"; do
+                code="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "https://api.github.com/repos/${REPO}/actions/runs/${run_id}")"
+                if [ "$code" = "204" ] || [ "$code" = "404" ]; then
+                  if [ "$code" = "204" ]; then
+                    deleted_runs=$((deleted_runs + 1))
+                  fi
+                else
+                  echo "::error::Failed deleting run $run_id for $branch (HTTP $code)"
+                  exit 1
+                fi
+              done
+            done
+
+            branch_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/branches/${encoded}")"
+
+            if [ "$branch_code" = "200" ]; then
+              code="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${REPO}/git/refs/heads/$branch")"
+              if [ "$code" != "204" ]; then
+                echo "::error::Failed deleting branch $branch (HTTP $code)"
+                exit 1
+              fi
+              deleted_branches=$((deleted_branches + 1))
+            elif [ "$branch_code" != "404" ]; then
+              echo "::error::Unexpected branch lookup response for $branch (HTTP $branch_code)"
+              exit 1
+            fi
+          done
+
+          {
+            echo "## Local-only cleanup"
+            echo
+            echo "- Deleted branches: $deleted_branches"
+            echo "- Deleted Actions runs: $deleted_runs"
+            echo "- Upstream branch names were checked live and fail-closed."
+            echo "- dev and all upstream-named branches were excluded."
+          } >> "$GITHUB_STEP_SUMMARY"
