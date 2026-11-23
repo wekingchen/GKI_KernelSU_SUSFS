@@ -151,3 +151,25 @@ Run：
 - LKG 晋升：禁止
 
 本轮结论是：**标准 OS4 自定义编译和临时启动路线已经恢复并经真机验证；不是正式持久安装路线已经恢复。**
+
+
+## 2026-11-23：exact run37 AnyKernel3 首次持久重启通过
+
+用户安装 `Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip` 后直接重启，不再使用 `fastboot boot`。首次持久启动的手工 CMD 证据：
+
+- `sys.boot_completed=1`
+- active slot：`_b`
+- `uname -r=6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k`
+- Root：`uid=0(root)`，SELinux context `u:r:ksu:s0`
+- `/proc/cmdline` 含 `module_blacklist=kernelsu`
+- `/proc/cmdline` 含 `pandora_rust_binder_eexist=1`
+- Binder `impl=c`
+- Binder `active_impl=c`
+- active LSM 含 `baseband_guard`
+- `rust_binder` 未加载
+- KernelSU LKM 未加载
+- `node_cache` / `zram` / `zsmalloc` 正常加载
+
+判定：**FIRST_TRUE_DEVICE_PERSISTENT_REBOOT=PASS**。
+
+此时仍不晋升 LKG；还需要一次普通重启，在不重新刷入、不运行 `fastboot boot` 的前提下重复确认持久性。第二次重启通过后，才把 `actual_persistent_install_verified` 设为 true。
