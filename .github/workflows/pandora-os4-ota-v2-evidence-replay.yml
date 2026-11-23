@@ -1,0 +1,125 @@
+name: "小米17 Pro OS4 / OTA V2 真实 ABI 阻断回放（只读）"
+
+on:
+  push:
+    branches:
+      - "feat/pandora-ota-v2-*"
+    paths:
+      - ".github/workflows/pandora-os4-ota-v2-evidence-replay.yml"
+      - "scripts/xiaomi-os4/ota-v2-abi-diagnostics.py"
+      - "scripts/xiaomi-os4/test_ota_v2_diagnostics.py"
+      - "scripts/xiaomi-os4/ota-v2-references/**"
+      - "docs/pandora-ota-v2-real-evidence-replay.md"
+  pull_request:
+    paths:
+      - ".github/workflows/pandora-os4-ota-v2-evidence-replay.yml"
+      - "scripts/xiaomi-os4/ota-v2-abi-diagnostics.py"
+      - "scripts/xiaomi-os4/test_ota_v2_diagnostics.py"
+      - "scripts/xiaomi-os4/ota-v2-references/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pandora-ota-v2-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: "V2 诊断器与 fail-closed 负例测试"
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: "语法与防误放行回归"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/test_ota_v2_diagnostics.py
+          python3 -m unittest discover -s scripts/xiaomi-os4 -p test_ota_v2_diagnostics.py -v
+
+  replay-os406:
+    name: "下载真实 OS4.0.6 stock + GKI → 重跑 OEM ABI → 历史 BLOCKED 比对"
+    needs: regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REFERENCE: scripts/xiaomi-os4/ota-v2-references/pandora-os4-406-raw-oem-abi.json
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "安装只读 ABI 审计依赖"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd lz4 jq
+
+      - name: "从固定 Release 下载真实输入与候选，并核验来源"
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPLAY="$RUNNER_TEMP/pandora-ota-v2"
+          mkdir -p "$REPLAY/stock" "$REPLAY/candidate"
+          stock_tag="$(jq -r '.source.stock_tag' "$REFERENCE")"
+          gki_tag="$(jq -r '.source.gki_tag' "$REFERENCE")"
+          expected_stock_sha="$(jq -r '.source.stock_input_sha256' "$REFERENCE")"
+          expected_commit="$(jq -r '.source.candidate_commit' "$REFERENCE")"
+          gh release download "$stock_tag" --repo "$GITHUB_REPOSITORY" --dir "$REPLAY/stock" --pattern '*xm.zip'
+          gh release download "$gki_tag" --repo "$GITHUB_REPOSITORY" --dir "$REPLAY/candidate"
+          mapfile -t stock_files < <(find "$REPLAY/stock" -maxdepth 1 -type f -name '*xm.zip')
+          [[ "${#stock_files[@]}" -eq 1 ]] || { echo "::error::Expected precisely one stock xm.zip"; exit 1; }
+          stock_zip="${stock_files[0]}"
+          [[ "$(sha256sum "$stock_zip" | awk '{print $1}')" == "$expected_stock_sha" ]] || {
+            echo "::error::Historical stock ZIP SHA mismatch"; exit 1;
+          }
+          (cd "$REPLAY/candidate" && sha256sum -c RELEASE-SHA256SUMS.txt)
+          jq -e --arg sha "$expected_stock_sha" --arg commit "$expected_commit" \
+            '.ota_source_id == $sha and .candidate_commit == $commit and .safe_to_flash == false' \
+            "$REPLAY/candidate/gki-candidate.json" >/dev/null
+          jq -e --arg sha "$expected_stock_sha" \
+            '.ota_source_id == $sha and .status == "NEW_OTA_CANDIDATE"' \
+            "$REPLAY/candidate/stock-report.json" >/dev/null
+          echo "OTA_V2_REPLAY_DIR=$REPLAY" >> "$GITHUB_ENV"
+          echo "OTA_V2_STOCK_ZIP=$stock_zip" >> "$GITHUB_ENV"
+
+      - name: "真实输入重跑现有 OEM CRC/KMI checker（预期仍 BLOCKED）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$OTA_V2_REPLAY_DIR"
+          python3 scripts/xiaomi-os4/check-ota-oem-abi.py \
+            --stock-zip "$OTA_V2_STOCK_ZIP" \
+            --stock-report "$DIR/candidate/stock-report.json" \
+            --candidate-report "$DIR/candidate/gki-candidate.json" \
+            --metadata "$DIR/candidate/build-metadata.txt" \
+            --symvers "$DIR/candidate/Module.symvers" \
+            --output "$DIR/oem-abi-replayed.json"
+          python3 scripts/xiaomi-os4/ota-v2-abi-diagnostics.py \
+            --abi-report "$DIR/oem-abi-replayed.json" \
+            --reference "$REFERENCE" \
+            --output "$DIR/ota-v2-diagnostic.json" \
+            --markdown "$DIR/ota-v2-summary.md"
+          jq -e '.status == "ABI_BLOCKED_DIAGNOSABLE"
+            and .fastboot_boot_eligible == false
+            and .persistent_install_authorized == false
+            and .lkg_promotion_authorized == false
+            and .reference_replay.matched == true
+            and .reference_replay.historical_gate_still_blocked == true' \
+            "$DIR/ota-v2-diagnostic.json" >/dev/null
+          cat "$DIR/ota-v2-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "保留诊断与回放证据（无 boot，无可刷包）"
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-ota-v2-os406-readonly-replay-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pandora-ota-v2/oem-abi-replayed.json
+            ${{ runner.temp }}/pandora-ota-v2/ota-v2-diagnostic.json
+            ${{ runner.temp }}/pandora-ota-v2/ota-v2-summary.md
+          if-no-files-found: warn
+          retention-days: 30
