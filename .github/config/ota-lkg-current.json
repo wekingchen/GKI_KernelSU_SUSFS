@@ -1,0 +1,52 @@
+{
+  "anykernel_sha256": "44a63799a6dce8b373181029ee2aa2c92340781713fc398c3220b482e88fde8e",
+  "archive_tag": "pandora-os4-lkg-gen6",
+  "attestation": "USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF",
+  "baseline_verification_run_id": 44925895903,
+  "boot_sha256": "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27",
+  "device": "pandora",
+  "generation": 6,
+  "gki_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+  "image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+  "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+  "legacy_r62_lkg_unchanged": true,
+  "note": "OS4.0.6_run37_two_persistent_reboots_verified",
+  "promotion_run_id": 45112850370,
+  "reproduction": {
+    "config_sha256": "6b0c7f2b97b55e292596905cacb279f7d4f02e02c63b9486e75311202b101d17",
+    "normalized_image_sha256": "2d8e5553102f4d52b3fff9c3fb6b8ce75e8ee20a90e54243c889371c22399693",
+    "rebuild_device_tested": false,
+    "rebuild_verification": "NORMALIZED_IMAGE_AND_EXACT_SYMVERS_CONFIG_PASS",
+    "rebuilt_image_sha256": "d31fc22f6f46a96aa1a1d7693ee03e7a2524ec0332a9145a3656c4bae83293c0",
+    "source_image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+    "symvers_sha256": "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e"
+  },
+  "schema": 1,
+  "selections": {
+    "DROIDSPACES_ENABLED": "1",
+    "ROOT_MODE": "bakasu-susfs",
+    "SUSFS_EXTRA_FEATURES": "1",
+    "USE_BBG": "1",
+    "USE_CVE": "1",
+    "USE_NETWORKING": "1",
+    "USE_NOMOUNT": "1",
+    "USE_NTSYNC": "1",
+    "USE_REKERNEL": "1"
+  },
+  "source_head_sha": "e70f03181ee0e001194ab3b57e25146a8550e738",
+  "source_manifest_sha256": "288b0d23fbb672406cc2cebcb05a74809f84c5898a76ff2ef6674d555e58c32e",
+  "source_run_id": 45047763911,
+  "status": "USER_PROMOTED_OTA_LKG",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "stock_release_asset_id": 775019680,
+  "upstream_commits": {
+    "BAKASU": "2734e0bc155759955880f5fb99be640fc5b92156",
+    "BBG": "d4f7302190b83246266598eb5d59c6b36fa22bdc",
+    "DROIDSPACES": "cdadb9eb5d0f86aacffff60776333e6f6b73a30a",
+    "NOMOUNT": "dcd77d03e9912f397a586d7da81694d1628f170e",
+    "NTSYNC": "dc0f76bedd790b7738e5695509297ee71ca4a2c2",
+    "REKERNEL": "e67cd94c524c27503cb340f8bbab594eca95dbef",
+    "SUSFS": "9b0b13f069673b9b07b713a5c66977de4d62b175"
+  }
+}
