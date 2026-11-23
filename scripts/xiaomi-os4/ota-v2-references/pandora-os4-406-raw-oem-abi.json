@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "case": "pandora-os4-406-raw-oem-abi",
+  "source": {
+    "stock_tag": "pandora-os4-stock-input",
+    "stock_build": "OS4.0.6.0.XBLCNXM",
+    "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+    "gki_tag": "pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM",
+    "candidate_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+    "original_baseline_run_id": 44888223032
+  },
+  "expected_report": {
+    "gate": "BLOCKED",
+    "eligible_for_fastboot_boot": false,
+    "flashable": false,
+    "stock_build": "OS4.0.6.0.XBLCNXM",
+    "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+    "candidate_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+    "module_count": 505,
+    "vendor_boot_modules_seen": 461,
+    "vendor_boot_modules_in_graph": 168,
+    "vendor_boot_identical_dlkm_aliases": 293,
+    "inventory_imports_before_runtime_selection": 38998,
+    "imports_checked": 38998,
+    "unresolved_kernel_imports_count": 71,
+    "unresolved_rust_binder": 71,
+    "ambiguous_providers_count": 27,
+    "ambiguous_same_crc": 24,
+    "ambiguous_split_crc": 3,
+    "crc_mismatches_count": 0,
+    "failed_modules_count": 0
+  },
+  "guardrails": {
+    "interpretation": "Replaying the historical raw-stock gate MUST still be BLOCKED. Runtime-selected OS4.0.6 PASS is a separate exact-device attestation and MUST NOT be inherited.",
+    "boot_generation": false,
+    "persistent_install": false,
+    "lkg_promotion": false
+  }
+}
