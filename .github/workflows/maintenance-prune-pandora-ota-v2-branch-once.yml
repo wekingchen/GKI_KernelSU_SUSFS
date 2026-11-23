@@ -1,0 +1,39 @@
+name: "仓库维护 / 清理已合并的 Pandora OTA V2 临时开发分支"
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/maintenance-prune-pandora-ota-v2-branch-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "确认合并和上游不存在后，只删除本仓该临时分支"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          local_branch='feat/pandora-ota-v2-evidence-replay'
+          expected='1a1d7de38c4b204949b3c02226f79cbacbdd61ce'
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/124")"
+          jq -e --arg head "$local_branch" --arg sha "$expected" \
+             '.merged == true and .base.ref == "dev" and .head.ref == $head and .head.sha == $sha' <<<"$pr" >/dev/null || exit 1
+          upstream_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+             -H 'Accept: application/vnd.github+json' \
+             "https://api.github.com/repos/zzh20188/GKI_KernelSU_SUSFS/branches/$local_branch")"
+          [[ "$upstream_code" == 404 ]] || {
+            echo "::error::Cannot prove this is local-only (upstream HTTP $upstream_code)"; exit 1;
+          }
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$local_branch" --jq .object.sha)"
+          [[ "$actual" == "$expected" ]] || {
+            echo "::error::Branch moved since merge; refusing deletion"; exit 1;
+          }
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$local_branch"
+          echo "Deleted merged local-only branch: $local_branch" >> "$GITHUB_STEP_SUMMARY"
