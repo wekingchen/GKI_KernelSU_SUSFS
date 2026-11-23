@@ -1,0 +1,38 @@
+name: "小米17 Pro OS4 / OTA V2 历史 ABI 原件一次性冻结（只读归档）"
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh"
+      - ".github/workflows/pandora-ota-v2-freeze-os406-reference.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pandora-ota-v2-freeze-os406-reference
+  cancel-in-progress: false
+
+jobs:
+  freeze:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: "检出当前受保护 dev 的精确回放参考"
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "语法与固定 SHA 校验"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh
+          python3 -m json.tool scripts/xiaomi-os4/ota-v2-references/pandora-os4-406-raw-oem-abi.json >/dev/null
+      - name: "原始 stock SHA 与 ZIP 实际字节一致后，安全冻结独立只读归档"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/xiaomi-os4/freeze-ota-v2-historical-os406-stock.sh

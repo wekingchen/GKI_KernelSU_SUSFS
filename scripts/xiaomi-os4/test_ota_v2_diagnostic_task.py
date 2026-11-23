@@ -179,5 +179,22 @@ class DiagnosticTaskContract(unittest.TestCase):
         self.assertIn("collect-os4-stage.py --output os4-stage.json",workflow)
 
 
+
+    def test_historical_reference_freeze_is_exact_and_nonmutating(self):
+        script=(BASE/"freeze-ota-v2-historical-os406-stock.sh").read_text()
+        workflow=(BASE.parents[1]/".github/workflows/pandora-ota-v2-freeze-os406-reference.yml").read_text()
+        self.assertIn('TAG="pandora-ota-v2-os406-raw-stock-reference"',script)
+        self.assertIn('EXPECTED="$(jq -er',script)
+        self.assertIn('"https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$CURRENT_ASSET"',script)
+        self.assertIn('sha256sum "$WORK/download/$NAME"',script)
+        self.assertIn('gh release create "$TAG"',script)
+        self.assertNotIn('gh release edit pandora-os4-stock-input',script)
+        self.assertNotIn('gh release upload pandora-os4-stock-input',script)
+        self.assertNotIn('fastboot flash',script)
+        self.assertNotIn('ota-lkg-current.json',script)
+        self.assertIn('contents: write',workflow)
+        self.assertIn("branches: [dev]",workflow)
+        self.assertIn("cancel-in-progress: false",workflow)
+
 if __name__=="__main__":
     unittest.main()
