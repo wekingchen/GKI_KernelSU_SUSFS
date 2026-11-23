@@ -32,7 +32,7 @@
 
 此入口会根据源 Run 产物自动区分旧 R62 与新 OTA：R62 使用旧的晋升、复现和 Release 接力；新 OTA 在同一个工作流内执行严格复现、草稿归档、指针晋升及公开 Release。只有一个手动晋升入口，不需要用户选择路线。
 
-首次新 OTA 晋升的代次自动取**当前已晋升的最高代次 + 1**；核对日 R62 已晋升 **Gen 4**，若期间没有其它晋升，首次新 OTA 应从 **Gen 5** 开始，从而避免 Release 标签冲突，以后 Gen 5、Gen 6……自动递增。只保留单一移动指针 `.github/config/ota-lkg-current.json`，旧代状态按 gen 放在 `.github/config/ota-lkg-history/`；各代固定 Release 标签单独存在，不因新晋升覆盖旧资产。历史 R62 各代原有配置与 Release **保留不修改**；首次新 OTA 晋升后，旧 R62 晋升分支会明确拒绝再创建一套冲突代次。
+新 OTA 晋升代次根据当前已晋升的最高代次递增，禁止硬编码。**截至 2026-11-23，OS4.0.6 已晋升 Gen 7**，Gen 6 与 R62 Gen 4 等以前代次均为历史归档。只保留单一移动指针 `.github/config/ota-lkg-current.json`，旧代状态按 gen 放在 `.github/config/ota-lkg-history/`；各代固定 Release 标签单独存在，不因新晋升覆盖旧资产。历史 R62 各代原有配置与 Release **保留不修改**；首次新 OTA 晋升后，旧 R62 晋升分支会明确拒绝再创建一套冲突代次。
 
 ## 如何修复最后一步公开 Release 失败
 
