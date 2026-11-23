@@ -342,3 +342,87 @@ AOSP libmodprobe 对 `finit_module(EEXIST)` 视为“已加载”成功，这使
 system loader 且不改额外分区的执行点，因此仍是只读架构假设。
 
 正式 OEM ABI gate、fastboot boot、AnyKernel3 与 LKG 状态均不改变。
+
+
+## 第十三轮：#37 真机运行时选择进入正式 OEM 门禁（2026-11-23）
+
+本轮不再把 71 条 Rust Binder 导入和 27 条 zsmalloc 多提供者简单“忽略”或全局放宽，而是把已完成的真机证据作为**版本级、Image 级、模块二进制级**的运行时选择约束加入正式 checker。
+
+绑定身份：
+
+- stock：`OS4.0.6.0.XBLCNXM`
+- stock ZIP SHA-256：`bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8`
+- GKI：`android16-6.12-2026-03_r74` / `b1d12d482d767c50cb792d988e4479d3f75c342a`
+- EEXIST patch SHA-256：`5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee`
+- 标准自定义工作流：#37 / Run `45047763911`
+- #37 Image SHA-256：`3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0`
+- #37 Module.symvers SHA-256：`e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e`
+- #37 FASTBOOT-BOOT-ONLY SHA-256：`230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27`
+
+运行时选择只在上述身份全部精确匹配时生效：
+
+1. `rust_binder.ko` 仅允许匹配原厂 SHA
+   `ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c`；
+   #37 真机已直接观测 Binder `impl=c` / `active_impl=c`、rust_binder sysfs 与
+   `/proc/modules` 均 ABSENT，且 EEXIST shim 身份固定。因此这一个原厂模块在
+   **exact #37 运行图**中被记录为 suppressed，而不是把 71 个 Rust mangled 导入伪造成已提供。
+2. vendor `node_cache/zram/zsmalloc` 必须同时匹配 stock 模块文件 SHA 与
+   真机 sysfs GNU Note SHA；同名 system zram/zsmalloc 二进制仍单独记录，
+   只在本次已证明的实际运行图中标记为 inactive，绝不按 basename 合并。
+3. #37 新增 core exports 带来一条新的 vmlinux/OEM 双提供者：
+   `9pnet.ko -> netfs_write_subrequest_terminated`。只有这一条精确 consumer /
+   symbol / provider 路径被固定，且 consumer expected CRC、vmlinux CRC、
+   OEM `netfs.ko` provider CRC 三者均为 `0xce8adb59`，才作为
+   exact equivalent overlap 接受。**没有新增“相同 CRC 就自动放行”的通用规则。**
+
+最终真实全量复核：
+
+- one-off Run：`45102932564`
+- Artifact：`14786505411 / pandora-406-runtime-selected-oem-gate`
+- 完整 JSON SHA-256：
+  `d6c97c7039487cb54896b5f1fa4a8241f338c02f4710bb5ffa89c9ae8d12276d`
+- 版本化摘要：
+  `.github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json`
+
+| 项目 | 原静态全图 | exact #37 运行图 |
+| --- | ---: | ---: |
+| Inventory imports | 38,998 | 38,998 |
+| 实际进入选择后检查的 imports | — | 38,528 |
+| unresolved imports | 71 | **0** |
+| unresolved Rust Binder | 71 | **0** |
+| ambiguous providers | 27（另含 #37 新增 1 条 vmlinux/OEM） | **0** |
+| CRC mismatch | 0 | **0** |
+| failed modules | 0 | **0** |
+| suppressed exact rust_binder | — | 1（240 imports） |
+| inactive same-name system zram/zsmalloc | — | 2 |
+| exact same-CRC vmlinux/OEM overlap | — | 1 |
+
+正式结果：
+
+`formal_oem_gate=PASS_RUNTIME_SELECTED_EXACT_OS406`
+
+这表示此前 **71 个 OEM Rust Binder unresolved imports + 27 个 zsmalloc provider ambiguity 已在 exact OS4.0.6 / #37 真机运行图中完成可审计闭环**。默认 checker 在不提供上述运行时证据时仍沿用旧的 fail-closed 行为，不会自动放行其他 OTA 或其他 Image。
+
+### 仍未解除的最后边界：持久 boot 等价
+
+本轮明确仍输出：
+
+`eligible_for_persistent_kernel_payload=false`
+
+原因不是 OEM CRC 图还失败，而是 #37 EEXIST 路线要求 boot cmdline 中存在
+`pandora_rust_binder_eexist=1`。当前 fastboot-boot v4 fixture 已证明这一条件，
+但 AnyKernel3 持久安装是否能在保留原 ramdisk 的同时确定性加入并保留该参数，
+仍需单独做“persistent boot equivalence”验证。
+
+因此当前状态升级为：
+
+- OEM runtime-selected gate：**PASS**
+- 标准自定义编译：**PASS**
+- #37 真机 fastboot boot：**PASS**
+- AnyKernel3 / persistent kernel payload：**仍 BLOCKED，等待等价 boot 验证**
+- LKG promotion：**仍 BLOCKED**
+
+下一阶段不再继续寻找或伪造 71 个 Rust 符号；重点转为用 AnyKernel3 已有
+`patch_cmdline` 机制，在 exact OS4.0.6 compatibility 模式下确定性加入
+`pandora_rust_binder_eexist=1`，先生成与持久安装语义等价、但仍可
+`fastboot boot` 回退测试的候选，真机通过后再决定是否开放持久 AnyKernel3。
