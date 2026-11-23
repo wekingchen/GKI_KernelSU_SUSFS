@@ -56,6 +56,34 @@ def artifact(run, name, root):
                     '--dir', str(folder)], check=True)
     return folder
 
+def diagnostic_task_matches(path, run, build, stock_sha):
+    """Expose phone follow-up only for the exact verified read-only BLOCKED task."""
+    if not path.is_file():
+        return False
+    try:
+        task = json.loads(path.read_text(encoding='utf-8'))
+        return (task.get('schema') == 'pandora-ota-diagnostic-task-v1'
+                and task.get('device') == 'pandora'
+                and task.get('repository') == REPO
+                and task.get('status') == 'ABI_BLOCKED_DIAGNOSABLE'
+                and task.get('source_run_id') == run['id']
+                and task.get('source_head_sha') == run['head_sha']
+                and task.get('stock_build') == build
+                and task.get('stock_input_sha256') == stock_sha
+                and isinstance(task.get('candidate_commit'), str)
+                and bool(re.fullmatch('[a-f0-9]{40}', task['candidate_commit']))
+                and task.get('commands') == []
+                and task.get('device_write_allowed') is False
+                and task.get('safe_to_flash') is False
+                and task.get('promote_lkg') is False
+                and task.get('requires_manual_review') is True
+                and task.get('upload_requires_confirmation') is True
+                and isinstance(task.get('issues'), list) and bool(task['issues'])
+                and isinstance(task.get('checks'), list) and bool(task['checks']))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def valid_run(run, workflow):
     return (run.get('head_branch') == 'dev' and run.get('status') == 'completed'
             and run.get('path') == '.github/workflows/' + workflow
@@ -188,7 +216,7 @@ def collect(root):
                   build=build, stock_asset_id=source['id'], stock_input_sha256=source_digest,
                   source_run_id=origin['id'], source_head_sha=origin['head_sha'],
                   stage='NO_NEW_OTA', milestones=[], release_assets=[],
-                  safe_to_flash=False, detail='', baseline_record_sha256='', tested_boot_sha256='')
+                  safe_to_flash=False, diagnostic_task_available=False, detail='', baseline_record_sha256='', tested_boot_sha256='')
     # A published, exact same-input GenN LKG supersedes a historical raw
     # OEM ABI_BLOCKED for *status display only*; never changes the OEM gate.
     if versioned_lkg_snapshot(result, build, source, source_digest, root):
@@ -240,7 +268,12 @@ def collect(root):
             if blocked and (blocked / 'ota-abi-report.json').is_file():
                 abi = json.loads((blocked / 'ota-abi-report.json').read_text())
                 if abi.get('stock_input_sha256') == source_digest and abi.get('stock_build') == build and abi.get('eligible_for_fastboot_boot') is False:
-                    result.update(stage='ABI_BLOCKED', detail=str(abi.get('reason', 'OEM ABI 未通过'))[:500],
+                    available = diagnostic_task_matches(
+                        blocked / 'ota-v2-diagnostic-task.json', run, build, source_digest)
+                    result.update(stage='ABI_BLOCKED', diagnostic_task_available=available,
+                                  detail=(str(abi.get('reason', 'OEM ABI 未通过'))[:450] +
+                                          ('' if available else
+                                           '；尚无可信的手机补采任务，请先核查来源 ABI 工作流')),
                                   source_run_id=run['id'], source_head_sha=run['head_sha'])
                     break
             continue
