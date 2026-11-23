@@ -160,11 +160,24 @@ final class DiagnosisCollector {
     }
     private static String process(int timeout,String... args)throws Exception{
         Process p=new ProcessBuilder(args).redirectErrorStream(true).start();
+        // Drain stdout concurrently: waiting before reading may deadlock when
+        // a real /proc/modules response fills the kernel pipe buffer.
+        ExecutorService pool=Executors.newSingleThreadExecutor(job->{
+            Thread thread=new Thread(job,"ota-diagnostic-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        Future<String> output=pool.submit(()->readLimited(p.getInputStream()));
         try{
             if(!p.waitFor(timeout,TimeUnit.SECONDS))throw new IOException("采集读取超时");
+            String data=output.get(2,TimeUnit.SECONDS);
             if(p.exitValue()!=0)throw new IOException("只读信息暂不可用");
-            return readLimited(p.getInputStream());
-        }finally{p.destroyForcibly();}
+            return data;
+        }finally{
+            p.destroyForcibly();
+            output.cancel(true);
+            pool.shutdownNow();
+        }
     }
     private static String readLimited(InputStream stream)throws Exception{
         ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[1024];int n;
