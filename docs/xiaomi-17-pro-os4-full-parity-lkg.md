@@ -1,8 +1,12 @@
 # 小米 17 Pro OS4：当前 LKG、可选功能与上游策略
 
-核对日期：2026-11-02。当前入口见 [文档索引](pandora-os4-guide.md)。LKG 由用户明确标记真实稳定版本；自定义构建追新与 LKG 固定复现是两种不同目标。
+核对日期：2026-11-23。当前入口见 [文档索引](pandora-os4-guide.md)。LKG 由用户明确标记真实稳定版本；自定义构建追新与 LKG 固定复现是两种不同目标。
 
-## 当前身份：Gen 4，而非 Gen 3
+## 当前新 OTA LKG：OS4.0.6 / Gen 7
+
+当前权威指针：[ota-lkg-current.json](../.github/config/ota-lkg-current.json)。Gen7 真实自定义来源 Run `45124613997` 已经用户确认稳定，并经过严格复现与 10 项归档资产哈希校验，公开发布 [pandora-os4-lkg-gen7](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-os4-lkg-gen7)。用户确认原包与 CI-only 复现包必须严格区分；CI-only 产物不等于第二次真机测试。Gen6/Gen5 和历史 R62 均保留为恢复基线。
+
+## 历史 R62 指针：Gen 4，而非 Gen 3
 
 权威来源：[`.github/config/pandora-os4-full-parity-lkg.env`](../.github/config/pandora-os4-full-parity-lkg.env)。下表仅为核对日快照，后续晋升以指针为准。
 
@@ -67,8 +71,8 @@ BakaSU Manager 只接受官方成功 Manager CI 的同一 head SHA，KSU_VERSION
 
 功能版编译成功后，同次提供使用同一 Image 的待测 IMG 与实验性 AnyKernel3；取得 ZIP 不需要再次提交反馈。真正持久安装、稳定使用并确认本次选用功能正常后，才使用[统一晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，由来源自动选择 R62 或新 OTA 路线。
 
-- R62：按锁定配置复现，经自动接力归档；当前 Gen 4 已有实际成功记录。
-- 新 OTA：按原始 Run Git SHA 和原组件重编，严格校验配置、symvers、归一化 Image；完整草稿下载回检后才晋升指针及公开 Release。真实新 OTA 仍待端到端验收。
-- 代次取已有最高代次 + 1；核对日最高为 4，若无其它晋升，首次新 OTA 应从 5 开始，不能硬编码回到 Gen 4。
+- R62：按锁定配置复现，经自动接力归档；历史 R62 Gen 4 已有实际成功记录。
+- 新 OTA：按原始 Run Git SHA 和原组件重编，严格校验配置、symvers、归一化 Image；完整草稿下载回检后才晋升指针及公开 Release。OS4.0.6 已实际适配至 Gen7；未来未知 OTA 仍需重新验证。
+- 代次按当前稳定指针递增；2026-11-23 当前为 Gen7，不能硬编码退回 Gen4/Gen5。
 
 长期恢复请优先使用[已归档 Release](xiaomi-17-pro-os4-lkg-release-archive.md)。2026-10-29 的 OS4 / slot A / LKM Root 可启动备份只能作为该时刻、同版本设备的恢复点，不能称为未修改 OEM 原版或跨 OTA 使用。

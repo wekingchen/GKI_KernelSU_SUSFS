@@ -153,12 +153,30 @@ class DiagnosticTaskContract(unittest.TestCase):
         self.assertIn('run-name: "Pandora OTA diagnosis / source-',workflow)
         for token in ("inputs.source_run_id", "inputs.release_id", "inputs.asset_id"):
             self.assertIn(token,workflow)
-        self.assertIn('gh release download "$TAG"',workflow)
-        self.assertIn('--pattern \'diagnostic-evidence.json\'',workflow)
+        # Draft Release tag lookup is not reliable (404 on unpublished tags).
+        # The reviewer must use the already-validated numeric asset identity.
+        self.assertIn('releases/$RELEASE_ID',workflow)
+        self.assertIn('releases/assets/$ASSET_ID',workflow)
+        self.assertIn('Authorization: Bearer $GH_TOKEN',workflow)
+        self.assertIn('Accept: application/octet-stream',workflow)
+        self.assertIn('stat -c%s',workflow)
+        self.assertIn('sha256sum "$DIR/diagnostic-evidence.json"',workflow)
+        self.assertNotIn('gh release download "$TAG"',workflow)
         self.assertIn('EXPECTED_SHA',workflow)
         self.assertIn('verify-ota-v2-diagnostic-evidence.py',workflow)
         self.assertIn('REVIEW_REQUIRED',workflow)
         self.assertNotIn('gh release edit "$TAG" --draft=false',workflow)
+
+    def test_stage_snapshot_refreshes_on_exact_unified_lkg_workflow(self):
+        workflow=(BASE.parents[1]/".github/workflows/pandora-os4-stage-status.yml").read_text()
+        promotion=(BASE.parents[1]/".github/workflows/xiaomi-sm8850-os4-promote-lkg.yml").read_text()
+        self.assertIn('name: "小米17 Pro OS4 / 晋升真机稳定内核为 LKG"',promotion)
+        self.assertIn('      - "小米17 Pro OS4 / 晋升真机稳定内核为 LKG"',workflow)
+        self.assertIn('      - ".github/config/ota-lkg-current.json"',workflow)
+        self.assertIn('      - ".github/config/ota-verified/**"',workflow)
+        self.assertIn("workflow_run:",workflow)
+        self.assertIn("types: [completed]",workflow)
+        self.assertIn("collect-os4-stage.py --output os4-stage.json",workflow)
 
 
 if __name__=="__main__":

@@ -91,12 +91,20 @@ jobs:
           STOCK_SHA="$(jq -r .stock_input_sha256 "$DIR/source/ota-v2-diagnostic-task.json")"
           jq -e --arg digest "$STOCK_SHA"             '[.assets[] | select(.name | endswith("xm.zip")) |
               select(.digest == ("sha256:" + $digest))] | length == 1' "$DIR/stock-release.json" >/dev/null || exit 1
-          # gh release download handles the binary asset API redirect correctly.
-          # Release ID/tag and exact asset identity were checked above.
-          TAG="$(jq -r .tag_name <<<"$RELEASE")"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern 'diagnostic-evidence.json' --dir "$DIR"
+          # GitHub Draft releases can 404 via tag lookup. The exact release and
+          # uploaded asset IDs were already verified; download those bytes by
+          # numeric ID, without resolving an untrusted or unlisted Draft tag.
+          ASSET_SIZE="$(jq -er --argjson id "$ASSET_ID" '
+            [.assets[] | select(.id == $id and .name == "diagnostic-evidence.json")] |
+            if length == 1 then .[0].size else error("diagnostic asset not unique") end
+          ' <<<"$RELEASE")"
+          curl --fail --location --silent --show-error --retry 2 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/octet-stream" \
+            --output "$DIR/diagnostic-evidence.json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
           [[ -s "$DIR/diagnostic-evidence.json" ]] || exit 1
+          [[ "$(stat -c%s "$DIR/diagnostic-evidence.json")" == "$ASSET_SIZE" ]] || exit 1
           [[ "$(sha256sum "$DIR/diagnostic-evidence.json" | cut -d' ' -f1)" == "$EXPECTED_SHA" ]] || exit 1
           python3 scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py \
             --task "$DIR/source/ota-v2-diagnostic-task.json" \

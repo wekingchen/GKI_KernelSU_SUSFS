@@ -48,7 +48,7 @@ AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW 表示来源/审计信息不足，
 都不允许生成待测 boot；STATIC_ABI_PASS_REQUIRES_REAL_DEVICE_TEST
 只开放旧有未验证 fastboot boot 候选，不等于持久安装和 LKG。
 诊断失败或与原始 checker 矛盾时，流程继续 fail-closed。详见
-[Pandora OTA V2 真实回放与生产诊断](pandora-ota-v2-real-evidence-replay.md)。App 0.13.0 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
+[Pandora OTA V2 真实回放与生产诊断](pandora-ota-v2-real-evidence-replay.md)。App 0.14.1-dev 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
 
 ## 电脑临时启动，手机提交原表单
 
@@ -71,7 +71,7 @@ AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW 表示来源/审计信息不足，
 
 后续仍从同一自定义入口拿到同次 Image 的待测 IMG 与 `OTA_CUSTOM_UNVERIFIED` AnyKernel3，不需要再回报一次测试结果才能取得 ZIP。真正稳定使用后，另由用户在[唯一 LKG 晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)确认；App 的测试通过不会自动晋升 LKG。
 
-当前正式稳定指针为 **OS4.0.6 Gen 6**，已通过原始 Run #37 真机临时启动、exact runtime-selected OEM 门禁、AnyKernel3 持久安装与连续两次普通重启，并归档严格复现证据。早期静态 OEM 检查被 Rust Binder/同名模块来源正确阻断；V2 诊断与采集任务**只用于补证**，不能代替每次新 OTA 的实际兼容证明。
+当前正式稳定指针为 **OS4.0.6 Gen 7**：同 OTA 的独立自定义来源 Run 45124613997 经用户实际确认、严格复现与完整资产校验后晋升，公开归档 `pandora-os4-lkg-gen7`。历史 Gen6 基于原始 Run #37 的 fastboot boot、exact runtime-selected OEM 门禁及两次持久重启，仍作为同版本前代证明保留。早期静态 OEM 检查被 Rust Binder/同名模块来源正确阻断；V2 诊断与采集任务**只用于补证**，不能代替每次新 OTA 的实际兼容证明。
 
 ## 过期与中断恢复
 
