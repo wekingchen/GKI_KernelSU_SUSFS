@@ -1,12 +1,20 @@
 # 小米 17 Pro OS4：OTA、手机采集与真机反馈操作指南
 
-核对日期：2026-11-23（OS4.0.6 Gen 6 真机闭环已完成）。适用 pandora；[当前状态](pandora-os4-guide.md)以机器可读指针和真实记录为准。当前稳定快照为 **OS4.0.6.0.XBLCNXM / Gen 6**。
+核对日期：2026-11-23。适用小米 17 Pro（pandora）。**当前稳定版为 OS4.0.6.0.XBLCNXM / Gen7**，已经实际安装、确认稳定并完成发布；以 [当前 LKG 指针](../.github/config/ota-lkg-current.json) 为准。下一次新的系统 OTA 仍需按本文重新采集和验证。
+
+## 先记住正常流程
+
+**只有系统真正更新时才需要走一遍完整流程：**先在电脑或离线位置留好这次 OTA 的原始 `init_boot.img` → 用这次版本的镜像取得 Root → 手机 OTA 助手检查并上传 → GitHub 自动构建候选和检查兼容性 → 你在电脑临时启动并实际测试 → 手机提交测试结果 → 按需编译带 Root/SUSFS/NoMount 等功能的版本 → 真正稳定后由你手动确认晋升 LKG。
+
+若兼容性检查失败，App 会在**需要补充证据时**显示「查看补采建议」，由你决定是否只读采集。**补采不会自动修好内核或让危险镜像可刷。**
+
+日常按钮与后台流程见 [工作流使用说明](pandora-workflows-2026-11-23.md)。
 
 ## 一、先判断是否需要重新采集
 
 | 你的情况 | 操作 |
 | --- | --- |
-| 系统 build 没变，只想更新组件或自选功能 | 日常编译无需重复采集；如更新器明确显示 D02 等新软件修订，使用 0.13.3 的人工确认入口记录 Dxx，提交后只进入 REVIEW_REQUIRED；未声明修订的同 build / boot 漂移门禁保持不变 |
+| 系统 build 没变，只想更新组件或自选功能 | 日常编译无需重复采集；如更新器明确显示 D02 等新软件修订，使用 OTA 助手现有的可选软件修订号入口记录 Dxx，提交后只进入 REVIEW_REQUIRED；未声明修订的同 build / boot 漂移门禁保持不变 |
 | 升级到另一个 HyperOS OTA build | 重新采集；仅完整内核 OTA 经 ABI/KMI 后才建立新 GKI 基线；同主版本 `.D02` 类软件修订只记录证据并待核验，不自动替换固定输入 |
 | 只是重新安装 App 或换 PAT | 不用重采；固定签名覆盖安装保留原数据 |
 
@@ -61,7 +69,7 @@ fastboot boot "你的待测文件.img"
 1. 先看补采任务说明（自动核对当前 Build、SHA 和 GitHub 来源 Run）；缺少任务或来源过期时不能使用旧证据冒充新 OTA。
 2. 选择「开始只读采集」。App 只读当前所需的 Binder 模式、已加载模块状态和 GNU Note SHA；Root 不可用或某项无法读取，会提示“部分信息未取得”。这一步不重新采集 boot/img，也不切换 slot。
 3. 点击「预览将提交的内容」，确认没有错误的设备/版本后勾选同意；上传到专门的 GitHub **Draft**，服务端核验同一来源 Run 和原始 BLOCKED 报告，只标记 **REVIEW_REQUIRED**。如果附件已上传但通知未完成，只选「重新通知」，不要重复上传。
-4. 等我们分析这份证据并制定兼容方案。**补采本身不会解除 ABI 阻断，更不会自动放行 AnyKernel3 或 LKG**；之后需要重新生成待测候选并在真机验证。当前已是稳定 Gen 6 的手机没有新 ABI 阻断时，完全不用进行此补采。
+4. 等我们分析这份证据并制定兼容方案。**补采本身不会解除 ABI 阻断，更不会自动放行 AnyKernel3 或 LKG**；之后需要重新生成待测候选并在真机验证。当前已是稳定 Gen7 的手机没有新 ABI 阻断时，完全不用进行此补采。
 
 补采是 V2 的可选异常处理，不替代正常 OTA 主采集或临时启动后提交的「真机测试反馈」；页面沿用原三页导航、状态卡和独立二级页面。
 
@@ -105,18 +113,20 @@ adb shell cat /proc/modules
 
 真正持久安装、稳定使用且选用功能均正常后，在[唯一晋升入口](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)填写原自定义 Run，确认启动/持久安装/运行时三项。后台自动识别 R62 或新 OTA、严格复现并归档，不用用户选择重复入口。详见 [LKG 说明](xiaomi-17-pro-os4-cross-ota-lkg.md)。
 
+**关于 OS4.0.6 的例外情况：**这次原始 GKI 静态 ABI 检查确实被 Rust Binder / OEM 模块选源问题挡住；后来通过同版本、绑定真机和精确镜像的 COMPAT-CUSTOM 专项方案完成 Gen7。它不等于原始静态门禁自动通过，也不能将这份兼容证明套给未来系统。
+
 ## 七、Windows 和人工管理只作备用
 
 Windows 10/11 可运行仓库最新 [`collect-pandora-stock-input.cmd`](../scripts/xiaomi-os4/collect-pandora-stock-input.cmd)，需要 adb、PowerShell、tar 和手机 Root；完整导出四分区、OEM 模块/数量清单、README、SHA256SUMS 后生成 xm.zip。模块数量或字节流出错即停止，不上传残包。
 
-人工更新固定 Release 前，必须完整备份旧附件并核验新输入；不能先删除唯一恢复输入，再验证新 ZIP。只更换附件未必触发 edited，可等北京时间 04:41 每日补查，或手动运行 OTA 主流程。**D02 软件修订**的手机采集与审核已经实机验证；真正跨 Build 的 **OS4.0.6** 也已完成 GKI/ABI 调查、临时启动、持久安装与 Gen 6 晋升。未来不同 OTA 仍需要独立验证，不得自动复用本轮版本特定兼容放行。
+人工更新固定 Release 前，必须完整备份旧附件并核验新输入；不能先删除唯一恢复输入，再验证新 ZIP。只更换附件未必触发 edited，可等北京时间 04:41 每日补查，或手动运行 OTA 主流程。**D02 软件修订**的手机采集与审核已经实机验证；真正跨 Build 的 **OS4.0.6** 已完成 GKI/ABI 调查、专项 EEXIST 兼容、临时启动、持久安装与 **Gen7 晋升**。未来不同 OTA 仍需要独立验证，不得自动复用本轮版本特定兼容放行。
 
 ## 八、恢复与验证边界
 
 2026-11-15 真机观察：系统更新页面显示 `4.0.5.0.XBLCNXM.D02`（相册、计算器优化），而 `ro.mi.os.version.incremental` 仍为 `OS4.0.5.0.XBLCNXM`；首次重启成功，活动 slot A、自定义内核 `6.12.69-android16-6-os4r62-custom-4k` 与 KernelSU Root 均保留。旧 A 槽四分区备份 SHA 前后相同；B 槽启动分区为全零、不可启动，因此不能误将其当成 D02 boot。该实机结果证明此次软件更新未使运行内核及 Root 丢失，但不能推导其他 OTA 类型都不改内核。
 
-从 0.13.3 起，当 Android Build 未携带 Dxx 时，用户可在 App 采集前依据更新器页面手动确认软件修订。采集包仅记录独立的 `software_revision`、`software_revision_source=USER_CONFIRMED_UPDATE_SCREEN` 以及绑定的真实 Build。服务器标记为**人工声称、未由 Android 属性验证**，只保存 Draft 和 `REVIEW_REQUIRED` 回执；不自动替换 stock-input、不运行 GKI、不晋升 LKG。0.13.3 的 D02 采集、上传与回执已完成真实验收：[D02 完整证据与 GitHub Run](pandora-ota-d02-real-device-2026-11-15.md)；0.13.4 仅更新可见修订号的 UI，仍须等覆盖安装后进行真实 UI 确认。
+从 0.13.3 起，当 Android Build 未携带 Dxx 时，用户可在 App 采集前依据更新器页面手动确认软件修订。采集包仅记录独立的 `software_revision`、`software_revision_source=USER_CONFIRMED_UPDATE_SCREEN` 以及绑定的真实 Build。服务器标记为**人工声称、未由 Android 属性验证**，只保存 Draft 和 `REVIEW_REQUIRED` 回执；不自动替换 stock-input、不运行 GKI、不晋升 LKG。0.13.3 的 D02 采集、上传与回执已完成真实验收：[D02 完整证据与 GitHub Run](pandora-ota-d02-real-device-2026-11-15.md)；0.13.4 是当时针对修订号展示的历史版本；当前 0.14.1-dev 的工作台、记录、设置、Root 与 GitHub 连接已完成手机基础回归，但不能据此声称未来 ABI 阻断后的完整补采已经实机通过。
 
 软件更新页面的 `.D02` 标记不保证 `ro.mi.os.version.incremental` 含相同后缀。验收需要真实的 getprop、fingerprint 与 slot；`REVIEW_REQUIRED` 不能解读为内核不变、ABI 通过或新 LKG。
 
-当前 Gen 6、历史 Gen 5/Gen 4 Release 都只适用于各自记录的内核与系统输入，不是跨版本恢复包。下载并核验方式见 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md)。App 既有采集/上传/本地删除已真机验证，新增预检、状态轮询和反馈表单已通过模拟器/契约；不能因此宣称另一版真实 OTA 已端到端成功。
+当前 Gen7、历史 Gen6/Gen5/Gen4 Release 都只适用于各自记录的内核与系统输入，不是跨版本恢复包。下载并核验方式见 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md)。App 既有采集/上传/本地删除已真机验证，新增预检、状态轮询和反馈表单已通过模拟器/契约；不能因此宣称另一版真实 OTA 已端到端成功。
