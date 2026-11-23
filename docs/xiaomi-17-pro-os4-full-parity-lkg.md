@@ -8,7 +8,7 @@
 
 ## 历史 R62 指针：Gen 4，而非 Gen 3
 
-权威来源：[`.github/config/pandora-os4-full-parity-lkg.env`](../.github/config/pandora-os4-full-parity-lkg.env)。下表仅为核对日快照，后续晋升以指针为准。
+历史 R62 的锁定记录（非当前指针）：[`.github/config/pandora-os4-full-parity-lkg.env`](../.github/config/pandora-os4-full-parity-lkg.env)。下表仅为核对日快照，后续晋升以指针为准。
 
 | 字段 | 快照 |
 | --- | --- |
@@ -71,7 +71,7 @@ BakaSU Manager 只接受官方成功 Manager CI 的同一 head SHA，KSU_VERSION
 
 功能版编译成功后，同次提供使用同一 Image 的待测 IMG 与实验性 AnyKernel3；取得 ZIP 不需要再次提交反馈。真正持久安装、稳定使用并确认本次选用功能正常后，才使用[统一晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)，由来源自动选择 R62 或新 OTA 路线。
 
-- R62：按锁定配置复现，经自动接力归档；历史 R62 Gen 4 已有实际成功记录。
+- 历史 R62：已有经过验证的 Gen4 归档；旧后台接力仅供核查，不要在当前 Gen7 上重新运行旧晋升。
 - 新 OTA：按原始 Run Git SHA 和原组件重编，严格校验配置、symvers、归一化 Image；完整草稿下载回检后才晋升指针及公开 Release。OS4.0.6 已实际适配至 Gen7；未来未知 OTA 仍需重新验证。
 - 代次按当前稳定指针递增；2026-11-23 当前为 Gen7，不能硬编码退回 Gen4/Gen5。
 

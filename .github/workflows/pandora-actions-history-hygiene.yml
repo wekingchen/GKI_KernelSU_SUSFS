@@ -1,0 +1,119 @@
+name: "仓库维护 / 自动精简重复 Actions 记录（保留验收证据）"
+
+# 仅处理严格白名单中的重复 CI，保留手机 OTA、手动构建、真机晋升、
+# 历史原始证据及文档引用的所有 Run。默认人工预览，月度自动维护。
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - ".github/workflows/pandora-actions-history-hygiene.yml"
+      - "scripts/maintenance/prune-dev-actions.py"
+      - "scripts/maintenance/test_prune_dev_actions.py"
+  push:
+    branches: [dev]
+    paths:
+      - ".github/workflows/pandora-actions-history-hygiene.yml"
+      - "scripts/maintenance/prune-dev-actions.py"
+      - "scripts/maintenance/test_prune_dev_actions.py"
+  schedule:
+    - cron: "19 3 1 * *"
+  workflow_dispatch:
+    inputs:
+      action_mode:
+        description: "通常选“只查看”；只有明确要清理旧的重复 CI 记录时才选“执行清理”"
+        type: choice
+        required: true
+        options:
+          - "只查看，不删除"
+          - "执行清理（只删除冗余 CI）"
+        default: "只查看，不删除"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pandora-actions-hygiene
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: "先运行安全规则测试，不连接手机、不删日志"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: "检查日志清理器语法与保护范围"
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/maintenance/prune-dev-actions.py
+          python3 -m unittest discover -s scripts/maintenance -p 'test_*.py' -v
+
+  prune:
+    needs: test
+    name: "删除重复 CI，保留有用的运行历史"
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "固定当前 dev 身份，先核对清理范围"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" && "$GITHUB_REF_NAME" == dev ]]
+      - name: "安全筛选、预览并按需要删除旧重复记录"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.action_mode }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$GITHUB_EVENT_NAME" == schedule || "$GITHUB_EVENT_NAME" == push ||
+                ( "$GITHUB_EVENT_NAME" == workflow_dispatch && "$MODE" == "执行清理（只删除冗余 CI）" ) ]]; then
+            args+=(--apply)
+          fi
+          python3 scripts/maintenance/prune-dev-actions.py "${args[@]}"
+
+  close-merged-branch-tail:
+    needs: test
+    name: "只收掉上次遗留及本次已合并的两个临时分支"
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: "仅对固定白名单和精确合并 SHA 操作"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for branch in \
+            "chore/pandora-ota-v2-remove-one-time-cleanup-workflow" \
+            "chore/pandora-dev-workflow-docs-log-hygiene-20261123"; do
+            live=""
+            if ! live="$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" 2>/dev/null)"; then
+              echo "已不存在：$branch"; continue
+            fi
+            sha="$(jq -r '.commit.sha' <<<"$live")"
+            [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
+            jq -e '.protected == false' <<<"$live" >/dev/null || exit 1
+            merged="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&per_page=50")"
+            jq -e --arg branch "$branch" --arg sha "$sha" '
+              [.[] | select(.merged_at != null and .base.ref == "dev"
+                and .head.ref == $branch and .head.sha == $sha)] | length == 1
+            ' <<<"$merged" >/dev/null || {
+              echo "::error::分支不是原 SHA 的已合并 PR，拒绝删除：$branch"; exit 1;
+            }
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null
+            echo "已核对并清理：$branch"
+          done

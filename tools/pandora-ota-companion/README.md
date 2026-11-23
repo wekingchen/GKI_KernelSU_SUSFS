@@ -1,6 +1,6 @@
 # Pandora OTA 助手：当前使用说明
 
-当前开发版本 **0.14.1-dev**（versionCode 30）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
+当前开发版本 **0.14.1-dev**（versionCode 30）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。想知道哪些 GitHub Actions 该点、哪些是后台流程，请看 [工作流使用说明](../../docs/pandora-workflows-2026-11-23.md)。
 
 App 的范围：常规 OTA 只读采集、GitHub 上传与接收跟踪、在手机填写原真机反馈工作流，以及仅在 ABI 阻断时按需执行的引导式只读诊断补采。电脑负责 fastboot boot；App 不执行 fastboot/flash、重启、切 slot 或分区写入，也不会自动晋升 LKG。
 

@@ -48,7 +48,7 @@ AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW 表示来源/审计信息不足，
 都不允许生成待测 boot；STATIC_ABI_PASS_REQUIRES_REAL_DEVICE_TEST
 只开放旧有未验证 fastboot boot 候选，不等于持久安装和 LKG。
 诊断失败或与原始 checker 矛盾时，流程继续 fail-closed。详见
-[Pandora OTA V2 真实回放与生产诊断](pandora-ota-v2-real-evidence-replay.md)。App 0.14.1-dev 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
+[Pandora OTA V2 诊断与真实证据回放](pandora-ota-v2-real-evidence-replay.md)。当前 OTA 助手 0.14.1-dev 工作台提供来源绑定的阶段快照卡，可按需刷新候选、ABI、待测和后续基线/自定义/LKG 状态；不是逐秒编译进度。
 
 ## 电脑临时启动，手机提交原表单
 
