@@ -173,6 +173,47 @@ final class FeedbackClient {
         }
         if(result==null)throw new IOException("缺少手机反馈元数据");return result;
     }
+    /** Read exactly one named JSON entry from a small, possibly multi-file, trusted Action artifact. */
+    JSONObject bundledJson(long id, String filename, int maxJsonBytes) throws Exception {
+        if(id<=0||!filename.matches("[a-z0-9_.-]+\\.json")||maxJsonBytes>32768)
+            throw new IOException("诊断附件参数无效");
+        URL url=new URL(api+"/actions/artifacts/"+id+"/zip");
+        byte[] archive=null;
+        for(int hop=0;hop<4;hop++) {
+            HttpURLConnection c=connection(url,hop==0);
+            try {
+                int status=c.getResponseCode();
+                if(status==200){try(InputStream in=c.getInputStream()){archive=read(in,512*1024);}break;}
+                if(status!=302&&status!=301&&status!=307)throw new IOException("读取诊断任务 HTTP "+status);
+                URL target=new URL(url,c.getHeaderField("Location"));
+                String host=target.getHost().toLowerCase(Locale.ROOT);
+                if(!host.endsWith(".blob.core.windows.net")&&!host.endsWith(".githubusercontent.com")
+                        &&!host.endsWith(".s3.amazonaws.com")&&!"api.github.com".equals(host))
+                    throw new IOException("诊断附件下载重定向异常");
+                url=target;
+            } finally {c.disconnect();}
+        }
+        if(archive==null)throw new IOException("诊断附件下载重定向过多");
+        JSONObject result=null;int entries=0;
+        try(ZipInputStream zip=new ZipInputStream(new ByteArrayInputStream(archive))) {
+            ZipEntry e;
+            while((e=zip.getNextEntry())!=null) {
+                String name=e.getName();
+                if(++entries>12||e.isDirectory()||name.contains("/")||name.contains("\\")
+                        ||name.contains("..")||e.getSize()>256*1024)
+                    throw new IOException("诊断附件结构异常");
+                byte[] bytes=read(zip,name.equals(filename)?maxJsonBytes:256*1024);
+                if(filename.equals(name)) {
+                    if(result!=null)throw new IOException("重复的诊断任务文件");
+                    result=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
+                }
+                zip.closeEntry();
+            }
+        }
+        if(result==null)throw new IOException("诊断任务尚未发布；请查看来源工作流");
+        return result;
+    }
+
     private static byte[] read(InputStream in,int max) throws IOException {
         ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;
         while((n=in.read(b))!=-1){if(out.size()+n>max)throw new IOException("GitHub 响应超过读取上限");out.write(b,0,n);}return out.toByteArray();
