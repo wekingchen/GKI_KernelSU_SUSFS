@@ -22,6 +22,8 @@ FLAGS = ("ROOT_MODE", "SUSFS_EXTRA_FEATURES", "USE_NOMOUNT", "DROIDSPACES_ENABLE
 FILES = ("Image", "Module.symvers", "final.config", "build-metadata.txt",
          "ota-custom-abi-report.json", "verified-baseline.json", "fixture.json",
          "locked-upstreams.env")
+COMPAT_CUSTOM_PROOF = "compat-custom-previous-lkg.json"
+ROOT = Path(__file__).resolve().parents[2]
 PERSISTENT_FILES = ("persistent-candidate.json", "runtime-selected-oem-gate.json",
                     "persistent-boot-equivalence.json")
 
@@ -75,6 +77,9 @@ def identify(folder, run_id, source_sha):
     required(isinstance(build, str) and BUILD.fullmatch(build), "bad OS build")
     required(isinstance(release, str) and RELEASE.fullmatch(release), "bad kernel release")
     compat = rec.get("status") == "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED"
+    compat_custom = compat and (folder / COMPAT_CUSTOM_PROOF).is_file()
+    required(compat or not (folder / COMPAT_CUSTOM_PROOF).exists(),
+             "compat-custom proof on non-compat baseline")
     if compat:
         required(rec.get("schema") == 2 and rec.get("device") == "pandora"
                  and rec.get("next_stage") == "READY_FOR_VERSION_SCOPED_FEATURE_ADAPTATION_NONFLASH"
@@ -103,31 +108,76 @@ def identify(folder, run_id, source_sha):
                  and abi.get("baseline_symvers_sha256") == rec.get("module_symvers_sha256")
                  and abi.get("feature_symvers_sha256") == sha(folder / "Module.symvers"),
                  "compatibility custom core ABI no longer matches OTA source")
-        persistent = load(folder / "persistent-candidate.json")
-        runtime = load(folder / "runtime-selected-oem-gate.json")
-        persistent_boot = load(folder / "persistent-boot-equivalence.json")
-        required(persistent.get("status") == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
-                 and persistent.get("actual_persistent_install_verified") is True
-                 and persistent.get("lkg_promotion") is True
-                 and persistent.get("feature_workflow_run_id") == int(run_id)
-                 and persistent.get("feature_image_sha256") == sha(folder / "Image"),
-                 "persistent candidate lacks exact two-reboot proof")
-        required(runtime.get("status") == "PASS_RUNTIME_SELECTED_EXACT_OS406"
-                 and runtime.get("feature_workflow_run_id") == int(run_id)
-                 and runtime.get("feature_image_sha256") == sha(folder / "Image")
-                 and runtime.get("unresolved_kernel_imports") == 0
-                 and runtime.get("ambiguous_providers") == 0
-                 and runtime.get("crc_mismatches") == 0
-                 and runtime.get("failed_modules") == 0
-                 and runtime.get("actual_persistent_install_verified") is True
-                 and runtime.get("lkg_promotion") is True,
-                 "runtime-selected OEM gate is not persistent-LKG ready")
-        required(persistent_boot.get("status") == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
-                 and persistent_boot.get("feature_workflow_run_id") == int(run_id)
-                 and persistent_boot.get("feature_image_sha256") == sha(folder / "Image")
-                 and persistent_boot.get("actual_persistent_install_verified") is True
-                 and persistent_boot.get("lkg_promotion") is True,
-                 "persistent boot equivalence is not LKG ready")
+        if compat_custom:
+            # A previously verified LKG proves the C Binder / EEXIST mechanism
+            # and OEM ABI only. The new Image needs its own real-device attestation.
+            previous = load(folder / COMPAT_CUSTOM_PROOF)
+            live = load(ROOT / ".github/config/ota-lkg-current.json")
+            previous_gen = previous.get("generation")
+            archive = ROOT / ".github/config/ota-lkg-history" / f"gen{previous_gen}.json"
+            required(previous == live or (archive.is_file() and previous == load(archive)),
+                     "previous LKG proof is not in trusted pointer/history")
+            evidence = ROOT / ".github/config/ota-verified" / build
+            persistent = load(evidence / "persistent-candidate.json")
+            runtime = load(evidence / "runtime-selected-oem-gate.json")
+            persistent_boot = load(evidence / "persistent-boot-equivalence.json")
+            source_lkg = previous.get("source_run_id")
+            source_image = previous.get("image_sha256")
+            required(previous.get("schema") == 1
+                     and previous.get("status") == "USER_PROMOTED_OTA_LKG"
+                     and previous.get("attestation") ==
+                     "USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF"
+                     and isinstance(previous_gen, int) and previous_gen >= 6
+                     and previous.get("stock_build") == build
+                     and previous.get("kernel_release") == release
+                     and previous.get("gki_commit") == rec.get("candidate_gki_commit")
+                     and source_lkg != int(run_id)
+                     and previous.get("reproduction", {}).get("symvers_sha256") == sha(folder / "Module.symvers")
+                     and persistent.get("status") == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
+                     and persistent.get("feature_workflow_run_id") == source_lkg
+                     and persistent.get("feature_image_sha256") == source_image
+                     and persistent.get("actual_persistent_install_verified") is True
+                     and persistent.get("lkg_promotion") is True
+                     and runtime.get("status") == "PASS_RUNTIME_SELECTED_EXACT_OS406"
+                     and runtime.get("feature_workflow_run_id") == source_lkg
+                     and runtime.get("feature_image_sha256") == source_image
+                     and runtime.get("feature_module_symvers_sha256") == sha(folder / "Module.symvers")
+                     and runtime.get("unresolved_kernel_imports") == 0
+                     and runtime.get("ambiguous_providers") == 0
+                     and runtime.get("crc_mismatches") == 0
+                     and runtime.get("failed_modules") == 0
+                     and persistent_boot.get("status") == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
+                     and persistent_boot.get("feature_workflow_run_id") == source_lkg
+                     and persistent_boot.get("feature_image_sha256") == source_image
+                     and md.get("PANDORA_RUST_BINDER_EEXIST_SHIM") == "1"
+                     and md.get("COMPATIBILITY_BASELINE_KIND") == "PANDORA_RUST_BINDER_EEXIST_SHIM",
+                     "COMPAT-CUSTOM requires same-OTA trusted persistent LKG, GKI and OEM ABI")
+        else:
+            persistent = load(folder / "persistent-candidate.json")
+            runtime = load(folder / "runtime-selected-oem-gate.json")
+            persistent_boot = load(folder / "persistent-boot-equivalence.json")
+            required(persistent.get("status") == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
+                     and persistent.get("actual_persistent_install_verified") is True
+                     and persistent.get("lkg_promotion") is True
+                     and persistent.get("feature_workflow_run_id") == int(run_id)
+                     and persistent.get("feature_image_sha256") == sha(folder / "Image"),
+                     "persistent candidate lacks exact two-reboot proof")
+            required(runtime.get("status") == "PASS_RUNTIME_SELECTED_EXACT_OS406"
+                     and runtime.get("feature_workflow_run_id") == int(run_id)
+                     and runtime.get("feature_image_sha256") == sha(folder / "Image")
+                     and runtime.get("unresolved_kernel_imports") == 0
+                     and runtime.get("ambiguous_providers") == 0
+                     and runtime.get("crc_mismatches") == 0
+                     and runtime.get("failed_modules") == 0
+                     and runtime.get("actual_persistent_install_verified") is True
+                     and runtime.get("lkg_promotion") is True,
+                     "runtime-selected OEM gate is not persistent-LKG ready")
+            required(persistent_boot.get("status") == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
+                     and persistent_boot.get("feature_workflow_run_id") == int(run_id)
+                     and persistent_boot.get("feature_image_sha256") == sha(folder / "Image")
+                     and persistent_boot.get("actual_persistent_install_verified") is True
+                     and persistent_boot.get("lkg_promotion") is True,
+                     "persistent boot equivalence is not LKG ready")
     else:
         required(rec.get("device") == "pandora"
                  and rec.get("status") == "HUMAN_ATTESTED_BASELINE_BOOTED"
@@ -205,16 +255,20 @@ def identify(folder, run_id, source_sha):
     image = (folder / "Image").read_bytes()
     required(release.encode() in image, "compiled Image release marker absent")
     boots = list(folder.glob("*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"))
-    zips = (list(folder.glob("*-PERSISTENT-CANDIDATE-AnyKernel3.zip")) if compat
-            else list(folder.glob("*-UNVERIFIED-AnyKernel3.zip")))
+    zips = (list(folder.glob("*-PERSISTENT-CANDIDATE-AnyKernel3.zip"))
+            if compat and not compat_custom else list(folder.glob("*-UNVERIFIED-AnyKernel3.zip")))
     required(len(boots) == len(zips) == 1, "must have exactly one boot and one AnyKernel3")
     boot, zipfile = boots[0], zips[0]
-    if compat:
+    if compat and not compat_custom:
         required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
                  and zipfile.name == "Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip",
                  "wrong persistent compatibility package identity")
         required(sha(zipfile) == persistent.get("package_sha256"),
                  "persistent AnyKernel3 hash differs from two-reboot evidence")
+    elif compat_custom:
+        required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
+                 and zipfile.name == f"Xiaomi17Pro-pandora-{build}-COMPAT-CUSTOM-run-{run_id}-UNVERIFIED-AnyKernel3.zip",
+                 "wrong exact COMPAT-CUSTOM package identity")
     else:
         required(f"pandora-{build}-CUSTOM-run-{run_id}-" in boot.name
                  and build in zipfile.name and f"run-{run_id}-" in zipfile.name,
@@ -240,7 +294,9 @@ def identify(folder, run_id, source_sha):
         required(process.returncode == 0,
                  "source boot cannot be reproduced from same-OTA fixture: " + process.stderr[-500:])
     hashes = {p.name: sha(p) for p in (folder / n for n in FILES)}
-    if compat:
+    if compat_custom:
+        hashes[COMPAT_CUSTOM_PROOF] = sha(folder / COMPAT_CUSTOM_PROOF)
+    elif compat:
         for name in PERSISTENT_FILES:
             hashes[name] = sha(folder / name)
     if (folder / "image-reproducibility.env").exists():
@@ -248,8 +304,9 @@ def identify(folder, run_id, source_sha):
     hashes[boot.name] = sha(boot)
     hashes[zipfile.name] = sha(zipfile)
     manifest = {
-        "schema": 1, "kind": ("PANDORA_OS4_OTA_COMPAT_PERSISTENT_SOURCE"
-                                if compat else "PANDORA_OS4_OTA_CUSTOM_SOURCE"),
+        "schema": 1, "kind": ("PANDORA_OS4_OTA_COMPAT_CUSTOM_SOURCE" if compat_custom else
+                               "PANDORA_OS4_OTA_COMPAT_PERSISTENT_SOURCE" if compat else
+                               "PANDORA_OS4_OTA_CUSTOM_SOURCE"),
         "source_run_id": int(run_id), "source_head_sha": source_sha,
         "device": "pandora", "stock_build": build, "kernel_release": release,
         "stock_release_asset_id": rec.get("stock_release_asset_id"),
@@ -263,9 +320,11 @@ def identify(folder, run_id, source_sha):
         "selections": {k: md[k] for k in FLAGS},
         "upstream_commits": {k: pins["RESOLVED_" + k + "_COMMIT"] for k in COMPONENTS},
         "upstream_refs": upstream_refs,
-        "real_device_feature_test": ("TWO_PERSISTENT_REBOOTS_PASS"
-                                     if compat else "NOT_ATTESTED_AT_BUILD_TIME"),
-        "persistent_compatibility_source": compat,
+        "real_device_feature_test": ("TWO_PERSISTENT_REBOOTS_PASS" if compat and not compat_custom
+                                     else "USER_ATTESTED_AT_PROMOTION" if compat_custom
+                                     else "NOT_ATTESTED_AT_BUILD_TIME"),
+        "persistent_compatibility_source": compat and not compat_custom,
+        "compat_custom_promotion": compat_custom,
         "full_parity_lkg_promoted": False,
     }
     return manifest
