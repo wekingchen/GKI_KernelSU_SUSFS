@@ -16,6 +16,10 @@ on:
       - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
       - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
+      - "scripts/xiaomi-os4/collect-os4-stage.py"
+      - "scripts/xiaomi-os4/test_ota_v2_workflow_shell_syntax.py"
+      - "scripts/xiaomi-os4/test_ota_v2_recovery_plan.py"
+      - "scripts/xiaomi-os4/plan-ota-v2-recovery.py"
       - ".github/workflows/pandora-os4-ota-diagnostic-intake.yml"
       - ".github/workflows/pandora-os4-stage-status.yml"
       - "docs/pandora-ota-v2-real-evidence-replay.md"
@@ -31,6 +35,10 @@ on:
       - "scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py"
       - "scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py"
       - "scripts/xiaomi-os4/test_ota_v2_diagnostic_task.py"
+      - "scripts/xiaomi-os4/collect-os4-stage.py"
+      - "scripts/xiaomi-os4/test_ota_v2_workflow_shell_syntax.py"
+      - "scripts/xiaomi-os4/test_ota_v2_recovery_plan.py"
+      - "scripts/xiaomi-os4/plan-ota-v2-recovery.py"
       - ".github/workflows/pandora-os4-ota-diagnostic-intake.yml"
       - ".github/workflows/pandora-os4-stage-status.yml"
   workflow_dispatch:
@@ -54,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/test_ota_v2_diagnostics.py scripts/xiaomi-os4/test_ota_v2_production_integration.py
+          python3 -m py_compile scripts/xiaomi-os4/ota-v2-abi-diagnostics.py scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py scripts/xiaomi-os4/verify-ota-v2-diagnostic-evidence.py scripts/xiaomi-os4/plan-ota-v2-recovery.py scripts/xiaomi-os4/collect-os4-stage.py
           bash -n scripts/xiaomi-os4/run-ota-v2-diagnostics.sh
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_ota_v2_*.py' -v
 
