@@ -46,6 +46,7 @@
 | [历史 OEM ABI 真实阻断回放](../.github/workflows/pandora-os4-ota-v2-evidence-replay.yml) | 用独立冻结的 OS4.0.6 原始采集包重跑旧案例，必须仍是 `BLOCKED` |
 | [SUSFS 源码兼容验证](../.github/workflows/pandora-os4-susfs-priority-upstream-check.yml) | 核对已知 SUSFS 源码布局及辅助函数兼容修补，防止上游改变后编译出错；属专项回归，不是新 OTA 工作流 |
 | [上游文件隔离门禁](../.github/workflows/xiaomi-upstream-isolation-guard.yml) | 保护上游共有文件不被本仓的 pandora 改动覆盖 |
+| [Actions 历史记录维护](../.github/workflows/pandora-actions-history-hygiene.yml) | 每月自动删除多余的**重复 CI 运行记录**，保留手机上传、人工构建/晋升、文档引用和关键测试证据；手动点开默认只预览不删除 |
 
 ## 红米 K50 Pro 与上游同步：另一套系统，不要与小米 17 Pro 混用
 
