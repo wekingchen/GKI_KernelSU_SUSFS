@@ -426,3 +426,101 @@ system loader 且不改额外分区的执行点，因此仍是只读架构假设
 `patch_cmdline` 机制，在 exact OS4.0.6 compatibility 模式下确定性加入
 `pandora_rust_binder_eexist=1`，先生成与持久安装语义等价、但仍可
 `fastboot boot` 回退测试的候选，真机通过后再决定是否开放持久 AnyKernel3。
+
+
+## 第十四轮：#37 持久 boot 等价与固定 AnyKernel3 magiskboot 实测（2026-11-23）
+
+正式 OEM runtime-selected gate 通过后，继续验证“同一 #37 内核如果由
+AnyKernel3 持久写入 boot，是否保持与已真机启动的临时 boot 相同语义”。
+
+### 原厂 boot 真实结构
+
+直接从锁定 stock Release asset `775019680` 的 boot.img 审计：
+
+- 完整 boot 分区 dump：`100,663,296` bytes（96 MiB）
+- stock kernel size：`41,511,424`
+- ramdisk：`0`
+- boot signature field：`0`
+- Android boot header：v4 / header size 1584
+- 原厂 AVB footer：`AVBf` v1.0
+- AVB original image size：`41,533,440`
+- vbmeta offset：`41,533,440`
+- vbmeta size：`2,432`
+
+因此 #37 的 `44,404,736` byte boot-v4 payload 并没有超过真实 boot
+分区容量；若只看未填充 payload，仍有 `56,258,560` bytes 容量余量。
+
+### 目标 boot 语义字节级证明
+
+从原厂 stock boot 出发，只做未来 persistent installer 必须做的变化：
+
+1. kernel payload 替换为 #37 Image
+   `3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0`
+2. cmdline 加入
+   `module_blacklist=kernelsu pandora_rust_binder_eexist=1`
+3. 保持 boot v4 / zero ramdisk / zero signature 语义。
+
+将已验证的 stock AVB 尾部从**比较对象**中分离后，重建的 boot payload SHA-256：
+
+`230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27`
+
+与标准工作流 #37 已经在真机通过 `fastboot boot` 的镜像**逐字节完全相同**：
+
+`BYTE_EXACT_TO_TRUE_DEVICE_TESTED_RUN37_BOOT=PASS`
+
+这证明未来持久安装需要的 kernel/header/cmdline 语义不是新的未测试组合。
+
+### 固定 AnyKernel3 / magiskboot 实际重打包
+
+使用仓库固定：
+
+- AnyKernel3 commit：
+  `dca9dc370838d919d56c1f59ec78b27a14a72c68`
+- `tools/ak3-core.sh` blob：
+  `c09ca7fe2d2b75387541bb5f4e45891a13c057c8`
+
+在 CI 中直接运行该提交自带的 ARM static `magiskboot`（QEMU user mode）
+对真实 96 MiB stock boot 完成 unpack -> 替换 #37 Image -> cmdline patch ->
+repack -> 再 unpack 验证。
+
+结果：
+
+- unpack rc：0
+- repack rc：0
+- 重打包后完整 boot：`100,663,296` bytes
+- 重打包 SHA-256：
+  `707af1aeedb4079d35a9bcabd63cf800d5a716dbea41b41d1bd72b34f8d44287`
+- 重新解包内嵌 kernel SHA：精确等于 #37 Image
+- 重新解包 cmdline：
+  `module_blacklist=kernelsu pandora_rust_binder_eexist=1`
+- AVB footer：`AVBf` v1.0
+- AVB original image size：`44,404,736`
+- vbmeta offset：`44,404,736`
+- vbmeta size：`2,432`
+- 固定 AnyKernel3 magiskboot repack audit：**PASS**
+
+one-off Run：`45104409964`  
+Artifact：`14787265690 / pandora-406-persistent-boot-equivalence`
+
+版本化证据：
+
+`.github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json`
+
+### 当前边界
+
+因此状态提升为：
+
+- formal OEM runtime-selected gate：**PASS**
+- persistent boot target semantics：**PASS**
+- 固定 AnyKernel3 magiskboot repack：**PASS**
+- boot partition capacity：**PASS**
+- `eligible_for_persistent_kernel_payload=true`
+
+仍未完成的唯一设备级事实是：
+
+- **真正把 AnyKernel3 写入活动 boot 后冷启动/重启是否通过**。
+
+所以本轮仍不直接晋升 LKG，也不把普通标准工作流所有新编译自动变成可刷包。
+下一步只针对已经完成 #37 真机 fastboot-boot 验收的**精确 Image**生成一份受控
+persistent candidate。该候选必须固定上述所有 SHA/证据，安装并重启通过后，
+才允许晋升为 OS4.0.6 LKG。

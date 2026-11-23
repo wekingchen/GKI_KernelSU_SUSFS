@@ -74,8 +74,10 @@
     }
   ],
   "eligible_for_fastboot_boot": true,
-  "eligible_for_persistent_kernel_payload": false,
-  "persistent_boot_equivalence": "NOT_YET_VERIFIED",
+  "eligible_for_persistent_kernel_payload": true,
+  "persistent_boot_equivalence": "PASS_EXACT_RUN37",
   "safe_to_flash": false,
-  "lkg_promotion": false
+  "lkg_promotion": false,
+  "persistent_boot_equivalence_report": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json",
+  "actual_persistent_install_verified": false
 }

@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "status": "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37",
+  "source_run_id": 45104409964,
+  "source_artifact_id": 14787265690,
+  "source_artifact_name": "pandora-406-persistent-boot-equivalence",
+  "source_artifact_zip_sha256": "5495117645fa89337208acb6f5f7933e444da96f15172ad0fb9a893a93d54036",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "stock_boot_sha256": "a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b",
+  "stock_partition_dump_size": 100663296,
+  "stock_kernel_size": 41511424,
+  "stock_ramdisk_size": 0,
+  "stock_signature_size": 0,
+  "stock_avb": {
+    "footer": "AVBf",
+    "version": "1.0",
+    "original_image_size": 41533440,
+    "vbmeta_offset": 41533440,
+    "vbmeta_size": 2432
+  },
+  "feature_workflow_run_id": 45047763911,
+  "feature_image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+  "feature_module_symvers_sha256": "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e",
+  "tested_fastboot_boot_sha256": "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27",
+  "tested_fastboot_boot_size": 44404736,
+  "persistent_target_cmdline": "module_blacklist=kernelsu pandora_rust_binder_eexist=1",
+  "semantic_payload": {
+    "sha256": "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27",
+    "size": 44404736,
+    "byte_exact_to_true_device_tested_run37": true,
+    "capacity_margin_if_unpadded": 56258560
+  },
+  "anykernel3": {
+    "repository": "osm0sis/AnyKernel3",
+    "commit": "dca9dc370838d919d56c1f59ec78b27a14a72c68",
+    "core_sha": "c09ca7fe2d2b75387541bb5f4e45891a13c057c8",
+    "magiskboot_file": "ELF 32-bit LSB ARM EABI5 statically linked",
+    "magiskboot_unpack_rc": 0,
+    "magiskboot_repack_rc": 0,
+    "repacked_boot_size": 100663296,
+    "repacked_boot_sha256": "707af1aeedb4079d35a9bcabd63cf800d5a716dbea41b41d1bd72b34f8d44287",
+    "repacked_kernel_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+    "repacked_cmdline": "module_blacklist=kernelsu pandora_rust_binder_eexist=1",
+    "repacked_avb": {
+      "footer": "AVBf",
+      "version": "1.0",
+      "original_image_size": 44404736,
+      "vbmeta_offset": 44404736,
+      "vbmeta_size": 2432
+    },
+    "audit": "PASS"
+  },
+  "runtime_selected_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+  "eligible_for_persistent_kernel_payload": true,
+  "actual_persistent_install_verified": false,
+  "safe_to_flash": false,
+  "lkg_promotion": false,
+  "next_stage": "BUILD_EXACT_RUN37_ANYKERNEL3_PERSISTENT_CANDIDATE"
+}
