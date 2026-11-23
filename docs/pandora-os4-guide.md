@@ -41,6 +41,8 @@
 6. 在工作台「OTA 全链路状态」刷新已核验的 GKI / ABI / 待测 / 基线 / 自定义 / LKG 阶段；稳定态显示动态 Gen 与 GitHub 核验时间。若确实 ABI 阻断，0.14.1-dev 会在状态卡出现「查看补采建议」，进入不改动原三页导航的原生二级页：只读采集、人工预览同意、独立 Draft 审核；没有新 ABI 阻断不需要额外操作。
 7. 本地 ZIP 仅在通知成功、接收终态、远端与本地哈希核验通过后由用户主动删除；不会顺带删除远端附件。
 
+已独立冻结的 [OS4.0.6 历史 OEM ABI 原件](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-ota-v2-os406-raw-stock-reference) 用于真实 BLOCKED 回放，与未来 OTA 固定输入严格隔离；不提供刷机授权。
+
 第四阶段真实手机基础回归见 [2026-11-23 OTA V2 真机验收](pandora-ota-v2-phase4-real-device-smoke-2026-11-23.md)；OTA V2 全链审计见 [最终审计报告](pandora-ota-v2-final-audit-2026-11-23.md)。
 
 本次文档和历史清理的具体清单见 [2026-11-02 维护记录](pandora-maintenance-2026-11-02.md)。本轮 D02 实机验收资料见 [D02 独立记录](pandora-ota-d02-real-device-2026-11-15.md)。

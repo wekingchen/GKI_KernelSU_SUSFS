@@ -19,8 +19,7 @@ OEM gate，**不是对初始静态 ABI 失败的通用豁免**。
   已知的原始 OS4.0.6 静态图参考记录，锁定 stock SHA、GKI commit、
   模块数量、导入和 ABI 阻断统计。
 - scripts/xiaomi-os4/test_ota_v2_diagnostics.py：正常/篡改/误放行/证据缺失测试。
-- .github/workflows/pandora-os4-ota-v2-evidence-replay.yml：只读从两个已有
-  Release 读取真实 stock-input 和 GKI 候选，核对来源及文件校验和，
+- .github/workflows/pandora-os4-ota-v2-evidence-replay.yml：只读从独立永久冻结的 [OS4.0.6 历史 stock 参考归档](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-ota-v2-os406-raw-stock-reference) 和候选 GKI Release 读取真实字节，核对来源及文件校验和，
   调用 **现有生产 OEM checker** 全图重新分析，比较历史参考，
   上传原始 ABI JSON、V2 诊断 JSON 和 Markdown。只做回放，不编译内核。
 
@@ -36,6 +35,10 @@ OEM gate，**不是对初始静态 ABI 失败的通用豁免**。
 
 如果数据被替换、参考统计不再一致、checker 意外放行或证据不完整，回放
 **必须失败**，不得静默修正预期值。
+
+### 2026-11-23：历史真实输入固定归档
+
+原 `pandora-os4-stock-input` 是**随下次 OTA 变化的固定输入 Release**，无法永久用于 OS4.0.6 的历史 ABI 测试。现已通过 [冻结 Run #2](https://github.com/wekingchen/GKI_KernelSU_SUSFS/actions/runs/45141107858) 将 88,003,109 字节的 `xm.zip` 保存为独立公开的历史 `pandora-ota-v2-os406-raw-stock-reference` prerelease，原始 SHA-256 为 `bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8`，归档后再次独立下载校验通过。回放现在从该永久独立引用读取 OS4.0.6 原始字节，不再依赖未来会被替换的当前 OTA 输入。原件为 Root 后活动设备快照，不声称未经修改的官方原厂镜像，不能刷机。
 
 ## 第二阶段：接入已有 OTA 自动候选的 OEM ABI job
 
