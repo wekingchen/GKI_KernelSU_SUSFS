@@ -89,9 +89,16 @@ class TransactionSafety(unittest.TestCase):
                         self.promote.index('gh release create "$TAG"'))
 
     def test_custom_does_not_auto_promote_any_feature_build(self):
-        self.assertIn('XIAOMI_AK3_MODE=ota-custom', self.custom)
+        # Standard and post-LKG compatibility builds may both emit a manual
+        # CUSTOM_UNVERIFIED AnyKernel3, but neither path may publish/promote it.
+        self.assertIn('AK3_MODE="ota-custom"', self.custom)
+        self.assertIn('AK3_MODE="ota-compat-custom"', self.custom)
+        self.assertIn('persistent_compat_enabled', self.custom)
+        self.assertIn('EXACT_IMAGE_RUNTIME_VALIDATION=NOT_DONE', self.custom)
+        self.assertIn('LKG_PROMOTION=REQUIRES_TRUE_DEVICE_VALIDATION', self.custom)
         self.assertIn('ota-custom-source.json', (SCRIPTS / "cross-ota-lkg.py").read_text())
         self.assertNotIn('gh release edit "$TAG" --draft=false', self.custom)
+        self.assertNotIn('CROSS_OTA_LKG=PASS', self.custom)
         self.assertIn("needs.select-baseline.outputs.mode == 'ota'", self.custom)
         self.assertIn("needs.select-baseline.outputs.mode == 'legacy'", self.custom)
 
