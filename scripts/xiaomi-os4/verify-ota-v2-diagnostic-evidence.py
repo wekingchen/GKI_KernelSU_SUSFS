@@ -27,14 +27,28 @@ def null_or_bool(item):
 
 def verify(task, report, evidence, raw, digest):
     check(len(raw)<=32768 and hashlib.sha256(raw).hexdigest()==digest, "Evidence SHA/size mismatch")
-    check(task.get("schema")=="pandora-ota-diagnostic-task-v1", "Unsupported task")
+    check(task.get("schema")=="pandora-ota-diagnostic-task-v1"
+          and task.get("repository")=="wekingchen/GKI_KernelSU_SUSFS"
+          and task.get("device")=="pandora"
+          and task.get("status")=="ABI_BLOCKED_DIAGNOSABLE"
+          and task.get("requires_manual_review") is True
+          and task.get("upload_requires_confirmation") is True
+          and task.get("device_write_allowed") is False
+          and task.get("safe_to_flash") is False
+          and task.get("promote_lkg") is False
+          and task.get("commands")==[],
+          "Task must be a non-executable, source-bound blocked ABI request")
     check(task.get("source_run_id")==evidence.get("source_run_id") and
           task.get("source_head_sha")==evidence.get("source_head_sha") and
           task.get("stock_build")==evidence.get("stock_build") and
           task.get("stock_input_sha256")==evidence.get("stock_input_sha256") and
           task.get("candidate_commit")==evidence.get("candidate_commit"),
           "Evidence does not match exact source run / OTA identity")
-    check(report.get("gate")=="BLOCKED" and report.get("eligible_for_fastboot_boot") is False
+    check(report.get("schema")==1 and report.get("gate")=="BLOCKED"
+          and report.get("eligible_for_fastboot_boot") is False
+          and report.get("flashable") is False
+          and all(isinstance(report.get(field),list) for field in
+                  ("failed_modules","unresolved_kernel_imports","ambiguous_providers","crc_mismatches"))
           and report.get("stock_input_sha256")==task.get("stock_input_sha256")
           and report.get("stock_build")==task.get("stock_build")
           and report.get("candidate_commit")==task.get("candidate_commit"),
@@ -53,9 +67,32 @@ def verify(task, report, evidence, raw, digest):
           and evidence["status"] in ("CAPTURED_READ_ONLY","PARTIAL_READ_ONLY")
           and type(evidence["captured_at_ms"]) is int and evidence["captured_at_ms"]>0,
           "Evidence cannot authorize a boot, kernel flash or LKG")
-    checks=[item["id"] for item in task["checks"]]
-    check(evidence["checks"]==checks and set(checks).issubset({"binder_runtime","loaded_module_identity"})
-          and len(set(checks))==len(checks), "Evidence task check types drift")
+    issues=task.get("issues")
+    mapping={
+        "STOCK_RUST_BINDER_ABI_UNRESOLVED":"binder_runtime",
+        "AMBIGUOUS_MODULE_PROVIDERS":"loaded_module_identity",
+        "OTHER_UNRESOLVED_IMPORTS":"loaded_module_identity",
+        "MODULE_CRC_MISMATCH":"loaded_module_identity",
+        "OEM_MODULE_PARSE_OR_IDENTITY_FAILURE":"loaded_module_identity",
+    }
+    check(isinstance(issues,list) and 1<=len(issues)<=5
+          and isinstance(task.get("checks"),list) and 1<=len(task["checks"])<=2,
+          "Malformed source diagnostic task")
+    names=[]
+    for issue in issues:
+        check(isinstance(issue,dict) and issue.get("code") in mapping
+              and type(issue.get("count")) is int and issue["count"]>0
+              and issue["code"] not in names,"Invalid diagnostic issue list")
+        names.append(issue["code"])
+    checks=[]
+    for entry in task["checks"]:
+        check(isinstance(entry,dict) and entry.get("id") in set(mapping.values())
+              and isinstance(entry.get("label"),str) and bool(entry["label"]),
+              "Invalid diagnostic task check")
+        checks.append(entry["id"])
+    expected=list(dict.fromkeys(mapping[name] for name in names))
+    check(checks==expected and evidence["checks"]==checks,
+          "Evidence task checks differ from the original ABI problems")
     obs=evidence["observations"]
     keys(obs,["identity"]+checks,"observations")
     identity=obs["identity"]
