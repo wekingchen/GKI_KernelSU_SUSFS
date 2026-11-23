@@ -16,10 +16,11 @@ public final class DiagnosisUploaderEmulatorTest {
     static final String REPO=DiagnosisUploader.REPO;
     static final class Connection extends HttpURLConnection {
         final ByteArrayOutputStream body=new ByteArrayOutputStream();
+        final URL requestedUrl;
         final int response;
         final String payload;
         Connection(URL url,int status,String responseJson){
-            super(url);response=status;payload=responseJson;
+            super(url);requestedUrl=url;response=status;payload=responseJson;
         }
         @Override public void connect(){}
         @Override public void disconnect(){}
@@ -70,9 +71,9 @@ public final class DiagnosisUploaderEmulatorTest {
         JSONObject draft=new JSONObject(fake.calls.get(0).body.toString(StandardCharsets.UTF_8.name()));
         assertTrue(draft.getBoolean("draft"));assertTrue(draft.getBoolean("prerelease"));
         assertEquals("dev",draft.getString("target_commitish"));
-        assertEquals("api.github.com",fake.calls.get(0).url.getHost());
-        assertEquals("uploads.github.com",fake.calls.get(1).url.getHost());
-        assertEquals("diagnostic-evidence.json",fake.calls.get(1).url.getQuery().split("=")[1]);
+        assertEquals("api.github.com",fake.calls.get(0).requestedUrl.getHost());
+        assertEquals("uploads.github.com",fake.calls.get(1).requestedUrl.getHost());
+        assertEquals("diagnostic-evidence.json",fake.calls.get(1).requestedUrl.getQuery().split("=")[1]);
         JSONObject sent=new JSONObject(fake.calls.get(1).body.toString(StandardCharsets.UTF_8.name()));
         assertFalse(sent.optBoolean("safe_to_flash",true));
         assertFalse(sent.has("cmdline"));assertFalse(sent.has("module_addresses"));
@@ -80,7 +81,7 @@ public final class DiagnosisUploaderEmulatorTest {
         assertEquals("dev",dispatch.getString("ref"));
         assertEquals("12345",dispatch.getJSONObject("inputs").getString("source_run_id"));
         assertEquals(receipt.sha,dispatch.getJSONObject("inputs").getString("evidence_sha256"));
-        for(Connection c:fake.calls)assertFalse(c.url.toString().contains("fake-pat"));
+        for(Connection c:fake.calls)assertFalse(c.requestedUrl.toString().contains("fake-pat"));
     }
     @Test public void unexpectedUploadHostIsRefusedBeforeSendingEvidence()throws Exception{
         Transport fake=new Transport();fake.uploadBase="https://example.org/not-github/{?name,label}";
@@ -96,8 +97,8 @@ public final class DiagnosisUploaderEmulatorTest {
         fake.dispatchStatus=204;
         new DiagnosisUploader(REPO,"fake-pat",fake).notifyIntake(pending);
         assertEquals(4,fake.calls.size());
-        assertEquals("api.github.com",fake.calls.get(3).url.getHost());
-        assertTrue(fake.calls.get(3).url.getPath().contains(DiagnosisUploader.WORKFLOW));
+        assertEquals("api.github.com",fake.calls.get(3).requestedUrl.getHost());
+        assertTrue(fake.calls.get(3).requestedUrl.getPath().contains(DiagnosisUploader.WORKFLOW));
     }
     @Test public void appRejectsNonReadOnlyReportsAndWrongRepo()throws Exception{
         Transport fake=new Transport();
