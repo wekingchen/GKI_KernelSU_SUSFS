@@ -3,7 +3,7 @@ name: "小米17 Pro OS4 / 当前 LKG 复现与打包"
 on:
   workflow_run:
     workflows:
-      - "小米17 Pro OS4 / 将自定义构建晋升为 LKG"
+      - "小米17 Pro OS4 / 晋升真机稳定内核为 LKG"
     types:
       - completed
 
@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           JOBS="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/jobs?per_page=100")"
-          COUNT="$(jq '[.jobs[] | select(.name == "验证候选 → 上游隔离 → 自动合并新 LKG" and .conclusion == "success")] | length' <<<"$JOBS")"
+          COUNT="$(jq '[.jobs[] | select(.name == "旧 R62：核验候选并晋升稳定内核" and .conclusion == "success")] | length' <<<"$JOBS")"
           if [[ "$COUNT" == 1 ]]; then
             echo "legacy=true" >> "$GITHUB_OUTPUT"
           else
@@ -85,7 +85,7 @@ jobs:
             echo "::error::晋升来源 workflow_run 身份不可信"; exit 1;
           }
           JOBS_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID/jobs?per_page=100")"
-          jq -e '[.jobs[] | select(.name == "验证候选 → 上游隔离 → 自动合并新 LKG" and .conclusion == "success")] | length == 1' <<<"$JOBS_JSON" >/dev/null || {
+          jq -e '[.jobs[] | select(.name == "旧 R62：核验候选并晋升稳定内核" and .conclusion == "success")] | length == 1' <<<"$JOBS_JSON" >/dev/null || {
             echo "::error::晋升工作未成功完成（可能 confirm_stable=false）；禁止复现"; exit 1;
           }
           echo "AUTO_LKG_PROMOTION_RUN=$PROMOTION_RUN_ID"
