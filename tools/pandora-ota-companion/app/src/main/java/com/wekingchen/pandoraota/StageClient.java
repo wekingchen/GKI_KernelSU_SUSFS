@@ -70,7 +70,7 @@ final class StageClient {
         String next(){
             switch(stage){
                 case "GKI_BUILT":return "查看 OEM ABI 结果；附件过期时从永久候选显式恢复。";
-                case "ABI_BLOCKED":return "先处理 ABI 阻断，不能进入真机启动测试。";
+                case "ABI_BLOCKED":return "如需补证，点击下方「查看补采建议」；ABI 未通过前禁止启动测试。";
                 case "TESTBOOT_READY":case "WAITING_HUMAN":return "由电脑 fastboot boot，手机测试后填写真机反馈。";
                 case "BASELINE_VERIFIED":return "可以开始同版本功能适配；基线验证不代表自定义内核稳定。";
                 case "CUSTOM_UNVERIFIED":return "先核对版本并测试；稳定后由你明确确认晋升 LKG。";
