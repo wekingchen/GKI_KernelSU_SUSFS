@@ -222,6 +222,14 @@ if [ -f "$SPLITIMG/cmdline.txt" ]; then
 else
   current_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
 fi
+blacklist_count="$(echo "$current_cmdline" | tr ' ' '\n' | grep -c '^module_blacklist=' || true)";
+[ "$blacklist_count" -eq 1 ] || abort "Ambiguous module_blacklist in compatibility boot";
+compat_blacklist="$(echo "$current_cmdline" | tr ' ' '\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$compat_blacklist" | tr ',' '\n' | grep -qx 'kernelsu' ||
+  abort "KernelSU LKM blacklist missing in compatibility boot";
+if echo "$compat_blacklist" | tr ',' '\n' | grep -qx 'rust_binder'; then
+  abort "rust_binder must not be blacklisted in the verified EEXIST contract";
+fi
 eexist_count="$(echo "$current_cmdline" | tr ' ' '\n' | grep -c '^pandora_rust_binder_eexist=' || true)";
 [ "$eexist_count" -le 1 ] || abort "Ambiguous pandora_rust_binder_eexist in boot cmdline";
 eexist="$(echo "$current_cmdline" | tr ' ' '\n' | grep '^pandora_rust_binder_eexist=' || true)";
@@ -230,6 +238,106 @@ if [ "$eexist" ]; then
     abort "Conflicting pandora_rust_binder_eexist value";
 else
   patch_cmdline "pandora_rust_binder_eexist=" "pandora_rust_binder_eexist=1";
+fi
+
+if [ -f "$SPLITIMG/cmdline.txt" ]; then
+  final_cmdline="$(cat "$SPLITIMG/cmdline.txt")";
+else
+  final_cmdline="$(grep '^cmdline=' "$SPLITIMG/header" 2>/dev/null | cut -d= -f2-)";
+fi
+[ "$(echo "$final_cmdline" | tr ' ' '\n' | grep -c '^pandora_rust_binder_eexist=1
+if mode in ("ota-custom", "ota-compat-custom"):
+    # Do not alter historical R62 LKG package templates.
+    text = text.replace("HyperOS 4 R62", "HyperOS @@EXPECTED_BUILD@@")
+    text = text.replace("OS4 R62", "@@EXPECTED_BUILD@@")
+replacements = {
+    "@@PROFILE_LABEL@@": profile,
+    "@@EXPECTED_RELEASE@@": release,
+    "@@VALIDATION_LEVEL@@": validation,
+    "@@EXPECTED_BUILD@@": build,
+    "@@CUSTOM_WARNING@@": warning,
+    "@@COMPAT_PATCH@@": compat_patch,
+}
+for old, new in replacements.items():
+    text = text.replace(old, new)
+if "@@" in text:
+    raise SystemExit("unresolved AnyKernel3 template placeholder")
+p.write_text(text)
+PY
+cat > "$PKG/README.txt" <<EOF
+Xiaomi 17 Pro / pandora
+HyperOS build: $EXPECTED_BUILD
+Kernel release: $EXPECTED_RELEASE
+Image SHA256: $actual_sha
+Packaging mode: $MODE
+Validation level: $VALIDATION_LEVEL
+
+This package replaces the active boot partition kernel payload through
+AnyKernel3 and preserves the existing ramdisk.
+
+It also ensures module_blacklist contains kernelsu so the legacy KernelSU LKM
+cannot load alongside Built-in BakaSU.
+
+$(if [[ "$MODE" == "custom" || "$MODE" == "ota-custom" || "$MODE" == "ota-compat-custom" ]]; then
+  echo "WARNING: this exact custom feature combination has not completed a real-device boot validation."
+  echo "Keep a known-good boot image available for recovery."
+  if [[ "$MODE" == "ota-custom" ]]; then
+    echo "Pure GKI boot validation does NOT certify this custom feature kernel."
+    echo "EXPERIMENTAL PERSISTENT INSTALL: test paired FASTBOOT-BOOT-ONLY.img first."
+  elif [[ "$MODE" == "ota-compat-custom" ]]; then
+    echo "The OS4.0.6 EEXIST persistent mechanism is LKG-verified, but this exact Image is not."
+    echo "Installer enforces pandora_rust_binder_eexist=1 and kernelsu LKM blacklist."
+    echo "EXPERIMENTAL PERSISTENT INSTALL: test paired FASTBOOT-BOOT-ONLY.img first."
+  fi
+else
+  echo "This package rebuilds a user-promoted Xiaomi 17 Pro OS4 LKG that has completed real-device validation."
+fi)
+
+Do not use on another device or OS build.
+EOF
+
+for forbidden in boot.img boot_a.img boot_b.img init_boot.img vendor_boot.img                  vendor_kernel_boot.img dtbo.img vbmeta.img; do
+  if find "$PKG" -type f -name "$forbidden" -print -quit | grep -q .; then
+    echo "::error::forbidden partition image leaked into package: $forbidden"
+    exit 1
+  fi
+done
+
+ZIP="$OUTDIR/$PACKAGE_NAME"
+(
+  cd "$PKG"
+  zip -qr9 "$ZIP" .
+)
+
+unzip -t "$ZIP" >/dev/null
+listing="$(unzip -Z1 "$ZIP")"
+for required in Image anykernel.sh README.txt tools/ak3-core.sh META-INF/com/google/android/update-binary; do
+  grep -qx "$required" <<<"$listing" || {
+    echo "::error::AnyKernel3 ZIP missing $required"
+    exit 1
+  }
+done
+if grep -Eq '(^|/)(init_boot|vendor_boot|vendor_kernel_boot|dtbo|vbmeta|boot)(_[ab])?\.img$' <<<"$listing"; then
+  echo "::error::forbidden partition image found in ZIP"
+  exit 1
+fi
+
+sha256sum "$ZIP" > "$ZIP.sha256"
+echo "PACKAGE=$ZIP"
+echo "PACKAGE_NAME=$PACKAGE_NAME"
+echo "PACKAGE_SHA256=$(awk '{print $1}' "$ZIP.sha256")"
+echo "IMAGE_SHA256=$actual_sha"
+echo "VALIDATION_LEVEL=$VALIDATION_LEVEL"
+echo "KERNEL_RELEASE=$EXPECTED_RELEASE"
+echo "TARGET_BUILD=$EXPECTED_BUILD"
+echo "PERSISTENT_FLASH=MANUAL_ONLY"
+ || true)" -eq 1 ] ||
+  abort "EEXIST compatibility parameter not present exactly once after patch";
+final_blacklist="$(echo "$final_cmdline" | tr ' ' '\n' | grep '^module_blacklist=' | cut -d= -f2-)";
+echo "$final_blacklist" | tr ',' '\n' | grep -qx 'kernelsu' ||
+  abort "KernelSU LKM blacklist missing after compatibility patch";
+if echo "$final_blacklist" | tr ',' '\n' | grep -qx 'rust_binder'; then
+  abort "rust_binder blacklist violates verified compatibility contract";
 fi
 '''
 if mode in ("ota-custom", "ota-compat-custom"):
