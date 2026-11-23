@@ -33,9 +33,29 @@ final class DiagnosisClient {
             for(int i=0;i<a.length();i++)issues.add(a.getJSONObject(i).getString("code"));
         }
         String plainSummary(){
-            if(checks.size()==1&&checks.contains("binder_runtime"))return "需要确认 Binder 实际工作模式";
-            if(checks.size()==1&&checks.contains("loaded_module_identity"))return "需要确认已加载模块的来源";
-            return "需要确认 Binder 与已加载模块的实际状态";
+            if(checks.size()==1&&checks.contains("binder_runtime"))return "Binder 与候选内核的兼容性还需要验证";
+            if(checks.size()==1&&checks.contains("loaded_module_identity"))return "存在需要确认来源的内核模块";
+            return "需要确认 Binder 实际模式，以及压缩内存模块的来源";
+        }
+        String issuesForHuman(){
+            StringBuilder answer=new StringBuilder();
+            JSONArray found=json.optJSONArray("issues");
+            if(found==null)return "";
+            for(int i=0;i<found.length();i++){
+                JSONObject item=found.optJSONObject(i);if(item==null)continue;
+                String code=item.optString("code");
+                String text;
+                switch(code){
+                    case "STOCK_RUST_BINDER_ABI_UNRESOLVED":text="原厂 Rust Binder 的接口不匹配";break;
+                    case "AMBIGUOUS_MODULE_PROVIDERS":text="同名模块存在不同来源";break;
+                    case "OTHER_UNRESOLVED_IMPORTS":text="部分模块缺少依赖接口";break;
+                    case "MODULE_CRC_MISMATCH":text="模块接口校验值不一致";break;
+                    default:text="部分 OEM 模块信息无法核验";break;
+                }
+                if(answer.length()>0)answer.append("\n");
+                answer.append("• ").append(text).append(" · ").append(item.optInt("count")).append(" 项");
+            }
+            return answer.toString();
         }
     }
     static final Map<String,String> ISSUE_TYPES=new LinkedHashMap<>();
