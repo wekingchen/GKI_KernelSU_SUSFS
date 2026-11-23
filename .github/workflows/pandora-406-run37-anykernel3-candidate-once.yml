@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/package"
-          scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh \
+          bash scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh \
             "$RUNNER_TEMP/run37/Image" "$RUNNER_TEMP/package" \
             | tee "$RUNNER_TEMP/package-build.txt"
 
