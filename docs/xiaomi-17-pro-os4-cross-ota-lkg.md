@@ -1,56 +1,48 @@
-# 小米 17 Pro OS4：跨 OTA LKG 晋升、严格复现与长期归档
+# 小米 17 Pro：怎样把真机稳定的内核定为 LKG
 
-> 本页描述 2026-11-01 实现、2026-11-02 按当前代码复核的**版本化新 OTA 稳定版流程**。目前没有新 OTA 实物，因此属于「代码与模拟数据门禁已验证，真实新 OTA 端到端尚未验收」。请勿把 CI 静态通过当作已经刷机验证。
+最后核对：2026-11-23。当前正式稳定内核为 **OS4.0.6.0.XBLCNXM / Gen7**。这不是模拟测试：用户已实际确认 Gen7 的原始自定义包可以启动、持久安装和正常使用，随后仓库完成了严格重建和长期归档。
 
-## 目标：一次明确晋升，自动执行所有后续操作
+**LKG 是你明确认可的“稳定版本”**，不是编译成功、临时启动成功或者 OTA 助手上传成功就会自动得到的称号。以后如有更稳的新构建，可再次由你确认并替换当前指针，历史版本仍保留。
 
-未来的新 OTA 先走现有纯 GKI 基线确认，然后仍通过「小米17 Pro OS4 / 自定义内核」选择功能、获得同次的 IMG 与实验性 AnyKernel3。你可以先临时启动，再自行安装 AnyKernel3 稳定使用。**下载 AnyKernel3 不需要另外提交测试结果。**
+## 平时只需要一次操作
 
-当你**实际确认这一精确 Run 的内核已真机启动、持久安装并且你开启的功能正常**，才使用唯一入口：
+1. 先在 [小米 17 Pro OS4 / 自定义内核](../.github/workflows/xiaomi-sm8850-os4-custom.yml) 编译你想要的功能。
+2. 把这一次构建的包放到**对应版本**的手机上实际测试：Android 能启动，Root / SUSFS / NoMount / DroidSpaces 等你开启的功能正常；如果准备长期使用，还必须确认 AnyKernel3 **持久安装并稳定使用**，而不是只做过 `fastboot boot`。
+3. 打开唯一的 [晋升真机稳定内核为 LKG](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)，选择 **dev**，点击 **Run workflow**。
+4. `source_run_id` 填写 **刚刚编译并在手机上验证过的「自定义内核」Run ID**，不是晋升工作流自己的编号。确认三项：`confirm_boot`（正常启动）、`confirm_persistent`（已长期安装）、`confirm_runtime`（启用功能正常）。`note` 可写版本和测试备注。
+5. **`repair_draft_release` 保持不勾选**。提交一次即可。后台会自动认出来源、按原来的源码版本重新编译、核对文件、归档，并在全部通过后更新当前稳定版本。
 
-[小米17 Pro OS4 / 将自定义构建晋升为 LKG](../.github/workflows/xiaomi-sm8850-os4-promote-lkg.yml)
+如果构建来源不对、验证资料过期、编译结果对不上或 GitHub 发布失败，流程会停止，而不是默默把未验证的内核当成稳定版。失败时先看本次运行的错误摘要，不要反复用其他 Run ID 碰运气。
 
-选择 `dev`，填待晋升的**任意受支持 OS4 自定义构建** Run ID，确认 `confirm_boot`、`confirm_persistent`、`confirm_runtime`，必要时写备注，点击一次 Run workflow。GitHub 在**同一次工作流**自动完成来源检查、严格复现、Release 长期归档、当前 LKG 指针晋升，正常成功无需再手动跑复现或归档。
+## 为什么要重新编译和归档
 
-工作流的原始来源要求：
-- 只能接受本仓库 `dev` 正式 `xiaomi-sm8850-os4-custom.yml` 的 **workflow_dispatch 且 conclusion=success** 的 Run，必须是尚未过期的 `pandora-OTA-CUSTOM-<build>-run-<id>` 唯一 Artifact。
-- 源 Run 真实 Git head SHA 必须在当前受信任 dev 历史中，且原候选携带 `ota-custom-source.json` 和 `locked-upstreams.env`。
-- 严查纯 GKI 基线真机验收记录、同 OTA fixture、stock-input Release asset ID + ZIP SHA、官方 GKI commit、OEM Module.symvers/ABI、实际 Image / boot / AnyKernel3 SHA 与两者 Image 一致性。
-- 严查每个组件的 **ref kind + ref + commit**，以及构建时真正启用的组件提交；关闭的组件不要求凭空生成编译结果。
+为了确保以后想恢复时能找到**当时那一版的真实文件**，而不是用今天的新上游组件“猜测”以前的构建结果。仓库会：
 
-## 实际执行次序与失败行为
+- 锁定当时自定义 Run 所用的 GKI、工具链和 BakaSU / SUSFS / NoMount / DroidSpaces 等组件版本，不临时换成新版本。
+- 比对内核配置、`Module.symvers`，并对 Image 的已知不可重复字段做有限的校验式归一化；任何未知差异拒绝晋升。
+- 把你**真正在手机上用过的原始包**和 GitHub **重新构建的对照包**分开保管。后者的 CI 复现通过，不等于又进行了一次真机刷机。
+- 先下载检查 Release 的每项文件与 SHA，再更新唯一 LKG 指针、公开 Release。旧 Gen 的备份不覆盖。
 
-| 阶段 | 门禁/产物 | 失败时 |
-|---|---|---|
-| 1. 身份与来源 | 仓库/运行/branch/commit、指定 OTA 的验证记录、原始 IMG + ZIP + SHA | 不创建新 LKG，不改旧状态 |
-| 2. 固定源码重新编译 | **检出原始自定义 Run 的仓库 Git SHA**；固定原 GKI tag/commit 和 Clang r536225，固定 BakaSU/SUSFS/NoMount/DroidSpaces/NTSync/BBG/Re-Kernel ref/commit，按当次配置重编 | 不回退旧 R62，不转用当前新上游，失败即停 |
-| 3. 严格可复现校验 | `final.config`、`Module.symvers` 必须 **SHA256 完全一致**；Image 仅对已知的自动生成证书 / GNU build-id 区域作校验式归一化，其余字节必须一致；新内核 release、核心 OEM ABI 不得漂移 | 任何差异停止；未来 GKI Image 布局未知则拒绝晋升，不随意忽略差异 |
-| 4. 两类持久安装包 | 保留你已真机使用的 **ORIGINAL-USER-ATTESTED** 原版 boot/AnyKernel3；单独生成 **REBUILT-CI-ONLY** 的 boot/AnyKernel3 | CI 复现包**不宣称已被手机再次验证** |
-| 5. Release 长期归档 | 先生成代次唯一的 `pandora-os4-lkg-genN` **草稿**，包括原始包/复现包、来源快照、完整 `SHA256SUMS-*.txt`、可选同提交 Manager；再从 GitHub Release **下载全部资产独立验证 SHA** | 若资产或哈希错误，保持草稿且不移动当前 LKG |
-| 6. 当前 LKG 晋升 | 仅在 Release 资产校验成功后创建 LKG PR；对 Git diff 做明确文件白名单、上游文件隔离、目标 dev 基线 SHA 和 PR head/mergeable 比较；合并后才把草稿 Release 正式公开 | PR 失败不改变当前 LKG，也不公开“稳定版” Release |
-| 7. 公布/归档恢复 | 成功后公开不可覆盖的代次 Release；当前指针记录本次验证与重编哈希。若 **PR 已合并但发布失败**，提供同一工作流 `repair_draft_release` 入口，直接核对草稿全部 SHA、已合并指针后恢复发布，**不再次晋升** | 确认不了同一代来源则拒绝修复 |
+截至本次检查，当前指针是 [Gen7](../.github/config/ota-lkg-current.json)，公开归档在 [pandora-os4-lkg-gen7](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-os4-lkg-gen7)，来源自定义 Run **45124613997**。
 
-此入口会根据源 Run 产物自动区分旧 R62 与新 OTA：R62 使用旧的晋升、复现和 Release 接力；新 OTA 在同一个工作流内执行严格复现、草稿归档、指针晋升及公开 Release。只有一个手动晋升入口，不需要用户选择路线。
+## 极少数情况下才用“修复草稿 Release”
 
-新 OTA 晋升代次根据当前已晋升的最高代次递增，禁止硬编码。**截至 2026-11-23，OS4.0.6 已晋升 Gen 7**，Gen 6 与 R62 Gen 4 等以前代次均为历史归档。只保留单一移动指针 `.github/config/ota-lkg-current.json`，旧代状态按 gen 放在 `.github/config/ota-lkg-history/`；各代固定 Release 标签单独存在，不因新晋升覆盖旧资产。历史 R62 各代原有配置与 Release **保留不修改**；首次新 OTA 晋升后，旧 R62 晋升分支会明确拒绝再创建一套冲突代次。
+如果你已经看见**本次 Gen 的 LKG 指针成功更新**，但 GitHub Release 还停留在 Draft（草稿），才考虑同一晋升入口中的 `repair_draft_release`：
 
-## 如何修复最后一步公开 Release 失败
+1. 填**那次已经晋升成功的原始自定义 Run ID**，勾选 `repair_draft_release`。
+2. 普通三项确认在这种修复模式下不用再次勾选，因为不是重新认可一个新内核。
+3. GitHub 必须核对当前指针、来源 Run、草稿 Release 的全部附件和 SHA 都一致，才能补发公开。**不会重新编译、不会晋升新一代，也不会忽略原来的验证失败。**
 
-正常使用**不要勾选** `repair_draft_release`。若已经看到该代 LKG PR 成功合并、但 GitHub 归档流程最后公开 Release 失败：
+正常晋升不碰这个选项。Gen7 此前遇到过的 GitHub Draft 通过 Tag 查询 404 问题已经改用数字 Release / Asset ID 安全恢复。
 
-1. 使用唯一的「将自定义构建晋升为 LKG」工作流，输入**原来的** `source_run_id`。
-2. 勾选 `repair_draft_release`；普通真机三个确认项此时不必重新勾选。
-3. CI 核对已经合并的 `ota-lkg-current.json` 和草稿 Release 中的 `ota-lkg-promotion-record.json` 字节一致、来源运行可信、原始和重建资产齐全，下载后逐文件重算 SHA256。
-4. 仅当当前 Gen 未被后续晋升替换，且草稿标签、来源 Run、晋升 Run 身份均吻合时才公布；**不会再次编译、不会产生新 Gen、不会篡改旧 Release**。
+## 新系统升级时怎样处理
 
-这种恢复仅适用于「已经合并的当前代指针和完整草稿」，绝不使用用户输入绕过未验证来源。
+OTA 助手负责采集和上传，GitHub 会自动检查 GKI 与 OEM ABI。**这些检查不能保证每一版新系统都直接兼容**：OS4.0.6 的原始静态 ABI 曾经被 Rust Binder 和模块来源问题正确阻断，随后才通过单独限定到该版本、该构建和真机证据的 COMPAT-CUSTOM 兼容方案完成 Gen7。不能拿 Gen7 的证明去放行下一次 OTA。
 
-## 限制与验收方式
+新 OTA 如果暂时没有可靠的开发基线，系统会停止并给出诊断线索，不会偷偷退回旧 R62 镜像。下一次升级仍需用对应固件取 Root、采集、确认候选、真机验证，最后由你决定是否晋升。
 
-- **没有新 OTA 真机**：本次只能以合成的不同 OTA/篡改/重编漂移/多代次输入做 fail-closed 回归，不能承诺未来每个 GKI 都能通过实际补丁编译、证书归一化和真机启动。无法证明即停止，不退让 CRC/源码锁。
-- 新 LKG 晋升需要**用户真正使用过原始完整功能版并确认稳定**；这不是额外取得 AnyKernel3 的步骤，而是决定「哪一次 Run 成为稳定版」的明确动作。
-- 上游 tag/commit、Android Clang 和工具链缓存仍需可获取；长期恢复应优先使用已经下载回检的 Release 文件，不依赖过期的 30 天 Artifact。
-- 当前系统的 boot 与同版本已知可启动备份匹配是基本前提；Release 稳定标签不代表跨不同 HyperOS 版本可以刷入。
-- 本流程不会对任何手机执行 fastboot flash、改变 slot 或修改手机分区。
+## 两条旧工作流为什么还在
 
-相关文档：[新 OTA 采集与开发](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)、[OS4 端到端审计](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)、[当前 LKG 与上游策略](xiaomi-17-pro-os4-full-parity-lkg.md)。
+[旧 R62 复现](../.github/workflows/xiaomi-sm8850-os4-lkg.yml)和[旧 R62 长期归档](../.github/workflows/xiaomi-sm8850-os4-archive-lkg-release.yml)是兼容历史 OS4.0.5 / Gen4 的后台接力组件。**正常使用 Gen7 不要运行它们**；现在的新版 LKG 由统一晋升工作流自己完成归档。旧备份仍可通过 [长期恢复指南](xiaomi-17-pro-os4-lkg-release-archive.md) 下载核验，不能跨 OTA 乱刷。
+
+更多操作参见 [OTA 升级与采集](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)；需要检查每条后台工作流用途时看 [工作流清单](pandora-workflows-2026-11-23.md)。技术审计与异常恢复证据另见 [V2 最终审计](pandora-ota-v2-final-audit-2026-11-23.md)。
