@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "PERSISTENT_ANYKERNEL3_CANDIDATE_BUILT_UNVERIFIED",
+  "status": "PERSISTENT_INSTALL_FIRST_REBOOT_VERIFIED_SECOND_REBOOT_PENDING",
   "device": "pandora",
   "stock_build": "OS4.0.6.0.XBLCNXM",
   "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
@@ -70,11 +70,11 @@
   "stock_boot_file_size": 41906176,
   "required_fastboot_boot_size": 44404736,
   "fastboot_boot_growth_bytes": 2498560,
-  "next_stage": "TRUE_DEVICE_PERSISTENT_INSTALL_AND_REBOOT_VALIDATION",
+  "next_stage": "SECOND_TRUE_DEVICE_REBOOT_PERSISTENCE_VALIDATION",
   "formal_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
   "safe_to_flash": false,
   "anykernel3_built": true,
-  "persistent_flash": false,
+  "persistent_flash": true,
   "lkg_promotion": false,
   "package_run_id": 44982774320,
   "package_artifact_id": 14738188791,
@@ -409,7 +409,7 @@
     "actual_persistent_install_verified": false
   },
   "persistent_candidate": {
-    "status": "BUILT_AND_STATIC_AUDIT_PASS_TRUE_DEVICE_REBOOT_PENDING",
+    "status": "FIRST_TRUE_DEVICE_PERSISTENT_REBOOT_PASS_SECOND_REBOOT_PENDING",
     "source_run_id": 45105070444,
     "source_artifact_id": 14787211465,
     "source_artifact_name": "pandora-OS4.0.6-run37-PERSISTENT-CANDIDATE",
@@ -439,6 +439,23 @@
     "installer_fail_closed_stock_boot_identity": "PASS",
     "actual_persistent_install_verified": false,
     "safe_to_fastboot_flash": false,
-    "lkg_promotion": false
+    "lkg_promotion": false,
+    "first_reboot": {
+      "status": "PASS",
+      "slot": "_b",
+      "boot_completed": true,
+      "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+      "root_context": "u:r:ksu:s0",
+      "cmdline": "module_blacklist=kernelsu + pandora_rust_binder_eexist=1 observed",
+      "binder": "c/c",
+      "baseband_guard_active": true,
+      "rust_binder_absent": true,
+      "kernelsu_lkm_absent": true,
+      "vendor_modules": [
+        "node_cache",
+        "zram",
+        "zsmalloc"
+      ]
+    }
   }
 }
