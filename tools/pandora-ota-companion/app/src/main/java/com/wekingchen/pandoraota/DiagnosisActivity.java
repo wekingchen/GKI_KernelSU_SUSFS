@@ -226,7 +226,7 @@ public final class DiagnosisActivity extends Activity {
     }
     private void openDraft(){
         if(receipt==null)return;
-        String url="https://github.com/"+DiagnosisUploader.REPO+"/releases/tag/"+receipt.tag;
+        String url="https://github.com/"+DiagnosisUploader.REPO+"/releases/edit/"+receipt.releaseId;
         startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)));
     }
     private interface Operation{String perform()throws Exception;}
