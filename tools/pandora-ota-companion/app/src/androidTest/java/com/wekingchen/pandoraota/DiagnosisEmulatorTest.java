@@ -78,7 +78,7 @@ public final class DiagnosisEmulatorTest {
     @Test public void wrongRunOrStageOrSourceCannotLaunchTrustworthyTask()throws Exception{
         reject(rawTask(),new StageClient.State(new JSONObject()
                 .put("stage","LKG_ARCHIVED").put("build",BUILD)
-                .put("source_run_id",12345).put("source_head_sha",HEAD)
+                .put("producer_run_id",77).put("source_run_id",12345).put("source_head_sha",HEAD)
                 .put("stock_input_sha256",STOCK)),source());
         reject(rawTask(),stage(),source().put("head_branch","untrusted"));
         reject(rawTask(),stage(),source().put("head_sha","d".repeat(40)));
