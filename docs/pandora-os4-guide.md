@@ -1,6 +1,6 @@
 # 小米 17 Pro OS4：当前功能与文档入口
 
-最后核对：2026-11-23。**小米 17 Pro（pandora）当前稳定版为 OS4.0.6.0.XBLCNXM / Gen7**，已在真机使用并发布长期备份。OTA 助手当前开发版为 **0.14.1-dev**，基础页面已有真机验收；下一次新 OTA 如果出现 ABI 阻断，诊断补采的完整手机实测仍待发生。所有操作以仓库 `dev` 的最新代码为准。
+最后核对：2026-11-23。**小米 17 Pro（pandora）当前稳定版为 OS4.0.6.0.XBLCNXM / Gen7**，已在真机使用并发布长期备份。OTA 助手最新代码版为 **0.14.2-dev**；基础页面的真机验收来自 0.14.1-dev，新增诊断加固仍待新 OTA 实机验证；下一次新 OTA 如果出现 ABI 阻断，诊断补采的完整手机实测仍待发生。所有操作以仓库 `dev` 的最新代码为准。
 
 ## 先确定你要做什么
 
@@ -14,7 +14,7 @@
 | 下载、验证或恢复已归档稳定包 | [LKG 长期恢复](xiaomi-17-pro-os4-lkg-release-archive.md) | 当前 OS4.0.6 Gen 7，旧 Gen 6/Gen 5/Gen 4 历史原件继续留存 |
 | 将真正稳定使用的自定义内核标为 LKG | [跨 OTA 晋升与归档](xiaomi-17-pro-os4-cross-ota-lkg.md) | 唯一晋升入口自动识别 R62 / 新 OTA |
 | 红米 K50 Pro 的通用构建修复 | [隔离修复与自动跟进](generic-custom-build-fork.md) | 独立于 pandora；当前路由为 fork |
-| App 详细使用、权限和签名 | [OTA 助手说明](../tools/pandora-ota-companion/README.md) | 0.14.1-dev：原三页 UI、可选只读补采、诊断 Draft 幂等恢复；已有真机基础回归 |
+| App 详细使用、权限和签名 | [OTA 助手说明](../tools/pandora-ota-companion/README.md) | 0.14.2-dev：保留原三页 UI，新增任务存在性门禁、证据排查建议和 Draft 恢复；0.14.1-dev 真机基础回归已通过 |
 
 前三阶段审计整改与恢复入口见 [2026-11-02 整改说明](pandora-os4-audit-stages-2026-11-02.md)。**D02 软件修订的独立实机证据**见 [2026-11-15 D02 验收记录](pandora-ota-d02-real-device-2026-11-15.md)。
 
@@ -40,7 +40,7 @@
 3. 采集实际目录空间小于 1 GiB 阻止，1 GiB 至不足 2 GiB 警告；每次采集/上传前在线验证 GitHub 真实写权限。
 4. 如更新器显示 D02 而系统属性不带 Dxx，使用一次性手工修订号确认；真实 Build 不变。上传到 Draft 后，前台跟踪 PENDING / ACCEPTED / ALREADY_CURRENT / REVIEW_REQUIRED / REJECTED；Dxx 的 REVIEW_REQUIRED 只保存证据，不触发内核编译。
 5. 电脑临时启动待测 boot，手机实际测试后，在工作台「真机测试反馈」读取五项信息并提交原工作流；无需测试前登记或开机监听。
-6. 在工作台「OTA 全链路状态」刷新已核验的 GKI / ABI / 待测 / 基线 / 自定义 / LKG 阶段；稳定态显示动态 Gen 与 GitHub 核验时间。若确实 ABI 阻断，0.14.1-dev 会在状态卡出现「查看补采建议」，进入不改动原三页导航的原生二级页：只读采集、人工预览同意、独立 Draft 审核；没有新 ABI 阻断不需要额外操作。
+6. 在工作台「OTA 全链路状态」刷新已核验的 GKI / ABI / 待测 / 基线 / 自定义 / LKG 阶段；稳定态显示动态 Gen 与 GitHub 核验时间。若确实 ABI 阻断且存在同一 Run 的已核验只读任务，0.14.2-dev 才会在状态卡出现「查看补采建议」，进入不改动原三页导航的原生二级页：只读采集、人工预览同意、独立 Draft 审核；没有新 ABI 阻断不需要额外操作。
 7. 本地 ZIP 仅在通知成功、接收终态、远端与本地哈希核验通过后由用户主动删除；不会顺带删除远端附件。
 
 已独立冻结的 [OS4.0.6 历史 OEM ABI 原件](https://github.com/wekingchen/GKI_KernelSU_SUSFS/releases/tag/pandora-ota-v2-os406-raw-stock-reference) 用于真实 BLOCKED 回放，与未来 OTA 固定输入严格隔离；不提供刷机授权。
@@ -56,3 +56,5 @@
 - [2026-11-01 审计快照](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)、[合成验证快照](xiaomi-17-pro-os4-synthetic-validation-2026-11-01.md)、[0.11 清理记录](pandora-ota-0.11.0-maintenance-audit.md) 都是历史证据。
 
 本仓库只负责维护 **pandora 专属文件和 K50 Pro 的独立修复文件**；上游原件保持同步不改动。哪些工作流需要你手动点击、哪些自动运行或仅供维修，统一看 [工作流说明](pandora-workflows-2026-11-23.md)。
+
+本轮 OTA V2 分支强化详见 [兼容性恢复说明](pandora-ota-v2-recovery-playbook.md)。
