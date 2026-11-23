@@ -72,8 +72,13 @@ ota-abi-report.json 生成 ota-v2-diagnostic.json 和 ota-v2-diagnostic.md。
 
 本阶段没有自动发明 EEXIST 补丁、自动推断完整模块加载顺序、自动认定
 某个模块可以从运行图排除，也不会自动写手机或自动升级 LKG。
-后续应为已识别的阻断类型生成安全的**可选**只读采集模板，并将
-诊断状态显示在 OTA 助手工作台（需额外 API/客户端契约验证）。
+V2 第三阶段已补齐按需只读诊断模板和原生 App 补采入口；用户可明确预览并
+提交到独立 GitHub 诊断 Draft，随后按需刷新审核状态。即使审核工作流成功，
+App 还会核对精确的诊断审核 Artifact 与上传 SHA，才展示“待人工分析”。
+这一闭环目前由服务端契约与 Android 模拟器验证，**仍待未来真实新 OTA
+出现 ABI 阻断时做手机端到端实物验收**，不能把模拟器当作真机通过。
+
+后续仍没有自动推导新的 OEM 兼容补丁或根据补采证据自动放行的机制。
 每次新 OTA/新 Image 的 runtime-selected 放行都必须重新绑定真机证据；
 OS4.0.6 的 runtime-selected gate / Gen 6 LKG 保持原样。
 
