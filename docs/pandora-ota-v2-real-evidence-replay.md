@@ -62,12 +62,23 @@ ota-abi-report.json 生成 ota-v2-diagnostic.json 和 ota-v2-diagnostic.md。
 完整 stock/GKI 归档**执行并与历史固定参考比对。
 回放成功仅意味着重现旧的 BLOCKED，不代表为任意新 OTA 建立兼容证书。
 
+## 第三阶段：来源绑定的可选只读手机诊断补采
+
+当正式 OEM checker 报告可定位的 ABI 阻断时，OTA 候选工作流追加生成 `ota-v2-diagnostic-task.json`，绑定 stock SHA、Build、原始 Run/head、GKI commit 和已知问题类型；任务中 `commands=[]`，不能下发远程执行指令。App 仅在可信阶段为 `ABI_BLOCKED` 时，在原有工作台的状态卡上显示一次性「查看补采建议」入口。原三页导航与日常 Root/OTA 采集不变。
+
+二级页沿用原生蓝白卡片与三步流程：看懂原因、读取白名单信息、预览并明确同意上传。采集结果按部分/完整区分，不发送原始 cmdline、模块地址、ELF 或内核日志。单独的 GitHub 诊断 Draft 接入 `pandora-os4-ota-diagnostic-intake.yml`，审核源 Run、当前 stock SHA、附件原始字节/哈希及 schema 后只生成 **REVIEW_REQUIRED** 的证据，绝不更新 OEM Gate 或 LKG。模拟器/真实归档回放只是对代码路径验证；真正新 OTA 的诊断仍需当次真机采集并审核。
+
 ## 尚未实现的能力
 
 本阶段没有自动发明 EEXIST 补丁、自动推断完整模块加载顺序、自动认定
 某个模块可以从运行图排除，也不会自动写手机或自动升级 LKG。
-后续应为已识别的阻断类型生成安全的**可选**只读采集模板，并将
-诊断状态显示在 OTA 助手工作台（需额外 API/客户端契约验证）。
+V2 第三阶段已补齐按需只读诊断模板和原生 App 补采入口；用户可明确预览并
+提交到独立 GitHub 诊断 Draft，随后按需刷新审核状态。即使审核工作流成功，
+App 还会核对精确的诊断审核 Artifact 与上传 SHA，才展示“待人工分析”。
+这一闭环目前由服务端契约与 Android 模拟器验证，**仍待未来真实新 OTA
+出现 ABI 阻断时做手机端到端实物验收**，不能把模拟器当作真机通过。
+
+后续仍没有自动推导新的 OEM 兼容补丁或根据补采证据自动放行的机制。
 每次新 OTA/新 Image 的 runtime-selected 放行都必须重新绑定真机证据；
 OS4.0.6 的 runtime-selected gate / Gen 6 LKG 保持原样。
 

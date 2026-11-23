@@ -1,6 +1,6 @@
 # 小米 17 Pro OS4：OTA 自动化、手机反馈与开发基线
 
-核对日期：2026-11-02。当前入口见 [功能与文档索引](pandora-os4-guide.md)，实际操作见 [OTA 指南](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)。
+核对日期：2026-11-23。当前入口见 [功能与文档索引](pandora-os4-guide.md)，实际操作见 [OTA 指南](xiaomi-17-pro-os4-firmware-upgrade-stock-input-guide.md)。
 
 ## 手机接收与候选构建是两条接力
 
@@ -71,7 +71,7 @@ AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW 表示来源/审计信息不足，
 
 后续仍从同一自定义入口拿到同次 Image 的待测 IMG 与 `OTA_CUSTOM_UNVERIFIED` AnyKernel3，不需要再回报一次测试结果才能取得 ZIP。真正稳定使用后，另由用户在[唯一 LKG 晋升入口](xiaomi-17-pro-os4-cross-ota-lkg.md)确认；App 的测试通过不会自动晋升 LKG。
 
-当前真实稳定基线为 R62 Gen 4；真正不同 OTA 的采集→候选→真机→功能版→LKG 全链路仍待实际固件验证。
+当前正式稳定指针为 **OS4.0.6 Gen 6**，已通过原始 Run #37 真机临时启动、exact runtime-selected OEM 门禁、AnyKernel3 持久安装与连续两次普通重启，并归档严格复现证据。早期静态 OEM 检查被 Rust Binder/同名模块来源正确阻断；V2 诊断与采集任务**只用于补证**，不能代替每次新 OTA 的实际兼容证明。
 
 ## 过期与中断恢复
 

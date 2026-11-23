@@ -422,6 +422,25 @@ jobs:
             "$DIR/ota-v2-diagnostic.json" \
             "$DIR/ota-v2-diagnostic.md"
 
+      - name: "OTA V2 / 生成只读补采任务（仅针对可诊断的 ABI 阻断）"
+        if: steps.abi.outputs.eligible == 'false' && steps.v2.outcome == 'success'
+        env:
+          SOURCE_RUN: ${{ github.run_id }}
+          SOURCE_HEAD: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          if jq -e '.status == "ABI_BLOCKED_DIAGNOSABLE"' "$DIR/ota-v2-diagnostic.json" >/dev/null; then
+            python3 scripts/xiaomi-os4/make-ota-v2-diagnostic-task.py \
+              --diagnostic "$DIR/ota-v2-diagnostic.json" \
+              --source-run "$SOURCE_RUN" --source-head "$SOURCE_HEAD" \
+              --output "$DIR/ota-v2-diagnostic-task.json"
+            echo "::notice::已生成与来源 Run/OTA SHA 绑定的只读补采建议；不包含可执行命令。"
+          else
+            echo "::notice::当前属于输入或审计异常，应先修复服务端来源证据，不请求手机补采。"
+          fi
+
       - name: "仅静态门禁全部通过时生成同 OTA fastboot boot 临时测试包"
         if: steps.abi.outputs.eligible == 'true' && steps.v2.outcome == 'success'
         shell: bash
@@ -482,6 +501,7 @@ jobs:
             ${{ runner.temp }}/ota-abi/ota-abi-report.json
             ${{ runner.temp }}/ota-abi/ota-v2-diagnostic.json
             ${{ runner.temp }}/ota-abi/ota-v2-diagnostic.md
+            ${{ runner.temp }}/ota-abi/ota-v2-diagnostic-task.json
             ${{ runner.temp }}/ota-abi/TESTBOOT-READ-ME-FIRST.txt
             ${{ runner.temp }}/ota-abi/TESTBOOT-SHA256SUMS.txt
             ${{ runner.temp }}/ota-abi/*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img
