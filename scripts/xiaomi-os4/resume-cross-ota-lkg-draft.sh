@@ -42,7 +42,21 @@ jq -e --arg t "$TAG" --argjson id "$RELEASE_ID" '
 python3 scripts/xiaomi-os4/check-ota-lkg-draft-assets.py \
   --release "$RELEASE_JSON" --tag "$TAG" --build "$BUILD" \
   --output "$WORK/draft-assets.tsv"
-while IFS=
+while IFS='|' read -r ASSET_ID ASSET_NAME ASSET_SHA ASSET_SIZE; do
+  [[ "$ASSET_ID" =~ ^[1-9][0-9]*$ && "$ASSET_SIZE" =~ ^[1-9][0-9]*$ ]] || exit 1
+  curl --fail --location --silent --show-error --retry 2 \
+    --header "Authorization: Bearer $GH_TOKEN" \
+    --header "Accept: application/octet-stream" \
+    --output "$OUT/$ASSET_NAME" \
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+  [[ "$(stat -c%s "$OUT/$ASSET_NAME")" == "$ASSET_SIZE" ]] || {
+    echo "::error::draft asset size differs from numeric Release metadata: $ASSET_NAME"; exit 1;
+  }
+  [[ "$(sha256sum "$OUT/$ASSET_NAME" | cut -d' ' -f1)" == "$ASSET_SHA" ]] || {
+    echo "::error::draft asset SHA256 differs from numeric Release metadata: $ASSET_NAME"; exit 1;
+  }
+done < "$WORK/draft-assets.tsv"
+python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$OUT" --tag "$TAG"
 POINTER="$OUT/ota-lkg-promotion-record.json"
 ORIGINAL_PROMOTION_RUN="$(jq -er .promotion_run_id "$POINTER")"
 gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$WORK/source-run.json"
