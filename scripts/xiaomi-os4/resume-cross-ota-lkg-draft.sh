@@ -20,11 +20,42 @@ GEN="$(jq -er '.generation+1' "$CURRENT")"
 TAG="pandora-os4-lkg-gen$GEN"
 BUILD="$(jq -er '.stock_build' "$CURRENT")"
 RELEASE_JSON="$WORK/release.json"
-gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RELEASE_JSON"
-jq -e --arg t "$TAG" '.tag_name==$t and .draft==true' "$RELEASE_JSON" >/dev/null || {
-  echo "::error::no matching verified *draft* Release to resume"; exit 1;
+# Draft releases are not reliably addressable via /releases/tags/<tag>.
+# The authenticated list, then the immutable numeric release/asset IDs, work
+# before publication. Never fall back to an untrusted tag download URL.
+RELEASES_JSON="$WORK/releases.json"
+gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RELEASES_JSON"
+RELEASE_ID="$(jq -er --arg t "$TAG" '
+  [.[] | select(.tag_name==$t)] |
+  if length==1 and .[0].draft==true then .[0].id else error("missing/ambiguous draft") end
+' "$RELEASES_JSON")"
+[[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RELEASE_JSON"
+jq -e --arg t "$TAG" --argjson id "$RELEASE_ID" '
+  .id==$id and .tag_name==$t and .draft==true
+' "$RELEASE_JSON" >/dev/null || {
+  echo "::error::draft Release ID/identity changed"; exit 1;
 }
-gh release download "$TAG" --dir "$OUT"
+# Validate exactly the expected asset set, uploaded state, individual SHA-256
+# digests and byte lengths before fetching any blob. GitHub's documented
+# asset-by-ID octet-stream endpoint supports unpublished drafts.
+python3 scripts/xiaomi-os4/check-ota-lkg-draft-assets.py \
+  --release "$RELEASE_JSON" --tag "$TAG" --build "$BUILD" \
+  --output "$WORK/draft-assets.tsv"
+while IFS='|' read -r ASSET_ID ASSET_NAME ASSET_SHA ASSET_SIZE; do
+  [[ "$ASSET_ID" =~ ^[1-9][0-9]*$ && "$ASSET_SIZE" =~ ^[1-9][0-9]*$ ]] || exit 1
+  curl --fail --location --silent --show-error --retry 2 \
+    --header "Authorization: Bearer $GH_TOKEN" \
+    --header "Accept: application/octet-stream" \
+    --output "$OUT/$ASSET_NAME" \
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+  [[ "$(stat -c%s "$OUT/$ASSET_NAME")" == "$ASSET_SIZE" ]] || {
+    echo "::error::draft asset size differs from numeric Release metadata: $ASSET_NAME"; exit 1;
+  }
+  [[ "$(sha256sum "$OUT/$ASSET_NAME" | cut -d' ' -f1)" == "$ASSET_SHA" ]] || {
+    echo "::error::draft asset SHA256 differs from numeric Release metadata: $ASSET_NAME"; exit 1;
+  }
+done < "$WORK/draft-assets.tsv"
 python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$OUT" --tag "$TAG"
 POINTER="$OUT/ota-lkg-promotion-record.json"
 ORIGINAL_PROMOTION_RUN="$(jq -er .promotion_run_id "$POINTER")"
@@ -129,7 +160,14 @@ LIVE="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/config/ota-lkg-current
 cmp -s <(printf '%s\n' "$LIVE") "$POINTER" || {
   echo "::error::merged LKG record changed; do not publish the draft"; exit 1;
 }
-gh release edit "$TAG" --draft=false --latest=false
-[[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == false ]] || exit 1
+# Publish by ID as well: tag-only lookups can remain 404 for drafts.
+# This happens only after GitHub confirms the trusted LKG pointer merged.
+gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+  -F draft=false -f make_latest=false > "$WORK/published-release.json"
+jq -e --arg t "$TAG" --argjson id "$RELEASE_ID" '
+  .id==$id and .tag_name==$t and .draft==false
+' "$WORK/published-release.json" >/dev/null || {
+  echo "::error::merged LKG pointer but draft publication not confirmed"; exit 1;
+}
 echo "LKG_VERIFIED_DRAFT_RECOVERY=PASS source=$SOURCE_RUN_ID original_promotion=$ORIGINAL_PROMOTION_RUN recovery_run=$GITHUB_RUN_ID generation=$GEN"
 echo "Existing $TAG draft revalidated, Gen $GEN pointer merged; no redundant kernel rebuild. $URL" >> "$GITHUB_STEP_SUMMARY"
