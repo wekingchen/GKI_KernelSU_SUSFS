@@ -161,5 +161,23 @@ class Routes(unittest.TestCase):
                 self.check(a=list_(asset(name)))
 
 
+    def test_legacy_r62_followup_names_match_actual_unified_promotion(self):
+        workflows=HERE.parents[1]/".github/workflows"
+        current=(workflows/"xiaomi-sm8850-os4-promote-lkg.yml").read_text()
+        fallback=(workflows/"xiaomi-sm8850-os4-lkg.yml").read_text()
+        archive=(workflows/"xiaomi-sm8850-os4-archive-lkg-release.yml").read_text()
+        stage=(workflows/"pandora-os4-stage-status.yml").read_text()
+        title="小米17 Pro OS4 / 晋升真机稳定内核为 LKG"
+        legacy="旧 R62：核验候选并晋升稳定内核"
+        self.assertIn(f'name: "{title}"',current)
+        self.assertIn(f'      - "{title}"',fallback)
+        self.assertIn(f'      - "{title}"',stage)
+        self.assertIn(f'name: "{legacy}"',current)
+        self.assertEqual(fallback.count('"' + legacy + '"'),2)
+        self.assertNotIn('"小米17 Pro OS4 / 将自定义构建晋升为 LKG"',fallback)
+        self.assertIn('      - "小米17 Pro OS4 / 当前 LKG 复现与打包"',archive)
+
+
+
 if __name__=="__main__":
     unittest.main()
