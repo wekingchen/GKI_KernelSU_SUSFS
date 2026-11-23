@@ -1,0 +1,83 @@
+name: "pandora OS4.0.6 persistent boot equivalence (one-off)"
+
+on:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - ".github/workflows/pandora-406-persistent-equivalence-once.yml"
+      - "scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py"
+      - "scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json"
+      - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/compatibility-fixture.json"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  byte-exact:
+    name: "原厂 stock -> AnyKernel3 目标语义 -> #37 已测试 boot 字节一致"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: "脚本与 cmdline 单测"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py \
+            scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py
+          python3 scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py -v
+
+      - name: "下载固定 stock 与标准工作流 #37 Artifact"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/feature"
+          gh release download pandora-os4-stock-input \
+            --repo "$GITHUB_REPOSITORY" --pattern '*xm.zip' --dir "$RUNNER_TEMP/stock"
+          gh run download 45047763911 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-45047763911 \
+            --dir "$RUNNER_TEMP/feature"
+          mapfile -t STOCKS < <(find "$RUNNER_TEMP/stock" -maxdepth 1 -type f -name '*xm.zip' -print)
+          mapfile -t TESTED_BOOTS < <(find "$RUNNER_TEMP/feature" -maxdepth 1 -type f -name '*FASTBOOT-BOOT-ONLY.img' -print)
+          [[ "${#STOCKS[@]}" -eq 1 ]]
+          [[ "${#TESTED_BOOTS[@]}" -eq 1 ]]
+          [[ "$(sha256sum "${STOCKS[0]}" | awk '{print $1}')" == "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8" ]]
+          [[ "$(sha256sum "$RUNNER_TEMP/feature/Image" | awk '{print $1}')" == "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0" ]]
+          [[ "$(sha256sum "${TESTED_BOOTS[0]}" | awk '{print $1}')" == "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27" ]]
+          echo "STOCK_ZIP=${STOCKS[0]}" >> "$GITHUB_ENV"
+          echo "TESTED_BOOT=${TESTED_BOOTS[0]}" >> "$GITHUB_ENV"
+
+      - name: "从原厂 boot 重建持久安装目标语义"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/persistent-equivalent.img"
+          python3 scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py \
+            --stock-zip "$STOCK_ZIP" \
+            --compat-fixture .github/config/ota-verified/OS4.0.6.0.XBLCNXM/compatibility-fixture.json \
+            --runtime-gate .github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json \
+            --feature-metadata "$RUNNER_TEMP/feature/build-metadata.txt" \
+            --image "$RUNNER_TEMP/feature/Image" \
+            --output "$OUT" \
+            --expected-output-sha256 230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27 \
+            | tee "$RUNNER_TEMP/persistent-equivalence.txt"
+
+          cmp -s "$OUT" "$TESTED_BOOT"
+          echo "BYTE_EXACT_TO_TRUE_DEVICE_TESTED_RUN37_BOOT=PASS" | tee -a "$RUNNER_TEMP/persistent-equivalence.txt"
+          stat -c 'PERSISTENT_EQUIVALENT_SIZE=%s' "$OUT" | tee -a "$RUNNER_TEMP/persistent-equivalence.txt"
+          sha256sum "$OUT" | tee -a "$RUNNER_TEMP/persistent-equivalence.txt"
+
+      - name: "上传等价证明"
+        uses: actions/upload-artifact@v6
+        with:
+          name: pandora-406-persistent-boot-equivalence
+          path: ${{ runner.temp }}/persistent-equivalence.txt
+          if-no-files-found: error
+          retention-days: 30
