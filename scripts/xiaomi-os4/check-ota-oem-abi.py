@@ -71,9 +71,10 @@ def load_runtime_selection(path: Path | None) -> dict | None:
 
 
 def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
-                               metadata: dict[str, str], symvers_path: Path,
+                               symvers_path: Path,
                                feature_image: Path | None,
-                               feature_abi_report: Path | None) -> dict:
+                               feature_abi_report: Path | None,
+                               feature_metadata: Path | None) -> dict:
     if selection.get("schema") != 1 or selection.get("status") != "HUMAN_ATTESTED_RUNTIME_MODULE_SELECTION":
         raise ValueError("runtime selection record is not human-attested")
     expected = {
@@ -92,12 +93,22 @@ def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
     for key, value in expected.items():
         if selection.get(key) != value:
             raise ValueError("runtime selection identity mismatch: " + key)
-    if metadata.get("PANDORA_RUST_BINDER_EEXIST_SHIM") != "1":
+    if feature_metadata is None:
+        raise ValueError("runtime selection requires feature build metadata")
+    feature_meta = dict(line.split("=", 1) for line in feature_metadata.read_text().splitlines()
+                        if "=" in line)
+    if feature_meta.get("PANDORA_RUST_BINDER_EEXIST_SHIM") != "1":
         raise ValueError("feature metadata does not enable verified EEXIST shim")
-    if metadata.get("COMPATIBILITY_BASELINE_KIND") != selection["compatibility_kind"]:
+    if feature_meta.get("COMPATIBILITY_BASELINE_KIND") != selection["compatibility_kind"]:
         raise ValueError("feature metadata compatibility kind drift")
-    if metadata.get("COMPATIBILITY_PATCH_SHA256") != selection["compatibility_patch_sha256"]:
+    if feature_meta.get("COMPATIBILITY_PATCH_SHA256") != selection["compatibility_patch_sha256"]:
         raise ValueError("feature metadata compatibility patch drift")
+    if feature_meta.get("SOURCE_COMMIT") != gki.get("candidate_commit"):
+        raise ValueError("feature metadata source commit drift")
+    if feature_meta.get("SYSTEM_BUILD") != stock.get("build"):
+        raise ValueError("feature metadata stock build drift")
+    if feature_meta.get("KERNEL_RELEASE") != stock.get("uname"):
+        raise ValueError("feature metadata kernel release drift")
 
     runtime = selection.get("runtime")
     if not isinstance(runtime, dict):
@@ -131,8 +142,13 @@ def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
 
     if feature_image is None or feature_abi_report is None:
         raise ValueError("runtime selection requires feature Image and feature ABI report")
-    if sha(feature_image.read_bytes()) != workflow["image_sha256"]:
+    feature_image_sha = sha(feature_image.read_bytes())
+    if feature_image_sha != workflow["image_sha256"]:
         raise ValueError("runtime-selected feature Image hash mismatch")
+    if feature_meta.get("IMAGE_SHA256") != feature_image_sha:
+        raise ValueError("feature metadata Image hash mismatch")
+    if feature_meta.get("SYMVERS_SHA256") != workflow["module_symvers_sha256"]:
+        raise ValueError("feature metadata Module.symvers hash mismatch")
     if stock["uname"].encode("ascii") not in feature_image.read_bytes():
         raise ValueError("runtime-selected feature Image missing stock uname marker")
     abi = json.loads(feature_abi_report.read_text(encoding="utf-8"))
@@ -398,6 +414,7 @@ def main() -> int:
     parser.add_argument("--runtime-selection", type=Path)
     parser.add_argument("--feature-image", type=Path)
     parser.add_argument("--feature-abi-report", type=Path)
+    parser.add_argument("--feature-metadata", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     a = parser.parse_args()
     report = {"schema": 1, "gate": "BLOCKED", "eligible_for_fastboot_boot": False,
