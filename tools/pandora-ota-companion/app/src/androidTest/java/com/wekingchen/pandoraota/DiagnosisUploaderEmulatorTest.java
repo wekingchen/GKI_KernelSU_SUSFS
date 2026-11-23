@@ -27,7 +27,7 @@ public final class DiagnosisUploaderEmulatorTest {
         @Override public void disconnect(){}
         @Override public boolean usingProxy(){return false;}
         @Override public OutputStream getOutputStream(){return body;}
-        @Override public int getResponseCode(){return response;}
+        @Override public int getResponseCode()throws IOException{return response;}
         @Override public InputStream getInputStream(){
             String text=payload;
             if(url.getHost().equals("uploads.github.com"))
@@ -136,7 +136,7 @@ public final class DiagnosisUploaderEmulatorTest {
         }
         @Override public HttpURLConnection open(URL url)throws Exception {
             String path=url.getPath();
-            if(url.getHost().equals("api.github.com")&&path.endsWith("/releases")){
+            if(url.getHost().equals("api.github.com")&&path.endsWith("/releases")&&url.getQuery()==null){
                 // The first POST creates a Draft, later POSTs hit GitHub's 422.
                 return new Connection(url,201,"{\"id\":77,\"upload_url\":\"https://uploads.github.com/repos/"+
                         REPO+"/releases/77/assets{?name,label}\"}"){
