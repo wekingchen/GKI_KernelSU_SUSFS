@@ -2,12 +2,13 @@
   "schema": 1,
   "case": "pandora-os4-406-raw-oem-abi",
   "source": {
-    "stock_tag": "pandora-os4-stock-input",
+    "stock_tag": "pandora-ota-v2-os406-raw-stock-reference",
     "stock_build": "OS4.0.6.0.XBLCNXM",
     "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
     "gki_tag": "pandora-os4-ota-candidate-OS4.0.6.0.XBLCNXM",
     "candidate_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
-    "original_baseline_run_id": 44888223032
+    "original_baseline_run_id": 44888223032,
+    "stock_source_note": "IMMUTABLE_READONLY_OS406_REFERENCE_EXACT_PINNED_SHA256"
   },
   "expected_report": {
     "gate": "BLOCKED",
