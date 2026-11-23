@@ -73,8 +73,8 @@ class DraftRecovery(unittest.TestCase):
             attestation="USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF",
             reproduction=self.reproduction,
             source_manifest_sha256=digest(self.src.joinpath("ota-custom-source.json").read_bytes()),
-            selections=self.manifest["selections"],
-            upstream_commits=self.manifest["upstream_commits"],
+            selections=copy.deepcopy(self.manifest["selections"]),
+            upstream_commits=copy.deepcopy(self.manifest["upstream_commits"]),
         )
         self.source = dict(id=39, event="workflow_dispatch", head_branch="dev",
                            head_sha="c"*40, status="completed", conclusion="success",
