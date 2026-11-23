@@ -21,16 +21,12 @@ if git merge-base --is-ancestor "$UPSTREAM_SHA" "$FORK_BASE"; then
   exit 0
 fi
 
-# 只允许本仓持有独立路径；此前继承的上游文件如果发生本地修改，绝不自动覆盖。
+# 同一上游原件若曾提前原样更新到本仓，提交历史可能尚未完整合入。
+# 只比较 diff 会误报；按 mode/type/blob 与上游最新树严格核对，内容一致才继续。
+# 真正的私有覆盖、删除或文件类型变化仍然直接拒绝。
 LAST_UPSTREAM="$(git merge-base "$FORK_BASE" "$UPSTREAM_SHA")"
-mapfile -t modified_shared < <(
-  git diff --no-renames --name-only --diff-filter=DMT "$LAST_UPSTREAM" "$FORK_BASE"
-)
-if (( ${#modified_shared[@]} )); then
-  echo "::error::存在未经隔离的上游文件修改，拒绝自动合并："
-  printf '  - %s\n' "${modified_shared[@]}"
-  exit 1
-fi
+python3 scripts/upstream-sync/check-inherited-files.py \
+  --common "$LAST_UPSTREAM" --fork "$FORK_BASE" --upstream "$UPSTREAM_SHA"
 
 # 新增工作流需要人工复核，避免在无人值守时引入未经检查的高权限入口。
 mapfile -t new_workflows < <(
