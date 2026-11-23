@@ -62,7 +62,9 @@ public final class DiagnosisEmulatorTest {
     @Test public void serverTaskMustBeExactCurrentBuildAndNeverContainCommands()throws Exception{
         DiagnosisClient.Task valid=verifiedTask();
         assertEquals(2,valid.checks.size());
-        assertEquals("需要确认 Binder 与已加载模块的实际状态",valid.plainSummary());
+        assertEquals("需要确认 Binder 实际模式，以及压缩内存模块的来源",valid.plainSummary());
+        assertTrue(valid.issuesForHuman().contains("71 项"));
+        assertTrue(valid.issuesForHuman().contains("27 项"));
         JSONObject bad=rawTask().put("commands",new JSONArray().put("cat /proc/kallsyms"));
         reject(bad,stage(),source());
         bad=rawTask().put("device_write_allowed",true);reject(bad,stage(),source());
