@@ -286,8 +286,34 @@ python3 scripts/xiaomi-os4/verify-ota-lkg-release.py --dir "$WORK/check-release"
 # If the final publish fails after merge, a separate verified repair step
 # can publish this already-complete draft without rebuilding / re-promoting.
 # Pointer moves only after successful independent Release verification.
+# A long independent rebuild may overlap an unrelated OTA companion/docs PR.
+# Only the narrowly enumerated benign paths may advance dev; kernel, LKG,
+# stock input, build and promotion policies remain fail closed.
+LIVE_DEV="$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)"
+if [[ "$LIVE_DEV" != "$BASE_SHA" ]]; then
+  [[ "$LIVE_DEV" =~ ^[a-f0-9]{40}$ ]] || exit 1
+  git fetch --no-tags --quiet origin dev
+  [[ "$(git rev-parse FETCH_HEAD)" == "$LIVE_DEV" ]] || {
+    echo "::error::dev moved during fetch; keep verified draft, pointer untouched"; exit 1;
+  }
+  git merge-base --is-ancestor "$BASE_SHA" "$LIVE_DEV" || {
+    echo "::error::dev changed non-fast-forward; keep verified draft, pointer untouched"; exit 1;
+  }
+  git diff --name-only --no-renames "$BASE_SHA" "$LIVE_DEV" > "$WORK/dev-advance-paths.txt"
+  python3 scripts/xiaomi-os4/check-lkg-dev-advance.py \
+    --paths-file "$WORK/dev-advance-paths.txt" || {
+    echo "::error::dev changed in security-relevant files; keep verified draft, pointer untouched"; exit 1;
+  }
+  cmp -s .github/config/ota-lkg-current.json \
+    <(git show "$LIVE_DEV:.github/config/ota-lkg-current.json") || {
+    echo "::error::LKG pointer changed concurrently; keep verified draft, pointer untouched"; exit 1;
+  }
+  git switch --detach --quiet "$LIVE_DEV"
+  BASE_SHA="$LIVE_DEV"
+  echo "LKG_DEV_BENIGN_ADVANCE=PASS ref=$BASE_SHA"
+fi
 [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq .commit.sha)" == "$BASE_SHA" ]] || {
- echo "::error::dev changed during build; recovery Release preserved, pointer untouched"; exit 1;
+ echo "::error::dev changed again before LKG PR; verified draft preserved"; exit 1;
 }
 CURRENT=".github/config/ota-lkg-current.json"
 HISTORY=""
