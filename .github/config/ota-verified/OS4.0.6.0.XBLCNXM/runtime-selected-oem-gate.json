@@ -77,7 +77,22 @@
   "eligible_for_persistent_kernel_payload": true,
   "persistent_boot_equivalence": "PASS_EXACT_RUN37",
   "safe_to_flash": false,
-  "lkg_promotion": false,
+  "lkg_promotion": true,
   "persistent_boot_equivalence_report": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json",
-  "actual_persistent_install_verified": false
+  "actual_persistent_install_verified": true,
+  "persistent_validation": {
+    "first_reboot": "PASS",
+    "second_reboot": "PASS",
+    "active_slot": "_b",
+    "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+    "root_context": "u:r:ksu:s0",
+    "binder": "c/c",
+    "cmdline_tokens": [
+      "module_blacklist=kernelsu",
+      "pandora_rust_binder_eexist=1"
+    ],
+    "baseband_guard_active": true,
+    "rust_binder_loaded": false,
+    "kernelsu_lkm_loaded": false
+  }
 }
