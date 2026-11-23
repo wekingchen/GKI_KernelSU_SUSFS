@@ -187,6 +187,72 @@ def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
     return selection
 
 
+def apply_runtime_module_selection(records: list[dict], selection: dict,
+                                   report: dict) -> list[dict]:
+    selected = selection["module_identity_evidence"]["selected_modules"]
+    suppressed = selection["suppressed_modules"]
+    runtime_inactive_modules = []
+    runtime_suppressed_modules = []
+    runtime_selected_modules = {}
+
+    for module_name, evidence in selected.items():
+        matches = [x for x in records
+                   if x["module_name"] == module_name
+                   and x["sha256"] == evidence["module_sha256"]]
+        if len(matches) != 1:
+            raise ValueError("runtime-selected module binary not unique: " + module_name)
+        match = matches[0]
+        if match["note_sha256"] != evidence["runtime_note_sha256"]:
+            raise ValueError("runtime-selected GNU Note mismatch: " + module_name)
+        runtime_selected_modules[module_name] = {
+            "path": match["path"],
+            "sha256": match["sha256"],
+            "note_sha256": match["note_sha256"],
+        }
+
+    rust_evidence = suppressed["rust_binder"]
+    rust_matches = [x for x in records
+                    if x["module_name"] == "rust_binder"
+                    and x["sha256"] == rust_evidence["module_sha256"]]
+    if len(rust_matches) != 1:
+        raise ValueError("attested rust_binder binary is not unique in OEM inventory")
+    if report.get("stock_rust_binder_sha256") != rust_evidence["module_sha256"]:
+        raise ValueError("runtime rust_binder suppression binary differs from stock audit")
+
+    active = []
+    for record in records:
+        module_name = record["module_name"]
+        if module_name == "rust_binder":
+            if record["sha256"] != rust_evidence["module_sha256"]:
+                raise ValueError("unexpected second rust_binder binary in runtime graph")
+            runtime_suppressed_modules.append({
+                "path": record["path"],
+                "module_name": module_name,
+                "sha256": record["sha256"],
+                "imports": len(record["imported"]),
+                "reason": rust_evidence["mechanism"],
+            })
+            continue
+        if module_name in selected and record["sha256"] != selected[module_name]["module_sha256"]:
+            runtime_inactive_modules.append({
+                "path": record["path"],
+                "module_name": module_name,
+                "sha256": record["sha256"],
+                "reason": "SAME_MODULE_NAME_DIFFERENT_BINARY_NOT_SELECTED_BY_RUNTIME_NOTE",
+            })
+            continue
+        active.append(record)
+
+    report["runtime_selection_status"] = "APPLIED_FAIL_CLOSED"
+    report["runtime_selected_modules"] = runtime_selected_modules
+    report["runtime_inactive_duplicate_modules"] = runtime_inactive_modules
+    report["runtime_suppressed_modules"] = runtime_suppressed_modules
+    report["runtime_selection_scope"] = selection["gate_scope"]
+    report["runtime_selection_workflow_run_id"] = selection["standard_workflow"]["run_id"]
+    report["runtime_selection_feature_image_sha256"] = selection["standard_workflow"]["image_sha256"]
+    return active
+
+
 def unpack_module(data: bytes, name: str) -> bytes:
     if name.endswith(".xz"):
         data = lzma.decompress(data, format=lzma.FORMAT_XZ, memlimit=250 * 1024 * 1024)
@@ -540,69 +606,8 @@ def main() -> int:
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
             inventory_imports_before_runtime_selection = sum(len(x["imported"]) for x in records)
-            runtime_inactive_modules = []
-            runtime_suppressed_modules = []
-            runtime_selected_modules = {}
             if runtime_selection is not None:
-                selected = runtime_selection["module_identity_evidence"]["selected_modules"]
-                suppressed = runtime_selection["suppressed_modules"]
-
-                for module_name, evidence in selected.items():
-                    matches = [x for x in records
-                               if x["module_name"] == module_name
-                               and x["sha256"] == evidence["module_sha256"]]
-                    if len(matches) != 1:
-                        raise ValueError("runtime-selected module binary not unique: " + module_name)
-                    match = matches[0]
-                    if match["note_sha256"] != evidence["runtime_note_sha256"]:
-                        raise ValueError("runtime-selected GNU Note mismatch: " + module_name)
-                    runtime_selected_modules[module_name] = {
-                        "path": match["path"],
-                        "sha256": match["sha256"],
-                        "note_sha256": match["note_sha256"],
-                    }
-
-                rust_evidence = suppressed["rust_binder"]
-                rust_matches = [x for x in records
-                                if x["module_name"] == "rust_binder"
-                                and x["sha256"] == rust_evidence["module_sha256"]]
-                if len(rust_matches) != 1:
-                    raise ValueError("attested rust_binder binary is not unique in OEM inventory")
-                if report.get("stock_rust_binder_sha256") != rust_evidence["module_sha256"]:
-                    raise ValueError("runtime rust_binder suppression binary differs from stock audit")
-
-                active = []
-                for record in records:
-                    module_name = record["module_name"]
-                    if module_name == "rust_binder":
-                        if record["sha256"] != rust_evidence["module_sha256"]:
-                            raise ValueError("unexpected second rust_binder binary in runtime graph")
-                        runtime_suppressed_modules.append({
-                            "path": record["path"],
-                            "module_name": module_name,
-                            "sha256": record["sha256"],
-                            "imports": len(record["imported"]),
-                            "reason": rust_evidence["mechanism"],
-                        })
-                        continue
-                    if module_name in selected:
-                        if record["sha256"] != selected[module_name]["module_sha256"]:
-                            runtime_inactive_modules.append({
-                                "path": record["path"],
-                                "module_name": module_name,
-                                "sha256": record["sha256"],
-                                "reason": "SAME_MODULE_NAME_DIFFERENT_BINARY_NOT_SELECTED_BY_RUNTIME_NOTE",
-                            })
-                            continue
-                    active.append(record)
-                records = active
-                report["runtime_selection_status"] = "APPLIED_FAIL_CLOSED"
-                report["runtime_selected_modules"] = runtime_selected_modules
-                report["runtime_inactive_duplicate_modules"] = runtime_inactive_modules
-                report["runtime_suppressed_modules"] = runtime_suppressed_modules
-                report["runtime_selection_scope"] = runtime_selection["gate_scope"]
-                report["runtime_selection_workflow_run_id"] = runtime_selection["standard_workflow"]["run_id"]
-                report["runtime_selection_feature_image_sha256"] = runtime_selection["standard_workflow"]["image_sha256"]
+                records = apply_runtime_module_selection(records, runtime_selection, report)
 
             providers = {}
             for record in records:
