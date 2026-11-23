@@ -83,7 +83,7 @@ jobs:
 
   close-merged-branch-tail:
     needs: test
-    name: "安全删除本轮上游同步后已合并的临时分支"
+    name: "精确清理已合并的 Pandora OTA V2 临时开发分支"
     if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -91,29 +91,40 @@ jobs:
       contents: write
       pull-requests: read
     steps:
-      - name: "仅对固定白名单和精确合并 SHA 操作"
+      - name: "只处理本仓 OTA V2 专属前缀、未保护且已合并至 dev 的分支"
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token \}\}
         run: |
           set -euo pipefail
-          for branch in \
-            "fix/upstream-sync-allow-identical-inherited-files" \
-            "chore/upstream-sync-finalize-20261123"; do
-            live=""
-            if ! live="$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" 2>/dev/null)"; then
-              echo "已不存在：$branch"; continue
-            fi
-            sha="$(jq -r '.commit.sha' <<<"$live")"
+          # Never touch upstream branches, active PR branches, dev or stable.
+          # Only our narrowly scoped Pandora OTA V2 PR branches are eligible.
+          branches="$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100")"
+          mapfile -t candidates < <(jq -r '
+            .[] | select(.protected == false)
+            | .name | select(test("^(fix|chore)/pandora-ota-v2-"))
+          ' <<<"$branches")
+          [[ "${#candidates[@]\}" -le 10 ]] || {
+            echo "::error::候选临时分支异常增多，停止自动清理"; exit 1;
+          }
+          merged="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&base=dev&per_page=100")"
+          cleaned=0
+          for branch in "${candidates[@]\}"; do
+            # Check the live head again; PR's exact head SHA must still match.
+            live="$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch")"
+            sha="$(jq -er '.commit.sha' <<<"$live")"
             [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || exit 1
             jq -e '.protected == false' <<<"$live" >/dev/null || exit 1
-            merged="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=closed&per_page=50")"
-            jq -e --arg branch "$branch" --arg sha "$sha" '
+            if ! jq -e --arg branch "$branch" --arg sha "$sha" --arg repo "$GITHUB_REPOSITORY" '
               [.[] | select(.merged_at != null and .base.ref == "dev"
-                and .head.ref == $branch and .head.sha == $sha)] | length == 1
-            ' <<<"$merged" >/dev/null || {
-              echo "::error::分支不是原 SHA 的已合并 PR，拒绝删除：$branch"; exit 1;
-            }
+                and .head.ref == $branch and .head.sha == $sha
+                and .head.repo.full_name == $repo)] | length == 1
+            ' <<<"$merged" >/dev/null; then
+              echo "保留未合并或 SHA 已变动的分支：$branch"
+              continue
+            fi
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null
-            echo "已核对并清理：$branch"
+            echo "已核验合并来源并清理：$branch"
+            cleaned=$((cleaned + 1))
           done
+          echo "OTA V2 专属临时分支：候选 ${#candidates[@]\} 个，已安全删除 $cleaned 个。" >> "$GITHUB_STEP_SUMMARY"
