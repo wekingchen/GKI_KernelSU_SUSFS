@@ -54,6 +54,12 @@ class SafeActionPrune(unittest.TestCase):
         deleted, _ = m.make_plan(samples, set(), 9999)
         self.assertEqual(deleted, [])
 
+    def test_ci_for_unmerged_pr_head_is_preserved(self):
+        samples = [run(i) for i in range(1, 25)]
+        samples[3]["head_sha"] = "a"*40
+        deleted, _ = m.make_plan(samples, set(), 9999, active_pr_heads={"a"*40})
+        self.assertNotIn(4, deleted)
+
     def test_document_references_pin_run_ids(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "docs"
