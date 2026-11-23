@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   cleanup:
-    if: github.event.head_commit.message == 'chore: run one-shot local cleanup 2026-11-23'
     runs-on: ubuntu-latest
     steps:
       - name: Fail-closed cleanup of local-only branches and their runs
