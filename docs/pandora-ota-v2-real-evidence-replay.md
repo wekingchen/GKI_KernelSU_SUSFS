@@ -80,9 +80,9 @@ App 还会核对精确的诊断审核 Artifact 与上传 SHA，才展示“待�
 
 后续仍没有自动推导新的 OEM 兼容补丁或根据补采证据自动放行的机制。
 每次新 OTA/新 Image 的 runtime-selected 放行都必须重新绑定真机证据；
-OS4.0.6 的 runtime-selected gate / Gen 6 LKG 保持原样。
+OS4.0.6 的 runtime-selected gate 仍限定精确原件与真机证据；当前稳定版已晋升 Gen 7，历史 Gen 6 证据照旧保留。
 
 ## 上游隔离边界
 
 只新增 pandora 专属 scripts/xiaomi-os4/、.github/workflows/ 和本文；
-不修改 zzh20188 上游共用文件、不改 Gen 6 指针与发布、不操作手机、不上传手机私有日志。
+不修改 zzh20188 上游共用文件、不借诊断改动 Gen 7 LKG 指针与发布、不操作手机、不上传手机私有日志。
