@@ -61,7 +61,7 @@ final class DiagnosisUploader {
             // GitHub returns 422 if this deterministic Draft already exists.
             // Never create a second Draft for the same exact evidence payload.
             if(!conflict.getMessage().contains("HTTP 422"))throw conflict;
-            release=requestJson(api+"/releases/tags/"+tag,"GET",null,200);
+            release=findDraftByTag(api,tag);
             recovered=true;
         }
         if(recovered&&(!tag.equals(release.optString("tag_name"))
@@ -104,6 +104,22 @@ final class DiagnosisUploader {
                 provisional.releaseId,provisional.assetId,run,digest,provisional.releaseUrl,tag,false);}
         notified=true;
         return new Receipt(provisional.releaseId,provisional.assetId,run,digest,provisional.releaseUrl,tag,notified);
+    }
+    private JSONObject findDraftByTag(String api,String tag)throws Exception{
+        // Drafts are included in authenticated release listings, but
+        // GitHub's "get release by tag" endpoint can return 404 for drafts.
+        // Bound the search; never create another draft if the original
+        // cannot be located or verified.
+        for(int page=1;page<=20;page++){
+            JSONArray releases=requestJson(api+"/releases?per_page=20&page="+page,
+                    "GET",null,200).getJSONArray("items");
+            for(int i=0;i<releases.length();i++){
+                JSONObject candidate=releases.getJSONObject(i);
+                if(tag.equals(candidate.optString("tag_name")))return candidate;
+            }
+            if(releases.length()<20)break;
+        }
+        throw new IOException("GitHub 已存在同名诊断草稿但无法定位，禁止重复创建");
     }
     void notifyIntake(Receipt receipt)throws Exception{
         JSONObject inputs=new JSONObject().put("source_run_id",Long.toString(receipt.sourceRun))
@@ -149,7 +165,10 @@ final class DiagnosisUploader {
                     if(data.size()+n>128*1024)throw new IOException("GitHub 响应过长");
                     data.write(buf,0,n);
                 }
-                return new JSONObject(data.toString(StandardCharsets.UTF_8.name()));
+                String response=data.toString(StandardCharsets.UTF_8.name());
+                if("GET".equals(verb)&&url.getPath().equals("/repos/"+REPO+"/releases"))
+                    return new JSONObject().put("items",new JSONArray(response));
+                return new JSONObject(response);
             }
         }finally{connection.disconnect();}
     }
