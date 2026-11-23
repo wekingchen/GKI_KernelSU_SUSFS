@@ -371,7 +371,7 @@ jobs:
         run: |
           set -euo pipefail
           DIR="$RUNNER_TEMP/ota-abi"
-          python3 -m py_compile scripts/xiaomi-os4/check-ota-oem-abi.py scripts/xiaomi-os4/pandora_vendorboot_modules.py scripts/xiaomi-os4/package-ota-testboot-v4.py
+          python3 -m py_compile scripts/xiaomi-os4/check-ota-oem-abi.py scripts/xiaomi-os4/pandora_vendorboot_modules.py scripts/xiaomi-os4/package-ota-testboot-v4.py scripts/xiaomi-os4/ota-v2-abi-diagnostics.py
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends zstd jq lz4
           RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
@@ -410,8 +410,20 @@ jobs:
             echo "::notice::未通过 OEM CRC/KMI 门禁，只保存 ABI 报告，绝不生成测试 boot。"
           fi
 
+      - name: "OTA V2 / 只读解释 OEM ABI 阻断并给出补证建议（不修改门禁）"
+        id: v2
+        if: steps.abi.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/ota-abi"
+          bash scripts/xiaomi-os4/run-ota-v2-diagnostics.sh \
+            "$DIR/ota-abi-report.json" \
+            "$DIR/ota-v2-diagnostic.json" \
+            "$DIR/ota-v2-diagnostic.md"
+
       - name: "仅静态门禁全部通过时生成同 OTA fastboot boot 临时测试包"
-        if: steps.abi.outputs.eligible == 'true'
+        if: steps.abi.outputs.eligible == 'true' && steps.v2.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -436,7 +448,7 @@ jobs:
           echo "OTA_FASTBOOT_BOOT_READY=UNVERIFIED_ONLY"
 
       - name: "生成手机表单所需的小型候选元数据"
-        if: steps.abi.outputs.eligible == 'true'
+        if: steps.abi.outputs.eligible == 'true' && steps.v2.outcome == 'success'
         env:
           SOURCE_RUN: ${{ github.run_id }}
           SOURCE_HEAD: ${{ github.sha }}
@@ -453,7 +465,7 @@ jobs:
             --output "$DIR/mobile-test-feedback.json"
 
       - name: "单独上传手机候选元数据（无需手机下载整个 boot）"
-        if: steps.abi.outputs.eligible == 'true'
+        if: steps.abi.outputs.eligible == 'true' && steps.v2.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: pandora-OTA-MOBILE-FEEDBACK-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
@@ -468,6 +480,8 @@ jobs:
           name: pandora-OTA-OEM-ABI-TESTBOOT-${{ needs.inspect.outputs.ota_build }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ota-abi/ota-abi-report.json
+            ${{ runner.temp }}/ota-abi/ota-v2-diagnostic.json
+            ${{ runner.temp }}/ota-abi/ota-v2-diagnostic.md
             ${{ runner.temp }}/ota-abi/TESTBOOT-READ-ME-FIRST.txt
             ${{ runner.temp }}/ota-abi/TESTBOOT-SHA256SUMS.txt
             ${{ runner.temp }}/ota-abi/*-UNVERIFIED-FASTBOOT-BOOT-ONLY.img
