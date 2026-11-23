@@ -73,5 +73,20 @@
       "oem_provider_crc": "0xce8adb59",
       "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH"
     }
-  ]
+  ],
+  "gate_attestation": {
+    "status": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+    "run_id": 45102932564,
+    "artifact_id": 14786505411,
+    "artifact_name": "pandora-406-runtime-selected-oem-gate",
+    "full_report_sha256": "d6c97c7039487cb54896b5f1fa4a8241f338c02f4710bb5ffa89c9ae8d12276d",
+    "report_path": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json",
+    "inventory_imports": 38998,
+    "active_imports_checked": 38528,
+    "unresolved": 0,
+    "ambiguous": 0,
+    "crc_mismatches": 0,
+    "failed_modules": 0,
+    "eligible_for_persistent_kernel_payload": false
+  }
 }
