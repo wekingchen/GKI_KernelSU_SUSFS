@@ -74,6 +74,22 @@ jobs:
             --output "$RUNNER_TEMP/runtime-selected-oem-abi.json"
 
           R="$RUNNER_TEMP/runtime-selected-oem-abi.json"
+          jq '{
+            gate, formal_oem_gate, reason, imports_checked,
+            inventory_imports_before_runtime_selection,
+            unresolved: (.unresolved_kernel_imports|length),
+            unresolved_rust_binder,
+            ambiguous: (.ambiguous_providers|length),
+            ambiguous_same_crc, ambiguous_split_crc,
+            crc_mismatches: (.crc_mismatches|length),
+            failed_modules: (.failed_modules|length),
+            runtime_selection_status,
+            runtime_selected_modules,
+            runtime_inactive_duplicate_modules,
+            runtime_suppressed_modules,
+            unresolved_examples: .unresolved_kernel_imports[:12],
+            ambiguous_examples: .ambiguous_providers[:20]
+          }' "$R"
           jq -e '
             .gate == "CRC_VERMAGIC_AND_RUNTIME_SELECTION_MATCH_CANDIDATE" and
             .formal_oem_gate == "PASS_RUNTIME_SELECTED_EXACT_OS406" and
@@ -102,6 +118,7 @@ jobs:
           }' "$R"
 
       - name: "上传审计报告"
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: pandora-406-runtime-selected-oem-gate
