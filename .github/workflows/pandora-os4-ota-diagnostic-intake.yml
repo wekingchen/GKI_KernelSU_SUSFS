@@ -71,11 +71,6 @@ jobs:
               and .digest == ("sha256:" + $digest))] | length == 1' <<<"$RELEASE" >/dev/null || exit 1
           STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
           echo "$STOCK" > "$DIR/stock-release.json"
-          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "pandora-OTA-OEM-ABI-TESTBOOT-$(jq -r '.assets[0].name | empty' "$DIR/stock-release.json")-$SOURCE_RUN" \
-            --dir "$DIR/source" 2>/dev/null && {
-            echo "::error::Incorrect placeholder path unexpectedly matched"; exit 1;
-          } || true
           # Determine build from the signed-by-provenance stock input's exact name.
           mapfile -t ASSET_NAMES < <(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .name' "$DIR/stock-release.json")
           [[ "${#ASSET_NAMES[@]}" == 1 ]] || exit 1
