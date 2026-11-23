@@ -164,10 +164,30 @@ public final class DiagnosisEmulatorTest {
                     // Save actual native layout screenshot, no generated mock image.
                     Bitmap shot=InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
                     assertNotNull(shot);
-                    File dest=new File(activity.getExternalFilesDir(null),"diagnosis-v2.png");
-                    try(FileOutputStream out=new FileOutputStream(dest)){assertTrue(shot.compress(Bitmap.CompressFormat.PNG,95,out));}
+                    // Instrumentation may clear the application's externalFilesDir
+                    // before the workflow pulls screenshots. MediaStore's public
+                    // Pictures entry survives app test-data cleanup.
+                    android.content.ContentValues values=new android.content.ContentValues();
+                    values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME,"diagnosis-v2.png");
+                    values.put(android.provider.MediaStore.Images.Media.MIME_TYPE,"image/png");
+                    values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH,"Pictures/PandoraOTATests");
+                    values.put(android.provider.MediaStore.Images.Media.IS_PENDING,1);
+                    android.net.Uri publicImage=activity.getContentResolver().insert(
+                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values);
+                    assertNotNull(publicImage);
+                    try(java.io.OutputStream out=activity.getContentResolver().openOutputStream(publicImage)){
+                        assertNotNull(out);
+                        assertTrue(shot.compress(Bitmap.CompressFormat.PNG,95,out));
+                    }
                     shot.recycle();
-                    assertTrue(dest.length()>30000);
+                    values.clear();
+                    values.put(android.provider.MediaStore.Images.Media.IS_PENDING,0);
+                    assertEquals(1,activity.getContentResolver().update(publicImage,values,null,null));
+                    try(android.os.ParcelFileDescriptor fd=activity.getContentResolver()
+                            .openFileDescriptor(publicImage,"r")){
+                        assertNotNull(fd);
+                        assertTrue(fd.getStatSize()>30000);
+                    }
                 }catch(Exception e){throw new AssertionError(e);}
             });
         }
