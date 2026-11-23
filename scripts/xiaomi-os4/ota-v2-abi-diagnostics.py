@@ -66,19 +66,19 @@ def interpret(report: dict) -> dict:
         reasons.append({
             "code": "OEM_MODULE_PARSE_OR_IDENTITY_FAILURE",
             "count": failed,
-            "next_evidence": "Inspect exact SHA-bound module path, ELF format, vermagic and archive integrity",
+            "next_evidence": "核查 SHA 绑定的模块路径、ELF 格式、vermagic 与归档完整性",
         })
     if rust:
         reasons.append({
             "code": "STOCK_RUST_BINDER_ABI_UNRESOLVED",
             "count": rust,
-            "next_evidence": "Compare Rust source/toolchain ABI; collect read-only Binder active_impl and module loader evidence",
+            "next_evidence": "核对 Rust 源码与工具链 ABI，并只读采集 Binder active_impl、加载顺序及加载失败证据",
         })
     if unresolved > rust:
         reasons.append({
             "code": "OTHER_UNRESOLVED_IMPORTS",
             "count": unresolved - rust,
-            "next_evidence": "Audit vendor_boot early providers and complete OEM module import/export graph",
+            "next_evidence": "复核 vendor_boot 早期模块提供者、导入/导出 CRC 与完整依赖图",
         })
     if ambiguous:
         reasons.append({
@@ -86,13 +86,13 @@ def interpret(report: dict) -> dict:
             "count": ambiguous,
             "same_crc": same,
             "split_crc": split,
-            "next_evidence": "Identify the runtime-selected binary with stock SHA and loaded GNU Note; keep vendor/system separate",
+            "next_evidence": "分别锁定 vendor/system 原始二进制 SHA，并用已加载模块 GNU Note 核验实际来源，不得按同名合并",
         })
     if crc:
         reasons.append({
             "code": "MODULE_CRC_MISMATCH",
             "count": crc,
-            "next_evidence": "Verify exact GKI source commit, Module.symvers and OEM binary export/import CRC",
+            "next_evidence": "核对 GKI 精确提交、Module.symvers 与 OEM 二进制的导入/导出 CRC",
         })
 
     passed = report["gate"] != "BLOCKED"
@@ -110,7 +110,7 @@ def interpret(report: dict) -> dict:
         reasons.append({
             "code": "INPUT_OR_PROVENANCE_BLOCKED",
             "count": 1,
-            "next_evidence": "Review original checker reason and SHA-bound stock/GKI inputs; no module graph conclusion",
+            "next_evidence": "先检查原始阻断原因与 stock/GKI 的 SHA 来源；缺少完整图时禁止认定模块兼容",
         })
 
     return {
@@ -179,10 +179,10 @@ def markdown(data: dict) -> str:
     rows = [
         "## Pandora OTA V2 · 只读兼容性诊断",
         "",
-        f"- 诊断状态：\u0060{data['status']}\u0060",
-        f"- OEM Gate：\u0060{data['oem_gate']}\u0060",
-        f"- OTA：\u0060{data['stock_build']}\u0060",
-        f"- GKI Commit：\u0060{data['candidate_commit']}\u0060",
+        f"- 诊断状态：`{data['status']}`",
+        f"- OEM Gate：`{data['oem_gate']}`",
+        f"- OTA：`{data['stock_build']}`",
+        f"- GKI Commit：`{data['candidate_commit']}`",
         f"- OEM 模块：DLKM {e['dlkm_modules']} / vendor_boot {e['vendor_boot_modules']}",
         f"- 模块导入：{e['inventory_imports']}（参与检查 {e['imports_checked']}）",
         f"- 未解析导入：{e['unresolved_imports']}（Rust Binder {e['unresolved_rust_binder']}）",
@@ -191,8 +191,14 @@ def markdown(data: dict) -> str:
         "",
         "### 诊断与下一步证据",
     ]
+    if data["status"] == "ABI_BLOCKED_DIAGNOSABLE":
+        rows.insert(2, "- 判定：已检测到具体 ABI 阻断；只能继续只读调查，禁止生成待测 boot。")
+    elif data["status"] == "AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW":
+        rows.insert(2, "- 判定：原始输入或审计不完整；不能把缺失的模块统计当成零错误。")
+    else:
+        rows.insert(2, "- 判定：静态 ABI 通过，但仍需真实 fastboot boot 和独立持久安装验证。")
     for reason in data["diagnoses"]:
-        rows.append(f"- \u0060{reason['code']}\u0060 × {reason['count']}：{reason['next_evidence']}")
+        rows.append(f"- `{reason['code']}` × {reason['count']}：{reason['next_evidence']}")
     if "reference_replay" in data:
         rows.extend(["", "### OS4.0.6 历史案例回放",
                      "- SHA 绑定原始归档重新审计后的结果与固定参考完全一致。",

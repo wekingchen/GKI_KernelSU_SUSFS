@@ -37,17 +37,39 @@ OEM gate，**不是对初始静态 ABI 失败的通用豁免**。
 如果数据被替换、参考统计不再一致、checker 意外放行或证据不完整，回放
 **必须失败**，不得静默修正预期值。
 
-## 当前与后续阶段
+## 第二阶段：接入已有 OTA 自动候选的 OEM ABI job
 
-本阶段仅证明可重复诊断和阻断分类。它**没有**自动发现 EEXIST 兼容补丁、
-自动选择运行时模块或自动建立新的 OEM gate 放行记录。
-OS4.0.6 的 runtime-selected gate / Gen 6 LKG 继续独立保留、原样生效。
+正式入口仍然是 .github/workflows/xiaomi-sm8850-os4-ota-auto-candidate.yml，
+没有另建一条并行的 OTA 构建流水线。原有 OEM checker 不变，始终独立
+决策 eligible_for_fastboot_boot；新增的诊断步骤调用
+scripts/xiaomi-os4/run-ota-v2-diagnostics.sh，对同一份原始
+ota-abi-report.json 生成 ota-v2-diagnostic.json 和 ota-v2-diagnostic.md。
 
-下一阶段才考虑把 V2 的诊断结果挂到现有
-xiaomi-sm8850-os4-ota-auto-candidate.yml（不另起一套完整 OTA 流程），
-为 ABI_BLOCKED_DIAGNOSABLE 输出可安全执行的补采模板，同时明确
-INPUT_OR_PROVENANCE_BLOCKED、NONFLASH_RESEARCH_ONLY 等状态。
-所有修复与放行仍需严格基于新 OTA、新 Image 的独立证明。
+- ABI_BLOCKED_DIAGNOSABLE：已识别出具体的模块或 ABI 阻断，按原因给出
+  只读补证建议，不打包 boot。
+- AUDIT_OR_INPUT_BLOCKED_REQUIRES_MANUAL_REVIEW：来源、文件校验、解析或
+  前置审计无法形成有效模块图，明确要求人工审核，不把缺失结果当成零错误。
+- STATIC_ABI_PASS_REQUIRES_REAL_DEVICE_TEST：**仅**静态门禁通过，可进入
+  旧有的 fastboot-boot-only 未验证候选流程；不开放持久刷机与 LKG。
+
+新增桥接器强制交叉比对原始 gate / eligible 与 V2 输出：若诊断器失败、报告
+矛盾或产生意外的持久安装授权，CI 失败并阻止后续待测 boot 打包。其他产物
+（手机反馈元数据和 boot）仍由原始 ABI 结果与 V2 完整性共同限制。
+原始 ABI JSON、V2 JSON、V2 Markdown 同放入原来的 ABI Artifact；
+运行摘要直接展示中文诊断与建议，无须另外找一次性 Workflow。
+
+这次在历史回放 Workflow 中复用同一个生产桥接器，对**真实 OS4.0.6
+完整 stock/GKI 归档**执行并与历史固定参考比对。
+回放成功仅意味着重现旧的 BLOCKED，不代表为任意新 OTA 建立兼容证书。
+
+## 尚未实现的能力
+
+本阶段没有自动发明 EEXIST 补丁、自动推断完整模块加载顺序、自动认定
+某个模块可以从运行图排除，也不会自动写手机或自动升级 LKG。
+后续应为已识别的阻断类型生成安全的**可选**只读采集模板，并将
+诊断状态显示在 OTA 助手工作台（需额外 API/客户端契约验证）。
+每次新 OTA/新 Image 的 runtime-selected 放行都必须重新绑定真机证据；
+OS4.0.6 的 runtime-selected gate / Gen 6 LKG 保持原样。
 
 ## 上游隔离边界
 
