@@ -180,25 +180,20 @@ class DiagnosticTaskContract(unittest.TestCase):
 
 
 
-    def test_historical_reference_freeze_is_exact_and_nonmutating(self):
-        script=(BASE/"freeze-ota-v2-historical-os406-stock.sh").read_text()
-        workflow=(BASE.parents[1]/".github/workflows/pandora-ota-v2-freeze-os406-reference.yml").read_text()
-        self.assertIn('TAG="pandora-ota-v2-os406-raw-stock-reference"',script)
-        self.assertIn('EXPECTED="$(jq -er',script)
-        self.assertIn('"https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$CURRENT_ASSET"',script)
-        self.assertIn('sha256sum "$WORK/download/$NAME"',script)
-        self.assertIn('gh api -X POST "repos/$GITHUB_REPOSITORY/releases"',script)
-        self.assertIn('-F draft=true -F prerelease=true',script)
-        self.assertIn('https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets',script)
-        self.assertIn('gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"',script)
-        self.assertIn('"https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"',script)
-        self.assertNotIn('gh release edit pandora-os4-stock-input',script)
-        self.assertNotIn('gh release upload pandora-os4-stock-input',script)
-        self.assertNotIn('fastboot flash',script)
-        self.assertNotIn('ota-lkg-current.json',script)
-        self.assertIn('contents: write',workflow)
-        self.assertIn("branches: [dev]",workflow)
-        self.assertIn("cancel-in-progress: false",workflow)
+    def test_historical_abi_replay_uses_frozen_independent_stock_reference(self):
+        ref=json.loads((BASE/"ota-v2-references/pandora-os4-406-raw-oem-abi.json").read_text())
+        self.assertEqual("pandora-ota-v2-os406-raw-stock-reference",ref["source"]["stock_tag"])
+        self.assertEqual("bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+                         ref["source"]["stock_input_sha256"])
+        self.assertEqual("IMMUTABLE_READONLY_OS406_REFERENCE_EXACT_PINNED_SHA256",
+                         ref["source"]["stock_source_note"])
+        replay=(BASE.parents[1]/".github/workflows/pandora-os4-ota-v2-evidence-replay.yml").read_text()
+        self.assertIn("stock_tag=\"$(jq -r '.source.stock_tag' \"$REFERENCE\")\"",replay)
+        self.assertIn('sha256sum "$stock_zip"',replay)
+        self.assertIn("reference_replay.historical_gate_still_blocked == true",replay)
+        self.assertFalse((BASE/"freeze-ota-v2-historical-os406-stock.sh").exists())
+        self.assertFalse((BASE.parents[1]/".github/workflows/pandora-ota-v2-freeze-os406-reference.yml").exists())
+
 
 if __name__=="__main__":
     unittest.main()
