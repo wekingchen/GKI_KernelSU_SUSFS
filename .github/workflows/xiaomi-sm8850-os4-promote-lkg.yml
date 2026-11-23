@@ -82,7 +82,9 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/promotion-artifacts.json"
             python3 scripts/xiaomi-os4/select-lkg-promotion-route.py "${ARGS[@]}" \
               --run-json "$RUNNER_TEMP/promotion-source-run.json" \
-              --artifacts-json "$RUNNER_TEMP/promotion-artifacts.json" >> "$GITHUB_OUTPUT"
+              --artifacts-json "$RUNNER_TEMP/promotion-artifacts.json" \
+              --persistent-candidate ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json" \
+              >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
@@ -444,7 +446,8 @@ jobs:
     name: "新 OTA：严格复现校验、归档并晋升 LKG"
     if: >-
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
-      needs.select-route.outputs.mode == 'ota' && inputs.confirm_boot && inputs.confirm_persistent && inputs.confirm_runtime
+      (needs.select-route.outputs.mode == 'ota' || needs.select-route.outputs.mode == 'ota-compat-persistent') &&
+      inputs.confirm_boot && inputs.confirm_persistent && inputs.confirm_runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -461,6 +464,7 @@ jobs:
           bash -n scripts/xiaomi-os4/build-r62-features.sh
           bash -n scripts/xiaomi-os4/package-validated-anykernel3.sh
           python3 -m py_compile scripts/xiaomi-os4/cross-ota-lkg.py scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py scripts/xiaomi-os4/verify-ota-lkg-release.py
+          python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
           python3 -m unittest discover -s scripts/xiaomi-os4 -p 'test_cross_ota_lkg.py' -v
       - name: "构建与校验环境"
         shell: bash
@@ -486,6 +490,7 @@ jobs:
           CONFIRM_PERSISTENT: ${{ inputs.confirm_persistent }}
           CONFIRM_RUNTIME: ${{ inputs.confirm_runtime }}
           PROMOTION_NOTE: ${{ inputs.note }}
+          PROMOTION_ROUTE_MODE: ${{ needs.select-route.outputs.mode }}
         run: |
           set -euo pipefail
           bash scripts/xiaomi-os4/run-cross-ota-lkg.sh

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "FIRST_TRUE_DEVICE_PERSISTENT_REBOOT_PASS_SECOND_REBOOT_PENDING",
+  "status": "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY",
   "device": "pandora",
   "stock_build": "OS4.0.6.0.XBLCNXM",
   "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
@@ -29,10 +29,10 @@
     "no_magisk_check": true,
     "forbidden_partition_images_embedded": false
   },
-  "actual_persistent_install_verified": false,
+  "actual_persistent_install_verified": true,
   "safe_to_fastboot_flash": false,
-  "lkg_promotion": false,
-  "next_stage": "SECOND_TRUE_DEVICE_REBOOT_PERSISTENCE_VALIDATION",
+  "lkg_promotion": true,
+  "next_stage": "ELIGIBLE_FOR_EXACT_RUN37_LKG_PROMOTION",
   "first_true_device_persistent_reboot": {
     "status": "PASS",
     "source": "USER_MANUAL_CMD_OUTPUT",
@@ -43,6 +43,36 @@
     "root_context": "u:r:ksu:s0",
     "cmdline_has_kernelsu_blacklist": true,
     "cmdline_has_eexist_parameter": true,
+    "binder_impl": "c",
+    "binder_active_impl": "c",
+    "active_lsm": [
+      "capability",
+      "landlock",
+      "safesetid",
+      "selinux",
+      "bpf",
+      "baseband_guard"
+    ],
+    "rust_binder_loaded": false,
+    "kernelsu_lkm_loaded": false,
+    "loaded_vendor_modules": [
+      "node_cache",
+      "zram",
+      "zsmalloc"
+    ]
+  },
+  "second_true_device_persistent_reboot": {
+    "status": "PASS",
+    "source": "USER_MANUAL_CMD_OUTPUT",
+    "slot": "_b",
+    "boot_completed": true,
+    "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+    "root_uid": 0,
+    "root_context": "u:r:ksu:s0",
+    "cmdline_tokens": [
+      "module_blacklist=kernelsu",
+      "pandora_rust_binder_eexist=1"
+    ],
     "binder_impl": "c",
     "binder_active_impl": "c",
     "active_lsm": [

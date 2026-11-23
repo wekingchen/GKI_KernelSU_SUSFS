@@ -53,8 +53,18 @@
   },
   "runtime_selected_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
   "eligible_for_persistent_kernel_payload": true,
-  "actual_persistent_install_verified": false,
+  "actual_persistent_install_verified": true,
   "safe_to_flash": false,
-  "lkg_promotion": false,
-  "next_stage": "BUILD_EXACT_RUN37_ANYKERNEL3_PERSISTENT_CANDIDATE"
+  "lkg_promotion": true,
+  "next_stage": "ELIGIBLE_FOR_EXACT_RUN37_LKG_PROMOTION",
+  "true_device_persistence": {
+    "first_reboot": "PASS",
+    "second_reboot": "PASS",
+    "slot": "_b",
+    "binder": "c/c",
+    "baseband_guard_active": true,
+    "root_context": "u:r:ksu:s0",
+    "kernelsu_lkm_loaded": false,
+    "rust_binder_loaded": false
+  }
 }

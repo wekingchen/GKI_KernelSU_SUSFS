@@ -21,6 +21,11 @@ on:
       - "scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py"
       - "scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py"
       - "scripts/xiaomi-os4/select-lkg-promotion-route.py"
+      - "scripts/xiaomi-os4/cross-ota-lkg.py"
+      - "scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py"
+      - "scripts/xiaomi-os4/run-cross-ota-lkg.sh"
+      - "scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh"
+      - "scripts/xiaomi-os4/test_cross_ota_lkg.py"
       - "scripts/xiaomi-os4/test_ota_development_switch.py"
       - "scripts/xiaomi-os4/test_pandora_rust_binder_eexist_shim.py"
       - "scripts/xiaomi-os4/test_lkg_promotion_routes.py"
@@ -42,6 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/xiaomi-os4/build-r62-features.sh
+          bash -n scripts/xiaomi-os4/run-cross-ota-lkg.sh
+          bash -n scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh
           python3 -m py_compile \
             scripts/xiaomi-os4/ota-development-pointer.py \
             scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py \
@@ -53,7 +60,9 @@ jobs:
             scripts/xiaomi-os4/test_runtime_selected_oem_gate.py \
             scripts/xiaomi-os4/build-pandora-406-persistent-equivalent-boot.py \
             scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py \
-            scripts/xiaomi-os4/select-lkg-promotion-route.py
+            scripts/xiaomi-os4/select-lkg-promotion-route.py \
+            scripts/xiaomi-os4/cross-ota-lkg.py \
+            scripts/xiaomi-os4/export-ota-lkg-rebuild-env.py
           ruby -ryaml -e 'YAML.parse_file(ARGV.fetch(0))' \
             .github/workflows/xiaomi-sm8850-os4-custom.yml
 
@@ -67,6 +76,7 @@ jobs:
           python3 scripts/xiaomi-os4/test_runtime_selected_oem_gate.py -v
           python3 scripts/xiaomi-os4/test_pandora_406_persistent_equivalent_boot.py -v
           python3 scripts/xiaomi-os4/test_lkg_promotion_routes.py -v
+          python3 scripts/xiaomi-os4/test_cross_ota_lkg.py -v
 
       - name: "验证正式 pointer 指向唯一的 nonflash compatibility baseline"
         shell: bash

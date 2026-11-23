@@ -33,7 +33,8 @@ ap.add_argument("--manifest", type=Path, required=True)
 ap.add_argument("--output", type=Path, required=True)
 a = ap.parse_args()
 m = json.loads(a.manifest.read_text())
-assert m["kind"] == "PANDORA_OS4_OTA_CUSTOM_SOURCE"
+assert m["kind"] in ("PANDORA_OS4_OTA_CUSTOM_SOURCE",
+                             "PANDORA_OS4_OTA_COMPAT_PERSISTENT_SOURCE")
 flags, pins = m["selections"], m["upstream_commits"]
 root = flags["ROOT_MODE"]
 assert root in ("bakasu-susfs", "bakasu", "none")
