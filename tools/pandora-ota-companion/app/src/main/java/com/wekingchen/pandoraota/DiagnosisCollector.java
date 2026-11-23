@@ -115,7 +115,17 @@ final class DiagnosisCollector {
             case "boot":return process(5,"getprop","sys.boot_completed");
             case "slot":return process(5,"getprop","ro.boot.slot_suffix");
             case "uname":return process(5,"uname","-r");
-            case "modules":return readFile("/proc/modules",MAX_OUTPUT);
+            case "modules":
+                try { return readFile("/proc/modules",MAX_OUTPUT); }
+                catch(Exception ordinary) {
+                    // Android sometimes blocks ordinary /proc/modules access.
+                    // This literal fixed AWK expression returns *only names*,
+                    // with no kernel pointers, paths, sizes or arbitrary script.
+                    return process(20,"su","-c",
+                            "awk '$1==\"rust_binder\" || $1==\"kernelsu\" || "+
+                            "$1==\"node_cache\" || $1==\"zram\" || "+
+                            "$1==\"zsmalloc\" {print $1}' /proc/modules");
+                }
             case "cmdline":return readFile("/proc/cmdline",8192);
             case "binder_impl":return firstFile("/sys/module/binder_linux/parameters/impl",
                     "/sys/module/binder/parameters/impl");
