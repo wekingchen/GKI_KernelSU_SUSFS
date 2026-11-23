@@ -116,6 +116,62 @@ class RuntimeSelectedOEMGate(unittest.TestCase):
             abi.apply_runtime_module_selection(records, copy.deepcopy(self.selection),
                                                copy.deepcopy(self.report))
 
+    def test_exact_same_crc_vmlinux_oem_overlap_is_accepted_only_by_identity(self):
+        consumer = "system_dlkm/kernel/net/9p/9pnet.ko"
+        provider = "system_dlkm/kernel/fs/netfs/netfs.ko"
+        crc = 0xce8adb59
+        selection = copy.deepcopy(self.selection)
+        selection["equivalent_provider_overlaps"] = [{
+            "consumer": consumer,
+            "symbol": "netfs_write_subrequest_terminated",
+            "expected_crc": "0xce8adb59",
+            "vmlinux_crc": "0xce8adb59",
+            "oem_provider": provider,
+            "oem_provider_crc": "0xce8adb59",
+            "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH",
+        }]
+        got = abi.resolve_runtime_equivalent_overlap(
+            selection, consumer, "netfs_write_subrequest_terminated",
+            crc, crc, [(provider, crc)])
+        self.assertEqual(got, selection["equivalent_provider_overlaps"][0])
+
+    def test_same_crc_overlap_with_different_provider_is_not_accepted(self):
+        consumer = "system_dlkm/kernel/net/9p/9pnet.ko"
+        provider = "system_dlkm/kernel/fs/netfs/netfs.ko"
+        crc = 0xce8adb59
+        selection = copy.deepcopy(self.selection)
+        selection["equivalent_provider_overlaps"] = [{
+            "consumer": consumer,
+            "symbol": "netfs_write_subrequest_terminated",
+            "expected_crc": "0xce8adb59",
+            "vmlinux_crc": "0xce8adb59",
+            "oem_provider": provider,
+            "oem_provider_crc": "0xce8adb59",
+            "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH",
+        }]
+        got = abi.resolve_runtime_equivalent_overlap(
+            selection, consumer, "netfs_write_subrequest_terminated",
+            crc, crc, [("different/netfs.ko", crc)])
+        self.assertIsNone(got)
+
+    def test_same_identity_overlap_with_crc_drift_is_not_accepted(self):
+        consumer = "system_dlkm/kernel/net/9p/9pnet.ko"
+        provider = "system_dlkm/kernel/fs/netfs/netfs.ko"
+        crc = 0xce8adb59
+        selection = copy.deepcopy(self.selection)
+        selection["equivalent_provider_overlaps"] = [{
+            "consumer": consumer,
+            "symbol": "netfs_write_subrequest_terminated",
+            "expected_crc": "0xce8adb59",
+            "vmlinux_crc": "0xce8adb59",
+            "oem_provider": provider,
+            "oem_provider_crc": "0xce8adb59",
+            "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH",
+        }]
+        self.assertIsNone(abi.resolve_runtime_equivalent_overlap(
+            selection, consumer, "netfs_write_subrequest_terminated",
+            crc, crc ^ 1, [(provider, crc)]))
+
 
 if __name__ == "__main__":
     unittest.main()
