@@ -257,6 +257,54 @@ def cmd_create(a):
     print("DEV_BASELINE_UPDATED_NOT_LKG=" + build)
 
 
+def persistent_compat_unlocked(lkg_path, persistent_path, record):
+    if not lkg_path or not persistent_path:
+        return False
+    lkg_path, persistent_path = Path(lkg_path), Path(persistent_path)
+    if not lkg_path.is_file() or not persistent_path.is_file():
+        return False
+    lkg, persistent = load(lkg_path), load(persistent_path)
+    if not is_compatibility_record(record):
+        return False
+    expected_lkg = {
+        "schema": 1,
+        "status": "USER_PROMOTED_OTA_LKG",
+        "device": "pandora",
+        "stock_build": record.get("stock_build"),
+        "kernel_release": record.get("kernel_release"),
+        "stock_input_sha256": record.get("stock_input_sha256"),
+        "gki_commit": record.get("candidate_gki_commit"),
+        "attestation": "USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF",
+    }
+    for key, value in expected_lkg.items():
+        if lkg.get(key) != value:
+            return False
+    if not isinstance(lkg.get("generation"), int) or lkg["generation"] < 1:
+        return False
+    if not isinstance(lkg.get("source_run_id"), int) or lkg["source_run_id"] < 1:
+        return False
+    for key in ("image_sha256", "anykernel_sha256"):
+        if not SHA64.fullmatch(str(lkg.get(key, ""))):
+            return False
+    if (persistent.get("status") != "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
+        or persistent.get("device") != "pandora"
+        or persistent.get("stock_build") != record.get("stock_build")
+        or persistent.get("kernel_release") != record.get("kernel_release")
+        or persistent.get("feature_workflow_run_id") != lkg.get("source_run_id")
+        or persistent.get("feature_image_sha256") != lkg.get("image_sha256")
+        or persistent.get("package_sha256") != lkg.get("anykernel_sha256")
+        or persistent.get("runtime_selected_oem_gate") != "PASS_RUNTIME_SELECTED_EXACT_OS406"
+        or persistent.get("persistent_boot_equivalence") != "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
+        or persistent.get("actual_persistent_install_verified") is not True
+        or persistent.get("lkg_promotion") is not True):
+        return False
+    for key in ("first_true_device_persistent_reboot", "second_true_device_persistent_reboot"):
+        proof = persistent.get(key)
+        if not isinstance(proof, dict) or proof.get("status") != "PASS":
+            return False
+    return True
+
+
 def cmd_select(a):
     stock = load(a.stock_report)
     mode = "legacy"
@@ -284,6 +332,10 @@ def cmd_select(a):
             "fixture_path=" + pointer["fixture_path"],
             "compatibility_mode=" + ("1" if compat else "0"),
         ]
+        if compat:
+            unlocked = persistent_compat_unlocked(
+                a.lkg_pointer, a.persistent_candidate, record)
+            fields.append("persistent_compat_enabled=" + ("1" if unlocked else "0"))
     else:
         fields = ["mode=legacy", "build=" + build]
     a.output.write_text("\n".join(fields) + "\n", encoding="utf-8")
@@ -384,6 +436,8 @@ def main():
     select = sub.add_parser("select")
     select.add_argument("--stock-report", type=Path, required=True)
     select.add_argument("--pointer", type=Path, default=Path(".github/config/ota-development-current.json"))
+    select.add_argument("--lkg-pointer", type=Path)
+    select.add_argument("--persistent-candidate", type=Path)
     select.add_argument("--root", type=Path, default=Path("."))
     select.add_argument("--output", type=Path, required=True)
     prep = sub.add_parser("prepare")
