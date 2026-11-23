@@ -24,8 +24,8 @@
 | --- | --- |
 | 当前 LKG（核对日快照） | **OS4.0.6.0.XBLCNXM / Gen 7**；已验证自定义来源 Run 45124613997，Gen7 已通过受控恢复晋升；真机来源以用户实际确认的原包为准 |
 | LKG 复现、归档 | Gen7 严格复现（配置、Module.symvers 与归一化 Image）及 10 项资产完整性校验通过；公开 Release `pandora-os4-lkg-gen7`，原始真机确认包与 CI-only 复现包严格分开 |
-| App 既有真机功能 | 0.10.x 的 Root、采集、上传、同版本自定义 boot 安全拒收、查看草稿及本地安全删除已经用户确认 |
-| App 0.13.0 真机验收 | GitHub Draft 创建/读回/删除与通知权限验证真实成功；活动 slot A、Gen 4 阶段读取、五项本机信息（659 条模块记录）见 [2026-11-02 真机验收](pandora-ota-real-device-verification-2026-11-02.md)；并不代表新 OTA 全链验收 |
+| App 已有真机功能（历史） | 0.10.x 的 Root、采集、上传、同版本自定义 boot 安全拒收、查看草稿及本地安全删除当时已经确认 |
+| OTA 助手 0.14.1-dev 当前真机基础回归 | 工作台、记录、设置、Root 和 GitHub 连接已由用户在 pandora 实机确认；[详情](pandora-ota-v2-phase4-real-device-smoke-2026-11-23.md)。过去 0.13.0 的权限及 Gen4 读取记录见[历史验收](pandora-ota-real-device-verification-2026-11-02.md)；真正下次 ABI 阻断补采仍待验证 |
 | D02 软件修订实际 OTA | 2026-11-15 实机重启成功、Slot A / 6.12.69 自定义内核 / Root 保留；0.13.3 实际上传，GitHub Run #43687115408 返回 REVIEW_REQUIRED；没有触碰固定内核基线 |
 | 真正跨 Build / 新内核 OTA | **OS4.0.6 已完成**：通过 GKI 和 OEM ABI 问题分析、EEXIST 专项兼容、真机临时启动和持久安装，最终晋升 **Gen7**。早期静态 ABI 阻断属于历史记录，**不能据此允许未来 OTA 直接刷机** |
 | 自定义功能 | BakaSU/SUSFS/NoMount/DroidSpaces/NTSync/BBG/Re-Kernel/网络增强/CVE 按菜单选择；ZRAM/LZ4K/LZ4KD 自定义后端尚未作为菜单功能交付 |
