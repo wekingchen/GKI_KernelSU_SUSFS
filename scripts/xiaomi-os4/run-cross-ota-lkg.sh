@@ -23,17 +23,24 @@ git merge-base --is-ancestor "$SOURCE_SHA" "$BASE_SHA" || {
   echo "::error::源代码提交不属于当前受信任的 dev 历史"; exit 1;
 }
 PROMOTION_ROUTE_MODE="${PROMOTION_ROUTE_MODE:-ota}"
-[[ "$PROMOTION_ROUTE_MODE" == "ota" || "$PROMOTION_ROUTE_MODE" == "ota-compat-persistent" ]] || {
+[[ "$PROMOTION_ROUTE_MODE" == "ota" || "$PROMOTION_ROUTE_MODE" == "ota-compat-persistent" || "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" ]] || {
   echo "::error::unsupported OTA LKG route mode: $PROMOTION_ROUTE_MODE"; exit 1;
 }
 COMPAT_PERSISTENT=0
 [[ "$PROMOTION_ROUTE_MODE" == "ota-compat-persistent" ]] && COMPAT_PERSISTENT=1
+COMPAT_CUSTOM=0
+[[ "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" ]] && COMPAT_CUSTOM=1
 
 A="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
 if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
   ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
     [.artifacts[] | select(.expired==false) | .name |
      select(test("^pandora-OTA-COMPAT-NONFLASH-OS[0-9A-Z.]+-run-"+$id+"$"))] |
+    if length==1 then .[0] else empty end' <<<"$A")"
+elif [[ "$COMPAT_CUSTOM" == 1 ]]; then
+  ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
+    [.artifacts[] | select(.expired==false) | .name |
+     select(test("^pandora-OTA-COMPAT-CUSTOM-OS4\\.0\\.6\\.0\\.XBLCNXM-run-"+$id+"$"))] |
     if length==1 then .[0] else empty end' <<<"$A")"
 else
   ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
@@ -116,12 +123,20 @@ PY
     --run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_SHA"
 fi
 
+if [[ "$COMPAT_CUSTOM" == 1 ]]; then
+  # Capture #39's own Image, ZIP and immutable source manifest. Gen6 proof is
+  # retained separately; it is never relabeled as proof for the custom Image.
+  cp .github/config/ota-lkg-current.json "$SRC/compat-custom-previous-lkg.json"
+  python3 scripts/xiaomi-os4/cross-ota-lkg.py capture --artifact-dir "$SRC" \
+    --run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_SHA"
+fi
+
 python3 scripts/xiaomi-os4/cross-ota-lkg.py verify --artifact-dir "$SRC" \
   --run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_SHA"
 [[ -s "$SRC/image-reproducibility.env" ]] || { echo "::error::未知 Image 随机区域，禁止晋升"; exit 1; }
 BUILD="$(jq -r .stock_build "$SRC/ota-custom-source.json")"
 [[ "$(jq -r .build .github/config/ota-development-current.json)" == "$BUILD" ]] || exit 1
-if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
+if [[ "$COMPAT_PERSISTENT" == 1 || "$COMPAT_CUSTOM" == 1 ]]; then
   BASELINE_RECORD=".github/config/ota-verified/$BUILD/compatibility-verification.json"
   FIXTURE=".github/config/ota-verified/$BUILD/compatibility-fixture.json"
 else
@@ -178,7 +193,7 @@ REPACK_ARGS=(
   --expected-image-sha256 "$(sha256sum "$RES/Image" | cut -d' ' -f1)"
   --expected-release "$REL" --expected-build "$BUILD"
 )
-[[ "$COMPAT_PERSISTENT" == 1 ]] && REPACK_ARGS+=(--fastboot-boot-only-allow-growth)
+[[ "$COMPAT_PERSISTENT" == 1 || "$COMPAT_CUSTOM" == 1 ]] && REPACK_ARGS+=(--fastboot-boot-only-allow-growth)
 python3 scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py "${REPACK_ARGS[@]}"
 
 if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
@@ -187,7 +202,9 @@ if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
     bash scripts/xiaomi-os4/package-pandora-406-run37-anykernel3.sh "$RES/Image" "$WORK/ak3"
   REBUILT_AK3="$(find "$WORK/ak3" -maxdepth 1 -name '*-REBUILT-CI-ONLY-AnyKernel3.zip' -type f -print -quit)"
 else
-  XIAOMI_AK3_MODE=ota-custom XIAOMI_AK3_BUILD="$BUILD" XIAOMI_AK3_RELEASE="$REL" \
+  AK3_MODE="ota-custom"
+  [[ "$COMPAT_CUSTOM" == 1 ]] && AK3_MODE="ota-compat-custom"
+  XIAOMI_AK3_MODE="$AK3_MODE" XIAOMI_AK3_BUILD="$BUILD" XIAOMI_AK3_RELEASE="$REL" \
   XIAOMI_AK3_OTA_BASELINE_RECORD="$BASELINE_RECORD" \
   XIAOMI_AK3_OTA_FIXTURE="$FIXTURE" \
   XIAOMI_AK3_OTA_ABI_REPORT="$RES/ota-custom-abi-report.json" \

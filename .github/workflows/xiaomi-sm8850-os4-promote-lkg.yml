@@ -446,7 +446,7 @@ jobs:
     name: "新 OTA：严格复现校验、归档并晋升 LKG"
     if: >-
       github.repository == 'wekingchen/GKI_KernelSU_SUSFS' &&
-      (needs.select-route.outputs.mode == 'ota' || needs.select-route.outputs.mode == 'ota-compat-persistent') &&
+      (needs.select-route.outputs.mode == 'ota' || needs.select-route.outputs.mode == 'ota-compat-persistent' || needs.select-route.outputs.mode == 'ota-compat-custom') &&
       inputs.confirm_boot && inputs.confirm_persistent && inputs.confirm_runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 360

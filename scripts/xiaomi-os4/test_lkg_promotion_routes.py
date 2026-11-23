@@ -29,6 +29,7 @@ def list_(*items,total_count=None):
 OLD=f"pandora-OS4-R62-CUSTOM-run-{RID}"
 OTA=f"pandora-OTA-CUSTOM-OS4.0.6.0.XBLCNXM-run-{RID}"
 COMPAT=f"pandora-OTA-COMPAT-NONFLASH-OS4.0.6.0.XBLCNXM-run-{RID}"
+COMPAT_CUSTOM=f"pandora-OTA-COMPAT-CUSTOM-OS4.0.6.0.XBLCNXM-run-{RID}"
 
 def persistent(**changes):
     p={
@@ -75,6 +76,25 @@ class Routes(unittest.TestCase):
             self.check(a=list_(asset(COMPAT)), p=persistent()),
             "ota-compat-persistent",
         )
+
+    def test_compat_custom_requires_previous_ota_lkg(self):
+        with self.assertRaisesRegex(ValueError, "previously validated same-OTA LKG"):
+            self.check(a=list_(asset(COMPAT_CUSTOM)))
+        self.assertEqual(
+            self.check(a=list_(asset(COMPAT_CUSTOM)), current=True),
+            "ota-compat-custom",
+        )
+
+    def test_compat_custom_rejects_wrong_run_or_build_and_ambiguous_packages(self):
+        for bad in (
+            "pandora-OTA-COMPAT-CUSTOM-OS4.0.6.0.XBLCNXM-run-999",
+            f"pandora-OTA-COMPAT-CUSTOM-OS4.0.5.0.XBLCNXM-run-{RID}",
+            f"pandora-OTA-COMPAT-CUSTOM-OS4.0.7.0.XBLCNXM-run-{RID}",
+        ):
+            with self.subTest(name=bad), self.assertRaises(ValueError):
+                self.check(a=list_(asset(bad)), current=True)
+        with self.assertRaises(ValueError):
+            self.check(a=list_(asset(COMPAT_CUSTOM), asset(COMPAT_CUSTOM)), current=True)
 
     def test_persistent_compat_fails_closed_on_any_identity_drift(self):
         cases = (

@@ -308,6 +308,32 @@ class CompatibilityOTA(unittest.TestCase):
         self.assertIn("persistent_compat_enabled=1\n",
                       (self.root / "route.txt").read_text())
 
+        history = self.root / ".github/config/ota-lkg-history/gen6.json"
+        history.parent.mkdir(parents=True, exist_ok=True)
+        history.write_text(json.dumps(lkg))
+        lkg.update(generation=7, source_run_id=45124613997,
+                   image_sha256="5" * 64, anykernel_sha256="6" * 64)
+        self.lkg_path.write_text(json.dumps(lkg))
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=1\n",
+                      (self.root / "route.txt").read_text())
+
+        history.unlink()
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=0\n",
+                      (self.root / "route.txt").read_text())
+        history.write_text(json.dumps({**lkg, "generation": 6}))
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=0\n",
+                      (self.root / "route.txt").read_text())
+        history.write_text(json.dumps({**lkg, "generation": 6,
+                                       "source_run_id": 45047763911,
+                                       "image_sha256": "3" * 64,
+                                       "anykernel_sha256": "4" * 64}))
+
         persistent["second_true_device_persistent_reboot"]["status"] = "PENDING"
         self.persistent_path.write_text(json.dumps(persistent))
         selected = self.select()
