@@ -1,6 +1,6 @@
 # Pandora OTA 助手：当前使用说明
 
-当前开发版本 **0.14.0-dev**（versionCode 29）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
+当前开发版本 **0.14.1-dev**（versionCode 30）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
 
 App 的范围：常规 OTA 只读采集、GitHub 上传与接收跟踪、在手机填写原真机反馈工作流，以及仅在 ABI 阻断时按需执行的引导式只读诊断补采。电脑负责 fastboot boot；App 不执行 fastboot/flash、重启、切 slot 或分区写入，也不会自动晋升 LKG。
 
@@ -31,7 +31,7 @@ App 的范围：常规 OTA 只读采集、GitHub 上传与接收跟踪、在手�
 1. 点击「查看补采建议」进入原生二级页。App 会重新向 GitHub 核对**当前固定 OTA Build、stock SHA、来源 Run、来源提交和 ABI Artifact**，只接受已定义的任务类型，不执行服务器下发的 shell 命令。如果附件旧、过期或属于其他 OTA，直接拒绝。
 2. 页面按「为什么需要补采 → 只读检查手机 → 核对后提交」三个小步骤组织；只采本次实际需要的 Binder 状态、已加载模块名称、GNU Note SHA-256、经筛选的启动参数状态以及必要的设备版本/slot，不重复采集 boot、init_boot 或 OEM 模块。
 3. 模块或 Root 不可读时明确标记为 **PARTIAL_READ_ONLY**，不自动归类为正常。原始 cmdline、内核地址、ELF 二进制、日志及其他私密信息不在上传内容里。先点击「预览将提交的内容」，阅读后才能勾选同意并上传。
-4. 用户明确确认后，App 单独建立 `pandora-ota-diagnostic-...` GitHub **Draft** 并上传小于 32 KiB 的结构化 JSON，再通知 [诊断只读接收审核](../../.github/workflows/pandora-os4-ota-diagnostic-intake.yml)。如果已经上传但通知失败，只重新通知，**不重新上传**。同一 OTA 的本地脱敏草稿和上传回执会保存，重新打开可以核对、预览或重新通知；不会保存原始 kernel 日志。
+4. 用户明确确认后，App 单独建立 `pandora-ota-diagnostic-...` GitHub **Draft** 并上传小于 32 KiB 的结构化 JSON，再通知 [诊断只读接收审核](../../.github/workflows/pandora-os4-ota-diagnostic-intake.yml)。如果已经上传但通知失败，只重新通知，**不重新上传**。如果网络在创建草稿或上传附件途中断开，重新提交同一份未改变的诊断报告会按证据 SHA 找回并核验原 Draft；只有附件为空或完全匹配时才继续，冲突一律拒绝，避免重复创建草稿。同一 OTA 的本地脱敏草稿和上传回执会保存，重新打开可以核对、预览或重新通知；不会保存原始 kernel 日志。
 5. 提交后可在同一页点击「刷新审核状态」，区分**排队、审核中、审核失败、证据已核验（仍需分析）**；只有当 Run 的身份、独立审核 Artifact、来源 SHA 和上传证据哈希全部匹配时，才显示 **REVIEW_REQUIRED**。也可打开对应 Actions 运行记录；「查看 GitHub 诊断草稿」按实际 Release Tag 打开，不会误用数字 ID。查询只在用户点按时执行，不声称后台持续跟踪。
 6. 服务端再次校验发布草稿、附件 SHA、当前固定固件、原始 ABI BLOCKED、原 Run 与诊断任务后仅回执 **REVIEW_REQUIRED**。这表示收到了待分析证据，**绝不是 ABI 通过，也不允许启动测试、持久刷机或自动 LKG 晋升**。仍需我们根据新证据提出兼容补丁、验证策略或向用户解释下一步。
 
@@ -129,6 +129,6 @@ gradle --no-daemon :app:assembleDebug
 | 0.13.2 | 支持严格的 `.Dxx` 软件修订格式；服务端分类为待核验而非自动声明无内核变化；增加 `REVIEW_REQUIRED` 回执、前台停止轮询及本地安全删除适配 |
 | 0.13.3 | 修复 D02 更新页面版本与 Android Build 不一致：用户单次确认 Dxx，采集与 Draft 回执保留独立来源声明，同 Build 只审阅不触碰内核基线；D02 实机闭环已通过 |
 | 0.13.4 | 在工作台、采集历史和记录切换框中直接显示 ZIP 清单确认的软件 Dxx，区分人工更新页证据与真实 Android Build；接收提示更直观 |
-| 0.14.0-dev | OTA V2 ABI 阻断时显示按需补采入口；来源绑定的白名单任务、原生三步只读诊断页、预览确认、独立 Draft 与只读审核，保留原有三栏工作台 UI 和常规 OTA 采集逻辑 |
+| 0.14.0-dev | OTA V2 ABI 阻断时显示按需补采入口；来源绑定的白名单任务、原生三步只读诊断页、预览确认、独立 Draft 与只读审核，保留原有三栏工作台 UI 和常规 OTA 采集逻辑 |\n| 0.14.1-dev | 第四阶段稳定性修复：相同证据 SHA 绑定草稿并支持网络中断后的安全续传与附件核验，拒绝草稿身份/摘要冲突；新增模拟器网络失败与重试测试。仍待真机新 OTA 阻断时端到端验收 |
 
 HTTP User-Agent 的版本字段直接取构建生成的 `BuildConfig.VERSION_NAME`，随 App 版本自动更新。
