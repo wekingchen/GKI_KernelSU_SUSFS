@@ -31,6 +31,30 @@ COMPAT_PERSISTENT=0
 COMPAT_CUSTOM=0
 [[ "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" ]] && COMPAT_CUSTOM=1
 
+# A previous transaction may have completed the exact kernel rebuild and
+# SHA-verified draft but failed only because dev advanced before pointer commit.
+# Reuse that immutable evidence ONLY after a full independent source/archive
+# replay. Wrong source or altered drafts fail closed; no redundant 15m rebuild.
+if [[ "$PROMOTION_ROUTE_MODE" == "ota-compat-custom" && -s .github/config/ota-lkg-current.json ]]; then
+  NEXT_GEN="$(jq -er '.generation+1' .github/config/ota-lkg-current.json)"
+  NEXT_TAG="pandora-os4-lkg-gen$NEXT_GEN"
+  RELEASE_LIST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100")"
+  MATCHES="$(jq -r --arg tag "$NEXT_TAG" '[.[] | select(.tag_name==$tag)] | length' <<<"$RELEASE_LIST")"
+  [[ "$MATCHES" =~ ^[0-9]+$ && "$MATCHES" -le 1 ]] || {
+    echo "::error::ambiguous existing LKG draft"; exit 1;
+  }
+  if [[ "$MATCHES" == 1 ]]; then
+    jq -e --arg tag "$NEXT_TAG"       '[.[] | select(.tag_name==$tag)] | length==1 and .[0].draft==true' \
+      <<<"$RELEASE_LIST" >/dev/null || {
+      echo "::error::next generation already has a non-draft Release"; exit 1;
+    }
+    echo "[LKG] Existing next-gen draft detected: $NEXT_TAG; independently revalidate and resume."
+    export SOURCE_SHA
+    bash scripts/xiaomi-os4/resume-cross-ota-lkg-draft.sh
+    exit 0
+  fi
+fi
+
 A="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100")"
 if [[ "$COMPAT_PERSISTENT" == 1 ]]; then
   ARTIFACT="$(jq -r --arg id "$SOURCE_RUN_ID" '
