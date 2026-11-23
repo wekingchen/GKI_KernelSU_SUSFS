@@ -481,6 +481,32 @@ jobs:
         with:
           path: ~/.cache/xiaomi-os4/toolchain-r536225
           key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+      - name: "确定精确 OTA 缓存命名空间（仅用于加速，不替代来源验证）"
+        id: ota-cache-scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD="$(jq -er '.build' .github/config/ota-development-current.json)"
+          [[ "$BUILD" =~ ^OS[0-9]+\\.[0-9.]+[A-Z0-9]+$ ]] || exit 1
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+
+      - name: "复用相同 OTA 的 GKI Git 对象缓存"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ota-*.git
+          key: pandora-ota-gki-${{ steps.ota-cache-scope.outputs.build }}-${{ hashFiles('.github/config/ota-development-current.json') }}
+
+      - name: "复用相同 OTA 的功能 ccache（仍执行完整精确重编译）"
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/ccache-ota-*
+          key: pandora-ota-features-${{ steps.ota-cache-scope.outputs.build }}-lkg-${{ inputs.source_run_id }}-${{ hashFiles('scripts/xiaomi-os4/build-r62-features.sh', 'scripts/xiaomi-os4/apply-os3-parity-extras.sh', 'scripts/xiaomi-os4/apply-os4-selected-extras.sh', 'scripts/xiaomi-os4/apply-pandora-rust-binder-eexist-shim.py', 'scripts/xiaomi-os4/prepare-pandora-406-eexist-compat-baseline.py', 'scripts/xiaomi-os4/check-ota-feature-abi.py') }}
+          # Only restore the same OTA: build-r62-features.sh further isolates
+          # CCACHE_DIR by the exact GKI commit. ccache verifies the compiler,
+          # command line and content; normalized Image/Symvers checks remain.
+          restore-keys: |
+            pandora-ota-features-${{ steps.ota-cache-scope.outputs.build }}-
+
       - name: "严格重建、长期归档下载回检，最后才更新 LKG"
         shell: bash
         env:
