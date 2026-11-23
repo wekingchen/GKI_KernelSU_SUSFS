@@ -73,7 +73,7 @@ def main():
     a = p.parse_args()
     rows = verify_assets(json.loads(a.release.read_text()),
                          a.tag, a.build)
-    a.output.write_text("".join(f"{aid}\t{name}\t{digest}\t{size}\n"
+    a.output.write_text("".join(f"{aid}|{name}|{digest}|{size}\n"
                                 for aid, name, digest, size in rows))
     print(f"LKG_DRAFT_ASSET_METADATA=PASS count={len(rows)}")
 
