@@ -66,7 +66,7 @@ public final class MainActivity extends Activity {
             }, worker);
     private String githubStatus = "未验证";
     private TextView stageState, stageCheckedAt, stageDetails, feedbackHint;
-    private Button stageRefresh, stageSource;
+    private Button stageRefresh, stageSource, diagnosisButton;
     private TextView preflightState;
     private AlertDialog buildReminder;
 
@@ -350,6 +350,11 @@ public final class MainActivity extends Activity {
         stageRefresh = button("刷新可信状态", false);
         stageCard.addView(stageRefresh, blockParams(dp(14)));
         stageRefresh.setOnClickListener(v -> refreshStage());
+        diagnosisButton = button("查看补采建议   →", false);
+        diagnosisButton.setVisibility(View.GONE);
+        stageCard.addView(diagnosisButton, blockParams(dp(9)));
+        diagnosisButton.setOnClickListener(v ->
+                startActivity(new Intent(this, DiagnosisActivity.class)));
         stageSource = button("查看状态来源   ↗", false);
         stageSource.setVisibility(View.GONE);
         stageCard.addView(stageSource, blockParams(dp(8)));
@@ -724,13 +729,16 @@ public final class MainActivity extends Activity {
         steps.addView(guideStep("4", R.drawable.ic_external_simple, "自动跟踪接收",
                 "前台自动查询 PENDING → ACCEPTED / ALREADY_CURRENT / REVIEW_REQUIRED / REJECTED，后台暂停、返回恢复。软件修订 Dxx 只保存人工确认的更新页证据；本机最近采集会显示软件 Dxx，不修改系统 Build，不替换内核输入。通知失败可重试，接收成功不代表 ABI 或开机通过。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("5", R.drawable.ic_repo, "电脑临时启动，手机反馈",
+        steps.addView(guideStep("5", R.drawable.ic_shield_simple, "ABI 阻断时按需补采",
+                "如果 OTA 全链路状态显示 ABI 阻断，工作台会出现「查看补采建议」。先查看 GitHub 已核验的任务，只读采集所需模块信息，预览并明确同意后再提交。若状态正常则无需补采，不会多出操作。"));
+        steps.addView(guideDivider());
+        steps.addView(guideStep("6", R.drawable.ic_repo, "电脑临时启动，手机反馈",
                 "候选和 OEM ABI 全绿后，由电脑 fastboot boot。手机测试后在工作台「真机测试反馈」选择候选，自动读取设备、build、启动状态、uname 和模块，人工确认功能并提交原工作流。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("6", R.drawable.ic_shield_simple, "失败、恢复与重试",
+        steps.addView(guideStep("7", R.drawable.ic_shield_simple, "失败、恢复与重试",
                 "未能进入待测系统、恢复后才打开 App，选择恢复后失败，不能提交恢复环境冒充待测证据。响应未知先查原运行；两分钟仍未建立记录可重发同一反馈，服务器阻止重复处理。"));
         steps.addView(guideDivider());
-        steps.addView(guideStep("7", R.drawable.ic_guide_simple, "开发基线与稳定 LKG",
+        steps.addView(guideStep("8", R.drawable.ic_guide_simple, "开发基线与稳定 LKG",
                 "反馈通过只建立同版本开发基线。自定义功能编译成功就提供待测 IMG 和实验性 AnyKernel3；真正持久安装、稳定使用后，再由你在唯一 LKG 晋升入口确认。"));
 
         guide.addView(text("为什么要分这么多步", 17, INK, true), blockParams(dp(20)));
@@ -765,6 +773,9 @@ public final class MainActivity extends Activity {
                 + "• 真机反馈的模块全文留在本机草稿供查看，原工作流提交的是实际读数和人工确认；最近反馈历史保留 20 条。\n"
                 + "• 上传和查询请保持前台；目前没有后台断点续传。工作台「OTA 全链路状态」可刷新服务器已核验的阶段快照；这是当前固定输入的证据状态，并非逐秒编译进度。",
                 12, MUTED, false), blockParams(dp(7)));
+
+        guide.addView(text("诊断补采与普通 OTA 采集的区别", 17, INK, true), blockParams(dp(20)));
+        guide.addView(text("正常的新 OTA 仍使用「开始采集」上传固件快照。只有 ABI 阻断时才进入二级页补采：不会重新打包 boot，也不会自动运行 GitHub 下发的命令。只读取少量已加载模块的状态和身份指纹；数据先预览、手动确认，再单独上传到 GitHub Draft，服务器只标记待审核，不会自动改写内核门禁或稳定 LKG。", 12, MUTED, false), blockParams(dp(7)));
 
         guide.addView(text("如何理解全链路状态", 17, INK, true), blockParams(dp(20)));
         guide.addView(text("没有新 OTA ≠ 新待测包；GKI 已构建还需通过 OEM ABI。待测包已生成 / 等待真机测试只允许由电脑临时启动；开发基线已验证不代表自定义功能稳定。自定义内核待验证仍需人工测试，稳定 LKG 已长期归档才表示完成明确的稳定晋升。输入变化、附件过期或来源不匹配时，App 会停止展示结论并提示重新核验。", 12, MUTED, false), blockParams(dp(7)));
@@ -1685,6 +1696,7 @@ public final class MainActivity extends Activity {
     private void refreshStage() {
         stageRefresh.setEnabled(false);
         stageSource.setVisibility(View.GONE);
+        diagnosisButton.setVisibility(View.GONE);
         stageDetails.setVisibility(View.GONE);
         stageCheckedAt.setVisibility(View.GONE);
         stageState.setText("正在核验 GitHub 阶段快照与当前固定输入…");
@@ -1702,6 +1714,12 @@ public final class MainActivity extends Activity {
                             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     stageState.setText(styled);
                     stageState.setTextColor(state.stage.equals("ABI_BLOCKED") ? WARNING : INK);
+                    if (state.stage.equals("ABI_BLOCKED")) {
+                        diagnosisButton.setText("查看补采建议   →");
+                        diagnosisButton.setVisibility(View.VISIBLE);
+                    } else {
+                        diagnosisButton.setVisibility(View.GONE);
+                    }
                     stageCheckedAt.setText("GitHub 最近核验 · " + state.verifiedAt);
                     stageCheckedAt.setVisibility(View.VISIBLE);
                     stageDetails.setVisibility(View.VISIBLE);
@@ -1726,6 +1744,7 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) return;
                     stageState.setText("状态未验证\n" + error.getMessage() + "\n请核对网络与 PAT，或检查全链路可信阶段状态工作流。");
                     stageState.setTextColor(WARNING);
+                    diagnosisButton.setVisibility(View.GONE);
                     feedbackHint.setText("尚未确认当前是否有待测任务；请先刷新可信状态。");
                     stageRefresh.setEnabled(true);
                 });
