@@ -155,8 +155,30 @@ def main() -> None:
 
     stock_payload_end = PAGE + align(kernel_size) + align(ramdisk_size)
     suffix = stock_boot[stock_payload_end:]
+    stock_has_avb_footer = False
+    avb_original_size = None
+    avb_vbmeta_offset = None
+    avb_vbmeta_size = None
     if suffix.strip(b"\0"):
-        fail("stock boot has nonzero suffix/AVB footer; persistent equivalence needs review")
+        if len(stock_boot) < 64 or stock_boot[-64:-60] != b"AVBf":
+            fail("stock boot has unknown nonzero suffix")
+        magic, major, minor, original_size, vbmeta_offset, vbmeta_size = struct.unpack_from(
+            ">4sIIQQQ", stock_boot, len(stock_boot) - 64)
+        if (magic != b"AVBf" or major != 1 or minor != 0
+                or original_size < stock_payload_end
+                or vbmeta_offset != original_size
+                or vbmeta_size <= 0
+                or vbmeta_offset + vbmeta_size > len(stock_boot) - 64):
+            fail("stock AVB footer layout is outside the attested boot-v4 model")
+        stock_has_avb_footer = True
+        avb_original_size = original_size
+        avb_vbmeta_offset = vbmeta_offset
+        avb_vbmeta_size = vbmeta_size
+        # #37 fastboot boot intentionally contains no AVB footer. For the
+        # semantic byte-equivalence proof, compare only the rebuilt boot-v4
+        # payload. Actual persistent AnyKernel3 repack/AVB handling is a
+        # separate gate and is never inferred from this stripped target.
+        suffix = b""
 
     image = args.image.read_bytes()
     image_sha = sha256(image)
@@ -206,8 +228,15 @@ def main() -> None:
     print("PATCHED_CMDLINE=" + patched_cmdline.decode("ascii"))
     print("OUTPUT_SHA256=" + out_sha)
     print("OUTPUT_SIZE=" + str(len(out)))
-    print("STOCK_LOGICAL_BOOT_SIZE=" + str(len(stock_boot)))
-    print("LOGICAL_GROWTH=" + str(max(0, len(out) - len(stock_boot))))
+    print("STOCK_PARTITION_DUMP_SIZE=" + str(len(stock_boot)))
+    print("STOCK_AVB_FOOTER=" + ("PRESENT_VERIFIED_STRIPPED_FOR_FASTBOOT_COMPARISON"
+                                  if stock_has_avb_footer else "ABSENT"))
+    if stock_has_avb_footer:
+        print("STOCK_AVB_ORIGINAL_IMAGE_SIZE=" + str(avb_original_size))
+        print("STOCK_AVB_VBMETA_OFFSET=" + str(avb_vbmeta_offset))
+        print("STOCK_AVB_VBMETA_SIZE=" + str(avb_vbmeta_size))
+    print("LOGICAL_PAYLOAD_SIZE=" + str(len(out)))
+    print("PARTITION_CAPACITY_MARGIN=" + str(len(stock_boot) - len(out)))
     if args.expected_output_sha256:
         print("PERSISTENT_BOOT_EQUIVALENCE=BYTE_EXACT_MATCH_TO_TRUE_DEVICE_TESTED_BOOT")
     else:
