@@ -70,13 +70,15 @@ def referenced_run_ids(repo: Path) -> set[int]:
     return refs
 
 
-def make_plan(runs: list[dict], pinned: set[int], current_id: int) -> tuple[list[int], dict]:
+def make_plan(runs: list[dict], pinned: set[int], current_id: int,
+              active_pr_heads: set[str] | None = None) -> tuple[list[int], dict]:
     groups: dict[str, list[dict]] = collections.defaultdict(list)
     for run in runs:
         if run.get("name") in NOISY_CI_NAMES:
             groups[run["name"]].append(run)
 
     protected = set(pinned) | {current_id}
+    active_pr_heads = active_pr_heads or set()
     for members in groups.values():
         ordered = sorted(members, key=lambda r: (r["created_at"], r["id"]), reverse=True)
         protected.update(r["id"] for r in ordered[:8])  # newest useful CI results
@@ -93,6 +95,7 @@ def make_plan(runs: list[dict], pinned: set[int], current_id: int) -> tuple[list
             continue
         seen.add(rid)
         if (rid in protected or r.get("status") != "completed"
+                or r.get("head_sha") in active_pr_heads
                 or r.get("event") in NON_DELETABLE_EVENTS):
             continue
         n = r.get("name", "")
@@ -128,11 +131,15 @@ def main() -> None:
         raise SystemExit("Only the owner's checked-out dev workflow with a token may run")
     pinned = referenced_run_ids(Path.cwd())
     runs = read_runs()
-    plan, by_name = make_plan(runs, pinned, int(os.getenv("GITHUB_RUN_ID", "0")))
+    prs = gh("pulls?state=open&per_page=100")
+    active_heads = {p["head"]["sha"] for p in prs if p.get("head", {}).get("sha")}
+    plan, by_name = make_plan(runs, pinned, int(os.getenv("GITHUB_RUN_ID", "0")),
+                              active_pr_heads=active_heads)
     print(json.dumps({
         "mode": "APPLY" if args.apply else "DRY_RUN",
         "before": len(runs), "planned_deletions": len(plan),
         "protected_document_run_ids": len(pinned),
+        "protected_open_pr_heads": len(active_heads),
         "by_workflow": by_name,
     }, ensure_ascii=False, indent=2), flush=True)
     if not args.apply:
