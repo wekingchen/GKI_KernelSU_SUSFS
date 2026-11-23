@@ -52,8 +52,16 @@ class StageSnapshots(unittest.TestCase):
                     if path.startswith('actions/workflows/xiaomi-sm8850-os4-custom.yml'):
                         custom=dict(run,id=200,path='.github/workflows/xiaomi-sm8850-os4-custom.yml')
                         return dict(workflow_runs=[custom] if mode in ('custom','stable') else [])
-                    if path=='releases/tags/pandora-os4-lkg-gen5':
-                        return dict(draft=False,prerelease=False,assets=[dict(id=i,name=str(i),digest='sha256:'+sha) for i,sha in enumerate(('1'*64,'2'*64,'3'*64),20)])
+                    if path=='actions/runs/200':
+                        return dict(id=200,head_branch='dev',status='completed',
+                                    conclusion='success',event='workflow_dispatch',
+                                    path='.github/workflows/xiaomi-sm8850-os4-custom.yml',head_sha=head)
+                    if path=='releases/tags/pandora-os4-lkg-gen7':
+                        pointer=root/'.github/config/ota-lkg-current.json'
+                        return dict(tag_name='pandora-os4-lkg-gen7',draft=False,prerelease=False,assets=[
+                            dict(id=20,name=f'{build}-Gen7-ORIGINAL-USER-ATTESTED-boot.img',digest='sha256:'+'1'*64),
+                            dict(id=21,name=f'{build}-Gen7-ORIGINAL-USER-ATTESTED-AnyKernel3.zip',digest='sha256:'+'2'*64),
+                            dict(id=22,name='ota-lkg-promotion-record.json',digest='sha256:'+m.file_sha(pointer))])
                     raise AssertionError(path)
                 def fake_artifact(id,name,where):
                     folder=root/name;folder.mkdir(exist_ok=True)
@@ -68,10 +76,20 @@ class StageSnapshots(unittest.TestCase):
                 def fake_download(asset,path):
                     if asset['name']=='stock-report.json':Path(path).write_text(json.dumps(report))
                     elif asset['name']=='build-metadata.txt':Path(path).write_text(f'STOCK_BUILD={build}\nSTOCK_INPUT_SHA256={digest}\nIMAGE_SHA256={image}\nSYMVERS_SHA256={symvers}\nFLASHABLE=NO\n')
+                    elif asset['name']=='ota-lkg-promotion-record.json':
+                        Path(path).write_bytes((root/'.github/config/ota-lkg-current.json').read_bytes())
                     else:Path(path).write_text('{}')
-                if mode in ('baseline','custom','stable'):
+                if mode in ('baseline','custom'):
                     path=root/f'.github/config/ota-verified/{build}';path.mkdir(parents=True);(path/'verification.json').write_text(json.dumps(rec))
-                if mode=='stable':(root/'.github/config/ota-lkg-current.json').write_text(json.dumps(dict(stock_build=build,stock_input_sha256=digest,stock_release_asset_id=123,archive_tag='pandora-os4-lkg-gen5',image_sha256='1'*64,boot_sha256='2'*64,anykernel_sha256='3'*64)))
+                if mode=='stable':
+                    (root/'.github/config/ota-lkg-current.json').write_text(json.dumps(dict(
+                        schema=1,device='pandora',status='USER_PROMOTED_OTA_LKG',
+                        attestation='USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF',
+                        stock_build=build,stock_input_sha256=digest,stock_release_asset_id=123,
+                        generation=7,archive_tag='pandora-os4-lkg-gen7',
+                        source_run_id=200,source_head_sha=head,
+                        image_sha256='3'*64,boot_sha256='1'*64,anykernel_sha256='2'*64,
+                        reproduction=dict(rebuild_verification='NORMALIZED_IMAGE_AND_EXACT_SYMVERS_CONFIG_PASS'))))
                 stack.enter_context(patch.dict(os.environ,GITHUB_REPOSITORY=m.REPO,GITHUB_REF_NAME='dev',GITHUB_SHA=head,GITHUB_RUN_ID='300'))
                 stack.enter_context(patch.object(m.subprocess,'check_output',return_value=head))
                 stack.enter_context(patch.object(m.subprocess,'run'))
@@ -80,6 +98,88 @@ class StageSnapshots(unittest.TestCase):
                 self.assertEqual(result['stage'],expected,mode)
                 self.assertFalse(result['safe_to_flash'])
                 if mode=='ready':self.assertIn('TESTBOOT_READY',result['milestones'])
+                if mode=='stable':
+                    # No verification.json exists and the original static ABI can
+                    # still be BLOCKED. The exact, separately verified Gen7
+                    # publication must be the status shown to the phone.
+                    self.assertFalse((root/f'.github/config/ota-verified/{build}/verification.json').exists())
+                    self.assertEqual(result['source_run_id'],200)
+                    self.assertEqual(len(result['release_assets']),3)
+                    self.assertIn('LKG_ARCHIVED',result['milestones'])
+
+
+    def test_old_gen7_pointer_cannot_shadow_a_future_new_ota(self):
+        import contextlib,json,os,tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d,contextlib.ExitStack() as stack:
+            root=Path(d);(root/'.github/config').mkdir(parents=True)
+            pointer=root/'.github/config/ota-lkg-current.json'
+            pointer.write_text(json.dumps(dict(
+                schema=1,device='pandora',status='USER_PROMOTED_OTA_LKG',
+                stock_build='OS4.0.6.0.XBLCNXM',stock_input_sha256='a'*64,
+                stock_release_asset_id=123,generation=7,archive_tag='pandora-os4-lkg-gen7')))
+            old=Path.cwd();os.chdir(root);stack.callback(os.chdir,old)
+            stack.enter_context(patch.object(m,'api',side_effect=AssertionError(
+                'previous OTA LKG must not trigger a remote lookup')))
+            result=dict(stage='ABI_BLOCKED',release_assets=[],safe_to_flash=False)
+            self.assertFalse(m.versioned_lkg_snapshot(
+                result,'OS4.0.7.0.XBLCNXM',dict(id=124), 'b'*64, root))
+            self.assertEqual(result['stage'],'ABI_BLOCKED')
+            self.assertFalse(result['safe_to_flash'])
+
+    def test_same_build_but_changed_stock_digest_or_asset_is_not_lkg(self):
+        import json,os,tempfile
+        from unittest.mock import patch
+        build='OS4.0.6.0.XBLCNXM'
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'.github/config').mkdir(parents=True)
+            pointer=root/'.github/config/ota-lkg-current.json'
+            pointer.write_text(json.dumps(dict(stock_build=build,
+                                               stock_input_sha256='a'*64,
+                                               stock_release_asset_id=123)))
+            old=Path.cwd();os.chdir(root)
+            try:
+                with patch.object(m,'api',side_effect=AssertionError('no remote lookup')):
+                    for id,sha in ((124,'a'*64),(123,'b'*64)):
+                        result=dict(stage='ABI_BLOCKED',release_assets=[],safe_to_flash=False)
+                        self.assertFalse(m.versioned_lkg_snapshot(result,build,dict(id=id),sha,root))
+                        self.assertEqual(result['stage'],'ABI_BLOCKED')
+                        self.assertFalse(result['safe_to_flash'])
+            finally:
+                os.chdir(old)
+
+    def test_exact_stock_but_corrupt_gen7_archive_stays_fail_closed(self):
+        import contextlib,json,os,tempfile
+        from unittest.mock import patch
+        build='OS4.0.6.0.XBLCNXM';sha='a'*64;head='b'*40
+        with tempfile.TemporaryDirectory() as d,contextlib.ExitStack() as stack:
+            root=Path(d);(root/'.github/config').mkdir(parents=True)
+            pointer=root/'.github/config/ota-lkg-current.json'
+            pointer.write_text(json.dumps(dict(
+                schema=1,device='pandora',status='USER_PROMOTED_OTA_LKG',
+                attestation='USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF',
+                stock_build=build,stock_input_sha256=sha,
+                stock_release_asset_id=123,generation=7,archive_tag='pandora-os4-lkg-gen7',
+                source_run_id=200,source_head_sha=head,boot_sha256='1'*64,anykernel_sha256='2'*64,
+                reproduction=dict(rebuild_verification='NORMALIZED_IMAGE_AND_EXACT_SYMVERS_CONFIG_PASS'))))
+            old=Path.cwd();os.chdir(root);stack.callback(os.chdir,old)
+            def fake_api(path):
+                if path=='actions/runs/200':
+                    return dict(id=200,head_branch='dev',status='completed',conclusion='success',
+                                event='workflow_dispatch',head_sha=head,
+                                path='.github/workflows/xiaomi-sm8850-os4-custom.yml')
+                if path=='releases/tags/pandora-os4-lkg-gen7':
+                    return dict(tag_name='pandora-os4-lkg-gen7',draft=False,prerelease=False,
+                                assets=[dict(id=20,name=f'{build}-Gen7-ORIGINAL-USER-ATTESTED-boot.img',
+                                             digest='sha256:'+'f'*64)])
+                raise AssertionError(path)
+            stack.enter_context(patch.object(m,'api',side_effect=fake_api))
+            result=dict(stage='ABI_BLOCKED',release_assets=[],safe_to_flash=False)
+            with self.assertRaises(ValueError):
+                m.versioned_lkg_snapshot(result,build,dict(id=123),sha,root)
+            self.assertEqual(result['stage'],'ABI_BLOCKED')
+            self.assertFalse(result['safe_to_flash'])
+
 
 class LegacyInputAudit(unittest.TestCase):
     def test_actual_legacy_report_requires_explicit_pinned_boot_sha(self):

@@ -83,6 +83,76 @@ def baseline_matches(rec, stock, image, symvers):
             and rec.get('observed_boot_completed') == '1'
             and rec.get('modules_basic_check') == 'PASS_HUMAN_ATTESTED')
 
+def versioned_lkg_snapshot(result, build, source, source_digest, root):
+    """Render an already-published, exact same-stock LKG before old static ABI history.
+
+    This only changes the read-only *stage display*. It must never modify the
+    OEM checker, mark the original static ABI PASS, or authorize a new OTA.
+    """
+    pointer = Path('.github/config/ota-lkg-current.json')
+    if not pointer.is_file():
+        return False
+    stable = json.loads(pointer.read_text(encoding='utf-8'))
+    if (stable.get('stock_build') != build or
+            stable.get('stock_input_sha256') != source_digest or
+            stable.get('stock_release_asset_id') != source['id']):
+        # An LKG for a previous OTA must not shadow the current input's ABI gate.
+        return False
+    generation = stable.get('generation')
+    require(stable.get('schema') == 1 and stable.get('device') == 'pandora' and
+            stable.get('status') == 'USER_PROMOTED_OTA_LKG' and
+            stable.get('attestation') ==
+            'USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF' and
+            type(generation) is int and generation >= 5 and
+            stable.get('archive_tag') == f'pandora-os4-lkg-gen{generation}' and
+            stable.get('reproduction', {}).get('rebuild_verification') ==
+            'NORMALIZED_IMAGE_AND_EXACT_SYMVERS_CONFIG_PASS',
+            'current same-OTA LKG pointer lacks verified provenance')
+    run_id = stable.get('source_run_id')
+    head = stable.get('source_head_sha', '')
+    require(type(run_id) is int and run_id > 0 and
+            bool(re.fullmatch('[a-f0-9]{40}', head)),
+            'current LKG source run is invalid')
+    run = api(f'actions/runs/{run_id}')
+    require(run.get('id') == run_id and run.get('conclusion') == 'success' and
+            run.get('event') == 'workflow_dispatch' and
+            run.get('head_sha') == head and valid_run(run, 'xiaomi-sm8850-os4-custom.yml'),
+            'current LKG source run is not a trusted successful custom build')
+    tag = stable['archive_tag']
+    release = api('releases/tags/' + tag)
+    require(release.get('tag_name') == tag and release.get('draft') is False and
+            release.get('prerelease') is False,
+            'current LKG release is not a published stable version')
+    # Gen6+ archives carry the exact user-attested boot and AnyKernel3. The
+    # rebuilt CI-only files cannot satisfy these names or SHA requirements.
+    for suffix, sha_key in (
+            ('ORIGINAL-USER-ATTESTED-boot.img', 'boot_sha256'),
+            ('ORIGINAL-USER-ATTESTED-AnyKernel3.zip', 'anykernel_sha256')):
+        name = f'{build}-Gen{generation}-{suffix}'
+        asset = get_asset(release, name)
+        require(asset_sha(asset) == stable.get(sha_key),
+                'LKG user-tested asset digest does not match current pointer')
+        result['release_assets'].append(dict(
+            tag=tag, id=asset['id'], name=asset['name'], sha256=asset_sha(asset)))
+    # Bind a third independently archived asset to the exact pointer bytes.
+    record = get_asset(release, 'ota-lkg-promotion-record.json')
+    require(asset_sha(record) == file_sha(pointer),
+            'archived LKG promotion record differs from the dev pointer')
+    downloaded = Path(root) / 'stage-lkg-promotion-record.json'
+    download_asset(record, downloaded)
+    require(downloaded.read_bytes() == pointer.read_bytes(),
+            'downloaded LKG promotion record differs from dev pointer')
+    result['release_assets'].append(dict(
+        tag=tag, id=record['id'], name=record['name'], sha256=asset_sha(record)))
+    result.update(stage='LKG_ARCHIVED',
+                  source_run_id=run_id, source_head_sha=head,
+                  milestones=['GKI_BUILT', 'LKG_ARCHIVED'],
+                  detail=(f'{build} 同版本用户确认的 Gen {generation} 已正式归档；'
+                          '历史原厂静态 OEM ABI 阻断不等于对已验证同版 LKG 的撤销，'
+                          '也不能用此 LKG 放行下一次 OTA。'))
+    return True
+
+
 def collect(root):
     require(os.environ['GITHUB_REPOSITORY'] == REPO and os.environ['GITHUB_REF_NAME'] == 'dev', 'trusted dev only')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -119,6 +189,10 @@ def collect(root):
                   source_run_id=origin['id'], source_head_sha=origin['head_sha'],
                   stage='NO_NEW_OTA', milestones=[], release_assets=[],
                   safe_to_flash=False, detail='', baseline_record_sha256='', tested_boot_sha256='')
+    # A published, exact same-input GenN LKG supersedes a historical raw
+    # OEM ABI_BLOCKED for *status display only*; never changes the OEM gate.
+    if versioned_lkg_snapshot(result, build, source, source_digest, root):
+        return result
     # The current legacy LKG is described independently of an OTA NOOP run.
     lkg = env('.github/config/pandora-os4-full-parity-lkg.env')
     if (build == lkg['LKG_SYSTEM_BUILD'] and report.get('stock_boot_sha256') == lkg['LKG_STOCK_BOOT_SHA256']):
@@ -208,20 +282,6 @@ def collect(root):
                           detail='自定义 IMG/实验性 AnyKernel3 已生成，尚未确认为稳定 LKG。')
             result['milestones'].append('CUSTOM_UNVERIFIED')
             break
-        pointer = Path('.github/config/ota-lkg-current.json')
-        if pointer.is_file():
-            stable = json.loads(pointer.read_text())
-            if stable.get('stock_build') == build and stable.get('stock_input_sha256') == source_digest and stable.get('stock_release_asset_id') == source['id']:
-                tag = stable['archive_tag']
-                release = api('releases/tags/' + tag)
-                require(not release['draft'] and not release['prerelease'], 'LKG pointer archive still pending')
-                for key in ('image_sha256', 'boot_sha256', 'anykernel_sha256'):
-                    matches = [a for a in release['assets'] if a.get('digest') == 'sha256:' + stable[key]]
-                    require(len(matches) == 1, 'LKG public archive digest mismatch')
-                    a = matches[0]
-                    result['release_assets'].append(dict(tag=tag, id=a['id'], name=a['name'], sha256=asset_sha(a)))
-                result.update(stage='LKG_ARCHIVED', detail='人工确认稳定、严格复现并长期归档已完成。')
-                result['milestones'].append('LKG_ARCHIVED')
     return result
 
 def main():
