@@ -279,9 +279,26 @@ def persistent_compat_unlocked(lkg_path, persistent_path, record):
     for key, value in expected_lkg.items():
         if lkg.get(key) != value:
             return False
-    if not isinstance(lkg.get("generation"), int) or lkg["generation"] < 1:
+    if not isinstance(lkg.get("generation"), int) or lkg["generation"] < 6:
         return False
     if not isinstance(lkg.get("source_run_id"), int) or lkg["source_run_id"] < 1:
+        return False
+    # Gen6 is the immutable compatibility-mechanism proof. After a subsequent
+    # COMPAT-CUSTOM LKG promotion, the current LKG is a different Image, but
+    # the same OS/GKI/ABI still inherits Gen6's proven installer mechanism.
+    archived = lkg_path.parent / "ota-lkg-history/gen6.json"
+    if lkg["generation"] == 6:
+        proven = lkg
+    elif archived.is_file():
+        proven = load(archived)
+        if proven.get("generation") != 6:
+            return False
+        for field in expected_lkg:
+            if proven.get(field) != expected_lkg[field]:
+                return False
+    else:
+        return False
+    if not isinstance(proven.get("source_run_id"), int) or proven["source_run_id"] < 1:
         return False
     for key in ("image_sha256", "anykernel_sha256"):
         if not SHA64.fullmatch(str(lkg.get(key, ""))):
@@ -290,9 +307,9 @@ def persistent_compat_unlocked(lkg_path, persistent_path, record):
         or persistent.get("device") != "pandora"
         or persistent.get("stock_build") != record.get("stock_build")
         or persistent.get("kernel_release") != record.get("kernel_release")
-        or persistent.get("feature_workflow_run_id") != lkg.get("source_run_id")
-        or persistent.get("feature_image_sha256") != lkg.get("image_sha256")
-        or persistent.get("package_sha256") != lkg.get("anykernel_sha256")
+        or persistent.get("feature_workflow_run_id") != proven.get("source_run_id")
+        or persistent.get("feature_image_sha256") != proven.get("image_sha256")
+        or persistent.get("package_sha256") != proven.get("anykernel_sha256")
         or persistent.get("runtime_selected_oem_gate") != "PASS_RUNTIME_SELECTED_EXACT_OS406"
         or persistent.get("persistent_boot_equivalence") != "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
         or persistent.get("actual_persistent_install_verified") is not True
