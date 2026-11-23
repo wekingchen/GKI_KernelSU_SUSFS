@@ -1,8 +1,8 @@
 # Pandora OTA 助手：当前使用说明
 
-当前版本 **0.13.4-dev**（versionCode 28）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
+当前开发版本 **0.14.0-dev**（versionCode 29）。仓库默认分支 dev，设备 Xiaomi 17 Pro / pandora。完整项目入口见 [OS4 文档索引](../../docs/pandora-os4-guide.md)。
 
-App 的范围：只读采集、GitHub 上传与接收跟踪、在手机填写原真机反馈工作流。电脑负责 fastboot boot；App 不执行 fastboot/flash、重启、切 slot 或分区写入，也不会自动晋升 LKG。
+App 的范围：常规 OTA 只读采集、GitHub 上传与接收跟踪、在手机填写原真机反馈工作流，以及仅在 ABI 阻断时按需执行的引导式只读诊断补采。电脑负责 fastboot boot；App 不执行 fastboot/flash、重启、切 slot 或分区写入，也不会自动晋升 LKG。
 
 ## 当前能力
 
@@ -16,6 +16,7 @@ App 的范围：只读采集、GitHub 上传与接收跟踪、在手机填写原
 | 记录 | 切换本地 ZIP（含软件修订标识）、查回执、重新通知、前台接收跟踪、核验后清理、查看 GitHub 草稿 |
 | 设置 | 仓库、Keystore 加密 PAT、实时连接验证、采集/上传说明、使用指南、安全与关于 |
 | 真机测试反馈（二级页） | 候选/Run 与 IMG SHA、五项本机信息、人工检查和备注、原工作流提交与跟踪、最近 20 条反馈 |
+| 兼容性补采（二级页） | 仅在可信阶段确认为 ABI_BLOCKED 时出现入口；当前 OTA 任务来源核验、内置白名单只读检查、报告预览、人工确认后上传 GitHub Draft 并通知只读审核 |
 
 下载安装固定签名 APK → 配置仓库/PAT → 新 OTA 保留原始 init_boot 并取得 Root → App 预检/采集/上传 → 等后端候选 → 电脑临时启动 → 手机上测试并提交 → 功能版稳定后另行人工晋升 LKG。
 
@@ -23,9 +24,21 @@ App 的范围：只读采集、GitHub 上传与接收跟踪、在手机填写原
 
 工作台点击「刷新可信状态」，核验当前输入及服务器快照，分别显示没有新 OTA、GKI 已构建、ABI 阻断、待测包就绪/等待人工、开发基线已验证、自定义内核待验证、稳定 LKG 已归档。稳定版从已核验 Release 证据动态显示 Gen 代次；同时显示 GitHub 核验时间。技术性 Run/Asset/SHA 放在「查看核验详情」，正常页面不直接堆叠编号。没有待测候选时，反馈入口和候选选择区会明确提示无需提交；不限制查询旧候选。输入变化、附件过期或最新状态生成失败时停止展示旧结论，可在 GitHub 检查来源。该卡为按需刷新的阶段快照，不是逐秒编译进度；服务器只读聚合，不自动刷机或晋升。恢复流程及精确证据绑定见 [审计前三阶段整改](../../docs/pandora-os4-audit-stages-2026-11-02.md)。
 
+### ABI 阻断时的引导式补采（V2 第三阶段）
+
+**正常的新 OTA 不需要多做任何一步**：仍然从工作台「开始采集」上传固件，等 GitHub 生成 GKI/ABI 候选。只有工作台刷新可信阶段后显示「OEM ABI 检查阻断」时，状态卡片才会出现「查看补采建议」。
+
+1. 点击「查看补采建议」进入原生二级页。App 会重新向 GitHub 核对**当前固定 OTA Build、stock SHA、来源 Run、来源提交和 ABI Artifact**，只接受已定义的任务类型，不执行服务器下发的 shell 命令。如果附件旧、过期或属于其他 OTA，直接拒绝。
+2. 页面按「为什么需要补采 → 只读检查手机 → 核对后提交」三个小步骤组织；只采本次实际需要的 Binder 状态、已加载模块名称、GNU Note SHA-256、经筛选的启动参数状态以及必要的设备版本/slot，不重复采集 boot、init_boot 或 OEM 模块。
+3. 模块或 Root 不可读时明确标记为 **PARTIAL_READ_ONLY**，不自动归类为正常。原始 cmdline、内核地址、ELF 二进制、日志及其他私密信息不在上传内容里。先点击「预览将提交的内容」，阅读后才能勾选同意并上传。
+4. 用户明确确认后，App 单独建立 `pandora-ota-diagnostic-...` GitHub **Draft** 并上传小于 32 KiB 的结构化 JSON，再通知 [诊断只读接收审核](../../.github/workflows/pandora-os4-ota-diagnostic-intake.yml)。如果已经上传但通知失败，只重新通知，**不重新上传**。同一 OTA 的本地脱敏草稿和上传回执会保存，重新打开可以核对、预览或重新通知；不会保存原始 kernel 日志。
+5. 服务端再次校验发布草稿、附件 SHA、当前固定固件、原始 ABI BLOCKED、原 Run 与诊断任务后仅回执 **REVIEW_REQUIRED**。这表示收到了待分析证据，**绝不是 ABI 通过，也不允许启动测试、持久刷机或自动 LKG 晋升**。仍需我们根据新证据提出兼容补丁、验证策略或向用户解释下一步。
+
+这套补采与正常固件采集/真机反馈是两条独立数据通路。**在已发布的 OS4.0.6 Gen 6 LKG 上，没有新 ABI 阻断就不应显示补采入口**。此前 OS4.0.6 的历史诊断可以在 [V2 回放说明](../../docs/pandora-ota-v2-real-evidence-replay.md)查看，但不能把旧证据直接用来解除以后 OTA 的阻断。
+
 ### 权限与更新
 
-- fine-grained PAT 只授权 `wekingchen/GKI_KernelSU_SUSFS`。采集/上传需要 **Contents: Read and write**；App 提交真机反馈另需 **Actions: Read and write**。缺少 Actions 权限不会自动禁止原采集能力。
+- fine-grained PAT 只授权 `wekingchen/GKI_KernelSU_SUSFS`。常规固件采集/上传及诊断 Draft 需要 **Contents: Read and write**；真机测试反馈与诊断提交另需 **Actions: Read and write**。缺少 Actions 权限不会自动禁止原固件采集能力。
 - PAT 用 AES-GCM / Android Keystore 加密保存，可在设置主动清除。ADB shell Root 不代表 App 获权，需在 Root 管理器给 `com.wekingchen.pandoraota` 单独授权。
 - 同包名、同固定签名覆盖安装可保留 PAT、采集回执和反馈草稿；不要为排障直接清除应用数据。
 - 正式 APK 在 [APK 与固定签名工作流](../../.github/workflows/pandora-os4-ota-companion-apk.yml)的 Artifacts 中以 `pandora-ota-companion-STABLE-SIGNED.apk` 原样发布，无需解压。Debug UNVERIFIED ZIP 仅作开发测试，不能保证覆盖正式签名版。
@@ -96,7 +109,7 @@ bash -n mobile-intake.sh
 gradle --no-daemon :app:assembleDebug
 ```
 
-[模拟器工作流](../../.github/workflows/pandora-os4-ota-companion-emulator.yml)执行设备端仪器测试并保存工作台、记录、设置、反馈、全链路状态及帮助六张截图；[接收契约](../../.github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml)与上游隔离门禁分别校验协议与源码边界。
+[模拟器工作流](../../.github/workflows/pandora-os4-ota-companion-emulator.yml)执行设备端仪器测试，新增诊断页真实 Android 截图与只读采集/上传负例验证，并保留原工作台、记录、设置、反馈、全链路状态及帮助截图；[接收契约](../../.github/workflows/pandora-os4-ota-mobile-intake-contract-tests.yml)与上游隔离门禁分别校验协议与源码边界。
 
 稳定签名要求四项 Secrets：PANDORA_OTA_SIGNING_KEYSTORE_B64、PANDORA_OTA_STORE_PASSWORD、PANDORA_OTA_KEY_ALIAS、PANDORA_OTA_KEY_PASSWORD。缺失即失败，不把只有 Debug 的结果当成正式通过。正式产物验证 APK v2 签名及固定证书 SHA-256：`6a465b38eaadaca90f9186634f416a16c03eeef6056813e5ae906c0aecab732f`。私钥和密码不提交源码、日志或公开附件；现有私密离线备份继续保留。
 
@@ -115,5 +128,6 @@ gradle --no-daemon :app:assembleDebug
 | 0.13.2 | 支持严格的 `.Dxx` 软件修订格式；服务端分类为待核验而非自动声明无内核变化；增加 `REVIEW_REQUIRED` 回执、前台停止轮询及本地安全删除适配 |
 | 0.13.3 | 修复 D02 更新页面版本与 Android Build 不一致：用户单次确认 Dxx，采集与 Draft 回执保留独立来源声明，同 Build 只审阅不触碰内核基线；D02 实机闭环已通过 |
 | 0.13.4 | 在工作台、采集历史和记录切换框中直接显示 ZIP 清单确认的软件 Dxx，区分人工更新页证据与真实 Android Build；接收提示更直观 |
+| 0.14.0-dev | OTA V2 ABI 阻断时显示按需补采入口；来源绑定的白名单任务、原生三步只读诊断页、预览确认、独立 Draft 与只读审核，保留原有三栏工作台 UI 和常规 OTA 采集逻辑 |
 
 HTTP User-Agent 的版本字段直接取构建生成的 `BuildConfig.VERSION_NAME`，随 App 版本自动更新。
