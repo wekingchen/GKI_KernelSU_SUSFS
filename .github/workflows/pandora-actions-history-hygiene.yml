@@ -83,7 +83,7 @@ jobs:
 
   close-merged-branch-tail:
     needs: test
-    name: "只收掉上次遗留及本次已合并的两个临时分支"
+    name: "安全删除本轮上游同步后已合并的临时分支"
     if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -98,8 +98,8 @@ jobs:
         run: |
           set -euo pipefail
           for branch in \
-            "chore/pandora-ota-v2-remove-one-time-cleanup-workflow" \
-            "chore/pandora-dev-workflow-docs-log-hygiene-20261123"; do
+            "fix/upstream-sync-allow-identical-inherited-files" \
+            "chore/upstream-sync-finalize-20261123"; do
             live=""
             if ! live="$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" 2>/dev/null)"; then
               echo "已不存在：$branch"; continue
