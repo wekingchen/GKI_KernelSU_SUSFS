@@ -60,6 +60,18 @@ class SafeActionPrune(unittest.TestCase):
         deleted, _ = m.make_plan(samples, set(), 9999, active_pr_heads={"a"*40})
         self.assertNotIn(4, deleted)
 
+    def test_invalid_workflow_yaml_only_completed_ci_is_disposable(self):
+        # These failed before creating a job; they contain no OTA evidence.
+        broken=".github/workflows/pandora-actions-history-hygiene.yml"
+        samples=[
+            run(1,name=broken,event="push"),
+            run(2,name=broken,event="push"),
+            run(3,name=broken,event="workflow_dispatch"),
+            run(4,name=broken,event="pull_request",status="in_progress"),
+        ]
+        deleted,_=m.make_plan(samples,{45196414652},9999)
+        self.assertEqual(set(deleted),{1,2})
+
     def test_document_references_pin_run_ids(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "docs"
