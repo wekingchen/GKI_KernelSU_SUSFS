@@ -71,5 +71,43 @@ class SafeActionPrune(unittest.TestCase):
             self.assertIn(45139674561, refs)
 
 
+    def test_cleanup_workflow_branch_gate_is_bash_valid_and_fail_closed(self):
+        import re
+        import subprocess
+        import textwrap
+
+        workflow = (Path(__file__).resolve().parents[2]
+                    / ".github/workflows/pandora-actions-history-hygiene.yml"
+                    ).read_text(encoding="utf-8")
+        self.assertIn('test("^(fix|chore)/pandora-ota-v2-")', workflow)
+        for required in ('.head.sha == $sha', '.head.repo.full_name == $repo',
+                         '.protected == false', '.merged_at != null',
+                         '.base.ref == "dev"', 'git/refs/heads/$branch'):
+            self.assertIn(required, workflow)
+
+        # Parse Bash syntax from every YAML literal run block, including the
+        # cleanup job that will execute with contents:write on dev.
+        lines = workflow.splitlines(keepends=True)
+        checked = 0
+        for i, line in enumerate(lines):
+            match = re.match(r"^(\s*)run:\s*\|[-+]?\s*$", line)
+            if not match:
+                continue
+            indent = len(match.group(1))
+            body = []
+            for part in lines[i+1:]:
+                if part.strip() and len(part) - len(part.lstrip(" ")) <= indent:
+                    break
+                body.append(part)
+            if not body:
+                continue
+            checked += 1
+            check = subprocess.run(["bash", "-n"], input=textwrap.dedent(
+                "".join(body)), text=True, capture_output=True, check=False)
+            self.assertEqual(0, check.returncode,
+                             f"Actions inline Bash at line {i+1}: {check.stderr}")
+        self.assertGreaterEqual(checked, 3)
+
+
 if __name__ == "__main__":
     unittest.main()
