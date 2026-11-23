@@ -26,7 +26,8 @@ public final class DiagnosisActivity extends Activity {
     private JSONObject evidence;
     private DiagnosisUploader.Receipt receipt;
     private TextView taskInfo,readInfo,uploadInfo,scopeInfo;
-    private Button loadButton,readButton,previewButton,submitButton,retryButton,releaseButton;
+    private Button loadButton,readButton,previewButton,submitButton,retryButton,releaseButton,reviewButton,reviewSourceButton;
+    private long reviewRunId;
     private CheckBox reviewed;
     private boolean busy,previewed;
     private String errorText="";
@@ -88,6 +89,10 @@ public final class DiagnosisActivity extends Activity {
         uploadInfo.setTextIsSelectable(true);result.addView(uploadInfo,space(12));
         retryButton=button("重新通知审核工作流",false);
         result.addView(retryButton,space(9));retryButton.setOnClickListener(v->retryDispatch());
+        reviewButton=button("刷新审核状态",false);
+        result.addView(reviewButton,space(9));reviewButton.setOnClickListener(v->refreshReview());
+        reviewSourceButton=button("查看 GitHub 审核记录",false);
+        result.addView(reviewSourceButton,space(9));reviewSourceButton.setOnClickListener(v->openReview());
         releaseButton=button("查看 GitHub 诊断草稿",false);
         result.addView(releaseButton,space(9));releaseButton.setOnClickListener(v->openDraft());
 
@@ -106,7 +111,7 @@ public final class DiagnosisActivity extends Activity {
                         !currentTask.stockSha.equals(task.stockSha)||!currentTask.head.equals(task.head);
                 currentTask=task;
                 if(changed){
-                    evidence=null;receipt=null;previewed=false;reviewed.setChecked(false);
+                    evidence=null;receipt=null;reviewRunId=0;previewed=false;reviewed.setChecked(false);
                     restoreSession(task);
                 }
                 taskInfo.setText(task.plainSummary()+"\n\n"+task.issuesForHuman()+"\n\n"+
@@ -134,7 +139,7 @@ public final class DiagnosisActivity extends Activity {
             JSONObject data=DiagnosisCollector.capture(task);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed()||currentTask!=task)return;
-                evidence=data;receipt=null;previewed=false;reviewed.setChecked(false);
+                evidence=data;receipt=null;reviewRunId=0;previewed=false;reviewed.setChecked(false);
                 saveSession();
                 boolean partial="PARTIAL_READ_ONLY".equals(data.optString("status"));
                 readInfo.setText(partial?
@@ -209,9 +214,9 @@ public final class DiagnosisActivity extends Activity {
             DiagnosisUploader.Receipt r=new DiagnosisUploader(secrets.repo(),pat).upload(data);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed()||currentTask!=selected)return;
-                receipt=r;saveSession();
+                receipt=r;reviewRunId=0;saveSession();
                 uploadInfo.setText(r.dispatched?
-                        "GitHub 已确认附件并通知审核。\n状态：等待只读审核；这不是 ABI 通过。" :
+                        "诊断证据已上传并通知审核。\n点击「刷新审核状态」查看结果；这不是 ABI 通过。" :
                         "GitHub 已确认草稿附件，但通知审核失败或结果未知。\n请使用下方「重新通知」，不要再次上传。");
                 reviewed.setChecked(false);renderControls();
             });
@@ -228,15 +233,38 @@ public final class DiagnosisActivity extends Activity {
                 receipt=new DiagnosisUploader.Receipt(r.releaseId,r.assetId,r.sourceRun,
                         r.sha,r.releaseUrl,r.tag,true);
                 saveSession();
-                uploadInfo.setText("审核工作流已收到通知。\n请在 GitHub 查看审核结果；仍不代表 ABI 已通过。");
+                uploadInfo.setText("已通知 GitHub 审核。点击「刷新审核状态」查看结果；这不是 ABI 通过。");
                 renderControls();
             });
             return "已通知只读审核工作流";
         });
     }
+    private void refreshReview(){
+        DiagnosisUploader.Receipt current=receipt;
+        DiagnosisClient.Task task=currentTask;
+        if(current==null||!current.dispatched||task==null)return;
+        run("正在核验 GitHub 审核结果…",()->{
+            DiagnosisReviewClient.Status status=new DiagnosisReviewClient(secrets.repo(),token())
+                    .latest(current,task);
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed()||receipt!=current||currentTask!=task)return;
+                reviewRunId=status.runId;
+                uploadInfo.setText("审核状态："+status.description);
+                uploadInfo.setTextColor("FAILED".equals(status.state)?WARNING:INK);
+                renderControls();
+            });
+            return "已读取可信审核状态";
+        });
+    }
+    private void openReview(){
+        if(reviewRunId<=0)return;
+        startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(
+                "https://github.com/"+DiagnosisUploader.REPO+"/actions/runs/"+reviewRunId)));
+    }
     private void openDraft(){
         if(receipt==null)return;
-        String url="https://github.com/"+DiagnosisUploader.REPO+"/releases/edit/"+receipt.releaseId;
+        // GitHub Release editor uses the tag, not the numeric release ID.
+        String url="https://github.com/"+DiagnosisUploader.REPO+"/releases/edit/"+receipt.tag;
         startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)));
     }
     private interface Operation{String perform()throws Exception;}
@@ -254,7 +282,8 @@ public final class DiagnosisActivity extends Activity {
                     errorText=error.getMessage()==null?"操作未完成":error.getMessage();
                     if(errorText.length()>230)errorText=errorText.substring(0,230);
                     if(currentTask==null)taskInfo.setText(errorText);
-                    else if(receipt==null)uploadInfo.setText("操作未完成："+errorText);
+                    else uploadInfo.setText("操作未完成："+errorText+
+                            (receipt!=null?"\\n草稿仍保留；不要重复上传。":""));
                 }
                 renderControls();
             });
@@ -269,6 +298,10 @@ public final class DiagnosisActivity extends Activity {
         submitButton.setEnabled(!busy&&currentTask!=null&&evidence!=null&&previewed&&reviewed.isChecked()&&receipt==null);
         retryButton.setVisibility(receipt!=null&&!receipt.dispatched?View.VISIBLE:View.GONE);
         retryButton.setEnabled(!busy);
+        reviewButton.setVisibility(receipt!=null&&receipt.dispatched?View.VISIBLE:View.GONE);
+        reviewButton.setEnabled(!busy);
+        reviewSourceButton.setVisibility(reviewRunId>0?View.VISIBLE:View.GONE);
+        reviewSourceButton.setEnabled(!busy);
         releaseButton.setVisibility(receipt!=null?View.VISIBLE:View.GONE);
         releaseButton.setEnabled(!busy);
     }
