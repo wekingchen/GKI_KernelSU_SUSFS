@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "STANDARD_CUSTOM_WORKFLOW_FASTBOOT_BOOT_VERIFIED_NONFLASH",
+  "status": "PERSISTENT_ANYKERNEL3_CANDIDATE_BUILT_UNVERIFIED",
   "device": "pandora",
   "stock_build": "OS4.0.6.0.XBLCNXM",
   "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
@@ -70,10 +70,10 @@
   "stock_boot_file_size": 41906176,
   "required_fastboot_boot_size": 44404736,
   "fastboot_boot_growth_bytes": 2498560,
-  "next_stage": "BUILD_EXACT_RUN37_ANYKERNEL3_PERSISTENT_CANDIDATE",
+  "next_stage": "TRUE_DEVICE_PERSISTENT_INSTALL_AND_REBOOT_VALIDATION",
   "formal_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
   "safe_to_flash": false,
-  "anykernel3_built": false,
+  "anykernel3_built": true,
   "persistent_flash": false,
   "lkg_promotion": false,
   "package_run_id": 44982774320,
@@ -407,5 +407,38 @@
     "anykernel3_magiskboot_repack": "PASS",
     "anykernel3_repacked_boot_sha256": "707af1aeedb4079d35a9bcabd63cf800d5a716dbea41b41d1bd72b34f8d44287",
     "actual_persistent_install_verified": false
+  },
+  "persistent_candidate": {
+    "status": "BUILT_AND_STATIC_AUDIT_PASS_TRUE_DEVICE_REBOOT_PENDING",
+    "source_run_id": 45105070444,
+    "source_artifact_id": 14787211465,
+    "source_artifact_name": "pandora-OS4.0.6-run37-PERSISTENT-CANDIDATE",
+    "artifact_zip_sha256": "c72b750adab372323e002a48db143a6293e8999328d512cd2a32e9e8af1c0488",
+    "package_name": "Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip",
+    "package_sha256": "44a63799a6dce8b373181029ee2aa2c92340781713fc398c3220b482e88fde8e",
+    "image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+    "expected_source_boot_sha256": "a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b",
+    "expected_source_boot_size": 100663296,
+    "anykernel3_commit": "dca9dc370838d919d56c1f59ec78b27a14a72c68",
+    "persistent_cmdline_contract": [
+      "module_blacklist contains kernelsu",
+      "pandora_rust_binder_eexist=1"
+    ],
+    "forbidden_embedded_partition_images": [
+      "boot.img",
+      "boot_a.img",
+      "boot_b.img",
+      "init_boot.img",
+      "vendor_boot.img",
+      "vendor_kernel_boot.img",
+      "dtbo.img",
+      "vbmeta.img"
+    ],
+    "zip_integrity": "PASS",
+    "embedded_image_sha256": "PASS",
+    "installer_fail_closed_stock_boot_identity": "PASS",
+    "actual_persistent_install_verified": false,
+    "safe_to_fastboot_flash": false,
+    "lkg_promotion": false
   }
 }
