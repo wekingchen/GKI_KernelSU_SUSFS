@@ -30,19 +30,24 @@ final class DiagnosisReviewClient {
                 ||!receipt.sha.matches("[a-f0-9]{64}"))
             throw new IOException("诊断审核请求来源未确认");
         String expected=title(receipt);
-        JSONArray runs=github.json("GET",API+"/actions/workflows/"+WORKFLOW+
-                "/runs?event=workflow_dispatch&branch=dev&per_page=100",null,200)
-                .getJSONArray("workflow_runs");
         JSONObject run=null;
-        for(int i=0;i<runs.length();i++){
-            JSONObject candidate=runs.getJSONObject(i);
-            if(!expected.equals(candidate.optString("display_title")))continue;
-            if(!"dev".equals(candidate.optString("head_branch"))||
-                    !"workflow_dispatch".equals(candidate.optString("event"))||
-                    !(".github/workflows/"+WORKFLOW).equals(candidate.optString("path"))||
-                    !candidate.optString("head_sha").matches("[a-f0-9]{40}"))
-                throw new IOException("诊断审核 Run 的来源不可信");
-            if(run==null||candidate.getLong("id")>run.getLong("id"))run=candidate;
+        // GitHub returns newest first. Find an exact receipt in a bounded
+        // window instead of assuming it is always among the latest 100 runs.
+        for(int page=1;page<=5;page++){
+            JSONArray runs=github.json("GET",API+"/actions/workflows/"+WORKFLOW+
+                    "/runs?event=workflow_dispatch&branch=dev&per_page=100&page="+page,null,200)
+                    .getJSONArray("workflow_runs");
+            for(int i=0;i<runs.length();i++){
+                JSONObject candidate=runs.getJSONObject(i);
+                if(!expected.equals(candidate.optString("display_title")))continue;
+                if(!"dev".equals(candidate.optString("head_branch"))||
+                        !"workflow_dispatch".equals(candidate.optString("event"))||
+                        !(".github/workflows/"+WORKFLOW).equals(candidate.optString("path"))||
+                        !candidate.optString("head_sha").matches("[a-f0-9]{40}"))
+                    throw new IOException("诊断审核 Run 的来源不可信");
+                if(run==null||candidate.getLong("id")>run.getLong("id"))run=candidate;
+            }
+            if(run!=null||runs.length()<100)break;
         }
         if(run==null)return new Status("QUEUED","审核已通知 GitHub，尚未建立运行记录；请稍后刷新。",0);
         long id=run.getLong("id");
@@ -76,7 +81,32 @@ final class DiagnosisReviewClient {
                 ||proof.optBoolean("oem_gate_unlocked",true)
                 ||proof.optBoolean("lkg_promotion",true))
             throw new IOException("审核证明与本次补采或安全状态不一致");
+        String next="";
+        try{
+            JSONObject plan=github.bundledJson(artifact,"diagnostic-recovery-plan.json",32768);
+            if("pandora-ota-v2-recovery-plan-v1".equals(plan.optString("schema"))&&
+                    plan.optLong("source_run_id")==task.run&&
+                    task.build.equals(plan.optString("stock_build"))&&
+                    task.stockSha.equals(plan.optString("stock_input_sha256"))&&
+                    receipt.sha.equals(plan.optString("evidence_sha256"))&&
+                    !plan.optBoolean("automatic_rebuild_authorized",true)&&
+                    !plan.optBoolean("fastboot_boot_authorized",true)&&
+                    !plan.optBoolean("lkg_promotion_authorized",true)){
+                JSONArray actions=plan.optJSONArray("actions");
+                if(actions!=null&&actions.length()>0){
+                    JSONObject first=actions.optJSONObject(0);
+                    if(first!=null){
+                        String title=first.optString("title");
+                        if(title.length()>0&&title.length()<50)
+                            next="\n建议先做："+title+"；完整步骤见 GitHub 审核记录。";
+                    }
+                }
+            }
+        }catch(Exception ignored){
+            // Old review artifacts predate the optional human-readable plan.
+            // Never treat a missing/unverified recommendation as authority.
+        }
         return new Status("REVIEW_REQUIRED",
-                "证据已完成只读核验，等待进一步分析；ABI 仍处于阻断状态，不能刷机或晋升 LKG。",id);
+                "只读证据已核验，ABI 仍然阻断；不会自动重编、刷机或晋升 LKG。"+next,id);
     }
 }
