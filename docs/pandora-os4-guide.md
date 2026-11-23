@@ -1,8 +1,10 @@
 # 小米 17 Pro OS4：当前功能与文档入口
 
-核对日期：2026-11-23（OS4.0.6 Gen 7 已正式晋升并公开归档；OTA V2 第四阶段真机基础回归通过，下一次实际 ABI 阻断补采尚待验证）。适用设备 `pandora`，仓库默认分支 `dev`。本页是当前入口；带日期的历史审计不能替代当前代码和机器可读指针。
+最后核对：2026-11-23。**小米 17 Pro（pandora）当前稳定版为 OS4.0.6.0.XBLCNXM / Gen7**，已在真机使用并发布长期备份。OTA 助手当前开发版为 **0.14.1-dev**，基础页面已有真机验收；下一次新 OTA 如果出现 ABI 阻断，诊断补采的完整手机实测仍待发生。所有操作以仓库 `dev` 的最新代码为准。
 
 ## 先确定你要做什么
+
+**不熟悉 GitHub Actions？先看 [工作流怎么用：常用入口与后台自动流程](pandora-workflows-2026-11-23.md)。** 平时不需要在几十条工作流里逐一尝试。
 
 | 目的 | 首选入口 | 说明 |
 | --- | --- | --- |
@@ -25,7 +27,7 @@
 | App 既有真机功能 | 0.10.x 的 Root、采集、上传、同版本自定义 boot 安全拒收、查看草稿及本地安全删除已经用户确认 |
 | App 0.13.0 真机验收 | GitHub Draft 创建/读回/删除与通知权限验证真实成功；活动 slot A、Gen 4 阶段读取、五项本机信息（659 条模块记录）见 [2026-11-02 真机验收](pandora-ota-real-device-verification-2026-11-02.md)；并不代表新 OTA 全链验收 |
 | D02 软件修订实际 OTA | 2026-11-15 实机重启成功、Slot A / 6.12.69 自定义内核 / Root 保留；0.13.3 实际上传，GitHub Run #43687115408 返回 REVIEW_REQUIRED；没有触碰固定内核基线 |
-| 真正跨 Build / 新内核 OTA | **OS4.0.6 已完成**：新 r74 GKI、OEM 全量静态阻断分析、EEXIST 兼容方案、真机 fastboot boot、运行时选源、持久安装与 Gen 6 LKG；不能把 exact OS4.0.6 的放行结论自动用于未来 OTA |
+| 真正跨 Build / 新内核 OTA | **OS4.0.6 已完成**：通过 GKI 和 OEM ABI 问题分析、EEXIST 专项兼容、真机临时启动和持久安装，最终晋升 **Gen7**。早期静态 ABI 阻断属于历史记录，**不能据此允许未来 OTA 直接刷机** |
 | 自定义功能 | BakaSU/SUSFS/NoMount/DroidSpaces/NTSync/BBG/Re-Kernel/网络增强/CVE 按菜单选择；ZRAM/LZ4K/LZ4KD 自定义后端尚未作为菜单功能交付 |
 | 明确不提供 | App 执行 fastboot/flash、后台断点续传、自动把测试成功晋升为 LKG、自动删除远端采集证据 |
 
@@ -45,7 +47,7 @@
 
 第四阶段真实手机基础回归见 [2026-11-23 OTA V2 真机验收](pandora-ota-v2-phase4-real-device-smoke-2026-11-23.md)；OTA V2 全链审计见 [最终审计报告](pandora-ota-v2-final-audit-2026-11-23.md)。
 
-本次文档和历史清理的具体清单见 [2026-11-02 维护记录](pandora-maintenance-2026-11-02.md)。本轮 D02 实机验收资料见 [D02 独立记录](pandora-ota-d02-real-device-2026-11-15.md)。
+历史清理结果见 [2026-11-02 维护记录](pandora-maintenance-2026-11-02.md)；**当前实际工作流分类**见 [2026-11-23 清单](pandora-workflows-2026-11-23.md)。本轮 D02 实机验收资料见 [D02 独立记录](pandora-ota-d02-real-device-2026-11-15.md)。
 
 ## 文档分类
 
@@ -53,4 +55,4 @@
 - [OS3 历史说明](xiaomi-sm8850.md) 仅保留历史结论与恢复资料，不再提供退役工作流的操作指引。
 - [2026-11-01 审计快照](xiaomi-17-pro-os4-end-to-end-audit-2026-11-01.md)、[合成验证快照](xiaomi-17-pro-os4-synthetic-validation-2026-11-01.md)、[0.11 清理记录](pandora-ota-0.11.0-maintenance-audit.md) 都是历史证据。
 
-正式工作流包含上游通用入口、K50 Pro 隔离构建/守卫/自动同步、OS4 构建/晋升/复现/归档、手机接收/反馈、OTA V2 诊断审核、APK/模拟器/契约及隔离门禁。不能因名称包含 legacy、fork、实验性产物或暂未有新 OTA 就删除仍有调用关系的流程。
+本仓库只负责维护 **pandora 专属文件和 K50 Pro 的独立修复文件**；上游原件保持同步不改动。哪些工作流需要你手动点击、哪些自动运行或仅供维修，统一看 [工作流说明](pandora-workflows-2026-11-23.md)。
