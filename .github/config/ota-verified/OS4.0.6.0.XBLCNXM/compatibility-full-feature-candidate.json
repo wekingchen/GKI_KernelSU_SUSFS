@@ -70,7 +70,7 @@
   "stock_boot_file_size": 41906176,
   "required_fastboot_boot_size": 44404736,
   "fastboot_boot_growth_bytes": 2498560,
-  "next_stage": "PERSISTENT_BOOT_EQUIVALENCE",
+  "next_stage": "BUILD_EXACT_RUN37_ANYKERNEL3_PERSISTENT_CANDIDATE",
   "formal_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
   "safe_to_flash": false,
   "anykernel3_built": false,
@@ -394,6 +394,18 @@
     "ambiguous_providers": 0,
     "crc_mismatches": 0,
     "failed_modules": 0,
-    "persistent_kernel_payload": false
+    "persistent_kernel_payload": true
+  },
+  "persistent_boot_equivalence": {
+    "status": "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37",
+    "report_path": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json",
+    "source_run_id": 45104409964,
+    "source_artifact_id": 14787265690,
+    "semantic_payload_sha256": "230a16fa271c3ccbaa14309adbd2905ae04430032a9f7b9d0853478aa7751d27",
+    "byte_exact_to_true_device_tested_run37": true,
+    "partition_size": 100663296,
+    "anykernel3_magiskboot_repack": "PASS",
+    "anykernel3_repacked_boot_sha256": "707af1aeedb4079d35a9bcabd63cf800d5a716dbea41b41d1bd72b34f8d44287",
+    "actual_persistent_install_verified": false
   }
 }
