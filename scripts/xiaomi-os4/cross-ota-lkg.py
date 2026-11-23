@@ -121,8 +121,17 @@ def identify(folder, run_id, source_sha):
             persistent = load(evidence / "persistent-candidate.json")
             runtime = load(evidence / "runtime-selected-oem-gate.json")
             persistent_boot = load(evidence / "persistent-boot-equivalence.json")
-            source_lkg = previous.get("source_run_id")
-            source_image = previous.get("image_sha256")
+            # Gen6 is the one-time device-proven EEXIST/OEM compatibility
+            # anchor. Each later custom LKG is separately user-attested.
+            anchor_path = ROOT / ".github/config/ota-lkg-history/gen6.json"
+            anchor = load(anchor_path) if anchor_path.is_file() else live
+            anchor_lkg = anchor.get("source_run_id")
+            anchor_image = anchor.get("image_sha256")
+            required(anchor.get("generation") == 6
+                     and anchor.get("stock_build") == build
+                     and anchor.get("gki_commit") == rec.get("candidate_gki_commit")
+                     and anchor.get("reproduction", {}).get("symvers_sha256") == sha(folder / "Module.symvers"),
+                     "missing exact independently proven Gen6 compatibility anchor")
             required(previous.get("schema") == 1
                      and previous.get("status") == "USER_PROMOTED_OTA_LKG"
                      and previous.get("attestation") ==
@@ -131,24 +140,24 @@ def identify(folder, run_id, source_sha):
                      and previous.get("stock_build") == build
                      and previous.get("kernel_release") == release
                      and previous.get("gki_commit") == rec.get("candidate_gki_commit")
-                     and source_lkg != int(run_id)
+                     and previous.get("source_run_id") != int(run_id)
                      and previous.get("reproduction", {}).get("symvers_sha256") == sha(folder / "Module.symvers")
                      and persistent.get("status") == "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY"
-                     and persistent.get("feature_workflow_run_id") == source_lkg
-                     and persistent.get("feature_image_sha256") == source_image
+                     and persistent.get("feature_workflow_run_id") == anchor_lkg
+                     and persistent.get("feature_image_sha256") == anchor_image
                      and persistent.get("actual_persistent_install_verified") is True
                      and persistent.get("lkg_promotion") is True
                      and runtime.get("status") == "PASS_RUNTIME_SELECTED_EXACT_OS406"
-                     and runtime.get("feature_workflow_run_id") == source_lkg
-                     and runtime.get("feature_image_sha256") == source_image
+                     and runtime.get("feature_workflow_run_id") == anchor_lkg
+                     and runtime.get("feature_image_sha256") == anchor_image
                      and runtime.get("feature_module_symvers_sha256") == sha(folder / "Module.symvers")
                      and runtime.get("unresolved_kernel_imports") == 0
                      and runtime.get("ambiguous_providers") == 0
                      and runtime.get("crc_mismatches") == 0
                      and runtime.get("failed_modules") == 0
                      and persistent_boot.get("status") == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
-                     and persistent_boot.get("feature_workflow_run_id") == source_lkg
-                     and persistent_boot.get("feature_image_sha256") == source_image
+                     and persistent_boot.get("feature_workflow_run_id") == anchor_lkg
+                     and persistent_boot.get("feature_image_sha256") == anchor_image
                      and md.get("PANDORA_RUST_BINDER_EEXIST_SHIM") == "1"
                      and md.get("COMPATIBILITY_BASELINE_KIND") == "PANDORA_RUST_BINDER_EEXIST_SHIM",
                      "COMPAT-CUSTOM requires same-OTA trusted persistent LKG, GKI and OEM ABI")
