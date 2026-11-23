@@ -9,12 +9,24 @@ OUTDIR="${2:?usage: package-pandora-406-run37-anykernel3.sh <Image> <output-dir>
 
 BUILD="OS4.0.6.0.XBLCNXM"
 RELEASE="6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
-IMAGE_SHA="3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0"
+SOURCE_IMAGE_SHA="3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0"
+CI_REBUILT="${PANDORA_RUN37_CI_REBUILT:-0}"
+if [[ "$CI_REBUILT" == "1" ]]; then
+  IMAGE_SHA="${PANDORA_RUN37_CI_IMAGE_SHA256:?missing PANDORA_RUN37_CI_IMAGE_SHA256}"
+  [[ "$IMAGE_SHA" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::bad CI rebuilt Image SHA"; exit 1; }
+  PACKAGE="Xiaomi17Pro-pandora-OS4.0.6.0-run37-REBUILT-CI-ONLY-AnyKernel3.zip"
+  INSTALLER_LABEL="Exact run37 source / CI-rebuilt kernel - NOT device tested"
+  VALIDATION_LEVEL="CI_REBUILT_FROM_PERSISTENT_VERIFIED_RUN37_SOURCE"
+else
+  IMAGE_SHA="$SOURCE_IMAGE_SHA"
+  PACKAGE="Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip"
+  INSTALLER_LABEL="Exact standard-workflow run #37 persistent verified kernel"
+  VALIDATION_LEVEL="PERSISTENT_VERIFIED_EXACT_RUN37"
+fi
 STOCK_BOOT_SHA="a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b"
 STOCK_BOOT_SIZE="100663296"
 EEXIST_PATCH_SHA="5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee"
 AK3_COMMIT="dca9dc370838d919d56c1f59ec78b27a14a72c68"
-PACKAGE="Xiaomi17Pro-pandora-OS4.0.6.0-run37-PERSISTENT-CANDIDATE-AnyKernel3.zip"
 
 RUNTIME_GATE="$ROOT/.github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json"
 PERSISTENT_GATE="$ROOT/.github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-boot-equivalence.json"
@@ -24,6 +36,10 @@ PERSISTENT_GATE="$ROOT/.github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-
   echo "::error::run37 Image SHA mismatch"; exit 1;
 }
 grep -aFq "$RELEASE" "$IMAGE" || { echo "::error::kernel release marker missing"; exit 1; }
+if [[ "$CI_REBUILT" != "1" && "$IMAGE_SHA" != "$SOURCE_IMAGE_SHA" ]]; then
+  echo "::error::non-CI package must use exact user-tested run37 Image"
+  exit 1
+fi
 
 python3 - "$RUNTIME_GATE" "$PERSISTENT_GATE" <<'PY'
 import json, sys
@@ -36,6 +52,8 @@ assert runtime["feature_workflow_run_id"] == 45047763911
 assert runtime["feature_image_sha256"] == "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0"
 assert runtime["eligible_for_persistent_kernel_payload"] is True
 assert runtime["persistent_boot_equivalence"] == "PASS_EXACT_RUN37"
+assert runtime["actual_persistent_install_verified"] is True
+assert runtime["lkg_promotion"] is True
 assert persistent["status"] == "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37"
 assert persistent["stock_boot_sha256"] == "a75b2dd5596f75474fad2da8e8e64bb0a6398864d4b7f593d1f0dd1c9328979b"
 assert persistent["stock_partition_dump_size"] == 100663296
@@ -46,7 +64,8 @@ assert persistent["anykernel3"]["audit"] == "PASS"
 assert persistent["anykernel3"]["repacked_cmdline"] == "module_blacklist=kernelsu pandora_rust_binder_eexist=1"
 assert persistent["anykernel3"]["repacked_boot_size"] == 100663296
 assert persistent["eligible_for_persistent_kernel_payload"] is True
-assert persistent["actual_persistent_install_verified"] is False
+assert persistent["actual_persistent_install_verified"] is True
+assert persistent["lkg_promotion"] is True
 PY
 
 TMP="$(mktemp -d)"
@@ -169,6 +188,17 @@ ui_print "Repacking exact run37 kernel with pinned AnyKernel3...";
 flash_boot;
 AK3EOF
 
+python3 - "$PKG/anykernel.sh" "$INSTALLER_LABEL" <<'PY'
+import sys
+from pathlib import Path
+p=Path(sys.argv[1])
+label=sys.argv[2]
+s=p.read_text()
+s=s.replace("Exact standard-workflow run #37 persistent candidate", label)
+s=s.replace("run37 persistent candidate", label)
+p.write_text(s)
+PY
+
 cat > "$PKG/README.txt" <<EOF
 Xiaomi 17 Pro / pandora / OS4.0.6.0.XBLCNXM
 Exact standard custom workflow run #37 persistent candidate
@@ -201,8 +231,9 @@ It patches only:
 
 It does not touch init_boot, vendor_boot, vendor_kernel_boot, dtbo or vbmeta.
 
-STATUS: PERSISTENT CANDIDATE.
-True-device persistent reboot validation is still required before LKG promotion.
+STATUS: $VALIDATION_LEVEL.
+The exact source run37 package passed two true-device persistent reboots.
+If this is a CI-rebuilt package, it is archived as CI-only and is NOT independently device tested.
 EOF
 
 # No raw partition images are allowed inside the installer.
@@ -242,6 +273,13 @@ echo "PACKAGE=$ZIP"
 echo "PACKAGE_SHA256=$(awk '{print $1}' "$ZIP.sha256")"
 echo "IMAGE_SHA256=$IMAGE_SHA"
 echo "SOURCE_BOOT_SHA256=$STOCK_BOOT_SHA"
-echo "VALIDATION_LEVEL=PERSISTENT_CANDIDATE_EXACT_RUN37"
-echo "ACTUAL_PERSISTENT_INSTALL_VERIFIED=NO"
-echo "LKG_PROMOTION=FORBIDDEN_UNTIL_TRUE_DEVICE_REBOOT_PASS"
+echo "VALIDATION_LEVEL=$VALIDATION_LEVEL"
+echo "SOURCE_RUN37_IMAGE_SHA256=$SOURCE_IMAGE_SHA"
+echo "ACTUAL_PERSISTENT_INSTALL_VERIFIED=YES_FOR_SOURCE_RUN37"
+if [[ "$CI_REBUILT" == "1" ]]; then
+  echo "REBUILT_DEVICE_TESTED=NO"
+  echo "LKG_ARCHIVE_ROLE=REBUILT_CI_ONLY"
+else
+  echo "REBUILT_DEVICE_TESTED=SOURCE_EXACT_TRUE_DEVICE_VERIFIED"
+  echo "LKG_ARCHIVE_ROLE=ORIGINAL_USER_ATTESTED"
+fi
