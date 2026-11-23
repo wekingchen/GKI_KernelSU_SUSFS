@@ -109,9 +109,9 @@ public final class DiagnosisActivity extends Activity {
                     evidence=null;receipt=null;previewed=false;reviewed.setChecked(false);
                     restoreSession(task);
                 }
-                taskInfo.setText(task.plainSummary()+"\n\n"+task.build+
-                        "\n此次 GitHub 已确认有 "+task.issues.size()+" 类问题，需要 "+task.checks.size()+" 类只读检查。\n"+
-                        "不会重新采集原始 boot 或 OEM 模块，也不会执行 GitHub 下发的命令。");
+                taskInfo.setText(task.plainSummary()+"\n\n"+task.issuesForHuman()+"\n\n"+
+                        "适用版本："+task.build+"\n此次需补充 "+task.checks.size()+" 类只读状态。"+
+                        "\n不会重新采集原始 boot 或 OEM 模块，也不会执行 GitHub 下发的命令。");
                 scopeInfo.setText(task.checks.contains("binder_runtime")&&task.checks.contains("loaded_module_identity")?
                         "将读取 Binder 活动模式、模块加载名称和 zram/zsmalloc 的 GNU Note 指纹。" :
                         task.checks.contains("binder_runtime")?
