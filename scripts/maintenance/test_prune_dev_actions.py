@@ -24,7 +24,7 @@ class SafeActionPrune(unittest.TestCase):
     def test_old_repetitive_ci_only_beyond_retention(self):
         samples = [run(i) for i in range(1, 21)]
         deleted, _ = m.make_plan(samples, set(), 9999)
-        self.assertTrue(set(range(2, 12)).issuperset(deleted))
+        self.assertEqual(set(deleted), set(range(2, 13)))
         self.assertNotIn(1, deleted)
         for i in range(13, 21):
             self.assertNotIn(i, deleted)
