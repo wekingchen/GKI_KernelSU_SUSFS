@@ -55,7 +55,7 @@ jobs:
             mkdir -p app/build/reports/androidTests/preview
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             python3 capture_feedback_preview.py app/build/reports/androidTests/preview/feedback-form.png
-            adb pull /sdcard/Android/data/com.wekingchen.pandoraota/files/diagnosis-v2.png app/build/reports/androidTests/preview/diagnosis-v2.png
+            adb pull /sdcard/Pictures/PandoraOTATests/diagnosis-v2.png app/build/reports/androidTests/preview/diagnosis-v2.png
             test -s app/build/reports/androidTests/preview/diagnosis-v2.png
             test -s app/build/reports/androidTests/preview/workbench.png
             test -s app/build/reports/androidTests/preview/records.png
