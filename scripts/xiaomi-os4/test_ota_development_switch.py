@@ -30,6 +30,8 @@ class DynamicOTA(unittest.TestCase):
         self.record_path = rel / "verification.json"
         self.fixture_path = rel / "fixture.json"
         self.pointer_path = self.root / ".github/config/ota-development-current.json"
+        self.lkg_path = self.root / ".github/config/ota-lkg-current.json"
+        self.persistent_path = self.root / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json"
         self.report_path = self.root / "stock.json"
         self.candidate = self.root / "candidate"
         self.candidate.mkdir()
@@ -196,6 +198,8 @@ class CompatibilityOTA(unittest.TestCase):
         self.record_path = rel / "compatibility-verification.json"
         self.fixture_path = rel / "compatibility-fixture.json"
         self.pointer_path = self.root / ".github/config/ota-development-current.json"
+        self.lkg_path = self.root / ".github/config/ota-lkg-current.json"
+        self.persistent_path = self.root / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json"
         self.report_path = self.root / "stock.json"
         source_root = ROOT.parents[1]
         source_record = source_root / ".github/config/ota-verified" / self.build / "compatibility-verification.json"
@@ -239,6 +243,8 @@ class CompatibilityOTA(unittest.TestCase):
             "--stock-report", self.report_path,
             "--root", self.root,
             "--pointer", self.pointer_path,
+            "--lkg-pointer", self.lkg_path,
+            "--persistent-candidate", self.persistent_path,
             "--output", self.root / "route.txt",
         )
 
@@ -255,6 +261,59 @@ class CompatibilityOTA(unittest.TestCase):
         self.assertIn("compatibility_mode=1\n", route)
         self.assertIn("compatibility-verification.json", route)
         self.assertIn("compatibility-fixture.json", route)
+
+    def test_compatibility_persistent_custom_unlock_requires_promoted_lkg_and_two_reboots(self):
+        created = self.create_pointer()
+        self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=0\n",
+                      (self.root / "route.txt").read_text())
+
+        lkg = {
+            "schema": 1,
+            "status": "USER_PROMOTED_OTA_LKG",
+            "device": "pandora",
+            "generation": 6,
+            "stock_build": self.build,
+            "kernel_release": self.record["kernel_release"],
+            "stock_input_sha256": self.record["stock_input_sha256"],
+            "gki_commit": self.record["candidate_gki_commit"],
+            "source_run_id": 45047763911,
+            "image_sha256": "3" * 64,
+            "anykernel_sha256": "4" * 64,
+            "attestation": "USER_CONFIRMED_BOOT_AND_PERSISTENT_STABILITY_NOT_REMOTE_HARDWARE_PROOF",
+        }
+        persistent = {
+            "status": "PASS_TWO_TRUE_DEVICE_PERSISTENT_REBOOTS_LKG_READY",
+            "device": "pandora",
+            "stock_build": self.build,
+            "kernel_release": self.record["kernel_release"],
+            "feature_workflow_run_id": 45047763911,
+            "feature_image_sha256": "3" * 64,
+            "package_sha256": "4" * 64,
+            "runtime_selected_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+            "persistent_boot_equivalence": "PASS_PERSISTENT_BOOT_EQUIVALENCE_EXACT_OS406_RUN37",
+            "actual_persistent_install_verified": True,
+            "lkg_promotion": True,
+            "first_true_device_persistent_reboot": {"status": "PASS"},
+            "second_true_device_persistent_reboot": {"status": "PASS"},
+        }
+        self.lkg_path.parent.mkdir(parents=True, exist_ok=True)
+        self.lkg_path.write_text(json.dumps(lkg))
+        self.persistent_path.parent.mkdir(parents=True, exist_ok=True)
+        self.persistent_path.write_text(json.dumps(persistent))
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=1\n",
+                      (self.root / "route.txt").read_text())
+
+        persistent["second_true_device_persistent_reboot"]["status"] = "PENDING"
+        self.persistent_path.write_text(json.dumps(persistent))
+        selected = self.select()
+        self.assertEqual(selected.returncode, 0, selected.stdout + selected.stderr)
+        self.assertIn("persistent_compat_enabled=0\n",
+                      (self.root / "route.txt").read_text())
 
     def test_compatibility_fixture_must_keep_eexist_and_not_blacklist_rust_binder(self):
         self.fixture["header_v4"]["cmdline"] = "module_blacklist=kernelsu"
