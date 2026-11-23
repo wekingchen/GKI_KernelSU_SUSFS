@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "status": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+  "gate": "CRC_VERMAGIC_AND_RUNTIME_SELECTION_MATCH_CANDIDATE",
+  "source_run_id": 45102932564,
+  "source_artifact_id": 14786505411,
+  "source_artifact_name": "pandora-406-runtime-selected-oem-gate",
+  "full_report_sha256": "d6c97c7039487cb54896b5f1fa4a8241f338c02f4710bb5ffa89c9ae8d12276d",
+  "stock_build": "OS4.0.6.0.XBLCNXM",
+  "stock_input_sha256": "bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8",
+  "kernel_release": "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k",
+  "candidate_gki_commit": "b1d12d482d767c50cb792d988e4479d3f75c342a",
+  "feature_workflow_run_id": 45047763911,
+  "feature_image_sha256": "3daba0524738ab872ebf75653f25754433c36a624eb8002198440a4cb1cb1dc0",
+  "feature_module_symvers_sha256": "e1058b486b6ecc26b0f7a0df49845868843fd63941153726a9d2d2f7d4650b2e",
+  "inventory_imports_before_runtime_selection": 38998,
+  "imports_checked": 38528,
+  "core_imports_checked": 33004,
+  "oem_imports_checked": 5524,
+  "unresolved_kernel_imports": 0,
+  "unresolved_rust_binder": 0,
+  "ambiguous_providers": 0,
+  "ambiguous_same_crc": 0,
+  "ambiguous_split_crc": 0,
+  "crc_mismatches": 0,
+  "failed_modules": 0,
+  "runtime_selection_status": "APPLIED_FAIL_CLOSED",
+  "runtime_suppressed_modules": [
+    {
+      "module_name": "rust_binder",
+      "path": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/android/binder/rust_binder.ko",
+      "sha256": "ea5a84225ce1af3c8af7effed891aa91ed879a9d85780d40a31aa79d3fbcd34c",
+      "inventory_imports": 240,
+      "reason": "EXACT_EEXIST_AFTER_BLACKLIST_BEFORE_MODVERSION"
+    }
+  ],
+  "runtime_selected_modules": {
+    "node_cache": {
+      "path": "vendor_dlkm/lib/modules/node_cache.ko",
+      "sha256": "bc78bab29b624743419e5a3d7f7f8586dc9f30d682cf3a65608c79601b7ddefd",
+      "note_sha256": "24755a08ebe111a8c8b0bbf30e25a6b32c2a0527654efb68109265bd36ef2b02"
+    },
+    "zram": {
+      "path": "vendor_dlkm/lib/modules/zram.ko",
+      "sha256": "6737e77c46b0a5a998adf552c42191e97068c393c506d83679d24c320f13d166",
+      "note_sha256": "e6c5c0c4c3cfa4ad9f5ea4828391459b3c556dc80a77fd9bd005df2699dc0280"
+    },
+    "zsmalloc": {
+      "path": "vendor_dlkm/lib/modules/zsmalloc.ko",
+      "sha256": "350f7127f0a8cda912eea8dfe6d93dbf30e5b31832969aa44ee6161424eaed3e",
+      "note_sha256": "531fad7a1fd7fa95976ea97c2cd9c402e63f578d6b0d19266b1545f547a62035"
+    }
+  },
+  "inactive_same_name_modules": [
+    {
+      "module_name": "zram",
+      "path": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/drivers/block/zram/zram.ko",
+      "sha256": "7a440b89b62385d1affc0dca25af32c75f6e03af1a884e3d2ae8e4e75402b3c3"
+    },
+    {
+      "module_name": "zsmalloc",
+      "path": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/mm/zsmalloc.ko",
+      "sha256": "b54598bea0a162cd2578f9d1490095fef148014de0c7dbaf012036b6adcbc465"
+    }
+  ],
+  "equivalent_provider_overlaps": [
+    {
+      "consumer": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/net/9p/9pnet.ko",
+      "symbol": "netfs_write_subrequest_terminated",
+      "expected_crc": "0xce8adb59",
+      "vmlinux_crc": "0xce8adb59",
+      "oem_provider": "system_dlkm/lib/modules/6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k/kernel/fs/netfs/netfs.ko",
+      "oem_provider_crc": "0xce8adb59"
+    }
+  ],
+  "eligible_for_fastboot_boot": true,
+  "eligible_for_persistent_kernel_payload": false,
+  "persistent_boot_equivalence": "NOT_YET_VERIFIED",
+  "safe_to_flash": false,
+  "lkg_promotion": false
+}

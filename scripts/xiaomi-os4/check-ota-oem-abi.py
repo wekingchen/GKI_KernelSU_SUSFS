@@ -28,10 +28,288 @@ MAX_MODULE = 40 * 1024 * 1024
 MAX_COMPRESSED_ARCHIVE = 600 * 1024 * 1024
 MAX_MODULES = 4096
 SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+MODULE_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def modinfo_field(sections: dict[str, bytes], key: str) -> str:
+    prefix = (key + "=").encode()
+    values = [x[len(prefix):] for x in sections.get(".modinfo", b"").split(b"\0")
+              if x.startswith(prefix)]
+    if len(values) > 1:
+        raise ValueError("ambiguous module info field: " + key)
+    return values[0].decode("ascii", "strict") if values else ""
+
+
+def module_identity(path: str, data: bytes, sections: dict[str, bytes]) -> dict:
+    name = modinfo_field(sections, "name")
+    if not name:
+        base = path.rsplit("/", 1)[-1]
+        name = re.sub(r"\.ko(?:\.(?:zst|xz|gz))?$", "", base, flags=re.I)
+    if not MODULE_NAME.fullmatch(name):
+        raise ValueError("invalid module identity name")
+    note = sections.get(".note.gnu.build-id")
+    return {
+        "path": path,
+        "module_name": name,
+        "sha256": sha(data),
+        "note_sha256": sha(note) if note else None,
+    }
+
+
+def load_runtime_selection(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    item = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(item, dict):
+        raise ValueError("runtime selection must be a JSON object")
+    return item
+
+
+def validate_runtime_selection(selection: dict, stock: dict, gki: dict,
+                               symvers_path: Path,
+                               feature_image: Path | None,
+                               feature_abi_report: Path | None,
+                               feature_metadata: Path | None) -> dict:
+    if selection.get("schema") != 1 or selection.get("status") != "HUMAN_ATTESTED_RUNTIME_MODULE_SELECTION":
+        raise ValueError("runtime selection record is not human-attested")
+    expected = {
+        "device": "pandora",
+        "stock_build": stock.get("build"),
+        "stock_input_sha256": stock.get("ota_source_id"),
+        "kernel_release": stock.get("uname"),
+        "candidate_gki_commit": gki.get("candidate_commit"),
+        "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+        "compatibility_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+        "gate_scope": "EXACT_OS406_EEXIST_RUNTIME_SELECTED_MODULE_GRAPH",
+        "safe_to_flash": False,
+        "persistent_install_verified": False,
+        "lkg_promotion": False,
+    }
+    for key, value in expected.items():
+        if selection.get(key) != value:
+            raise ValueError("runtime selection identity mismatch: " + key)
+    if feature_metadata is None:
+        raise ValueError("runtime selection requires feature build metadata")
+    feature_meta = dict(line.split("=", 1) for line in feature_metadata.read_text().splitlines()
+                        if "=" in line)
+    if feature_meta.get("PANDORA_RUST_BINDER_EEXIST_SHIM") != "1":
+        raise ValueError("feature metadata does not enable verified EEXIST shim")
+    if feature_meta.get("COMPATIBILITY_BASELINE_KIND") != selection["compatibility_kind"]:
+        raise ValueError("feature metadata compatibility kind drift")
+    if feature_meta.get("COMPATIBILITY_PATCH_SHA256") != selection["compatibility_patch_sha256"]:
+        raise ValueError("feature metadata compatibility patch drift")
+    if feature_meta.get("SOURCE_COMMIT") != gki.get("candidate_commit"):
+        raise ValueError("feature metadata source commit drift")
+    if feature_meta.get("SYSTEM_BUILD") != stock.get("build"):
+        raise ValueError("feature metadata stock build drift")
+    if feature_meta.get("KERNEL_RELEASE") != stock.get("uname"):
+        raise ValueError("feature metadata kernel release drift")
+
+    runtime = selection.get("runtime")
+    if not isinstance(runtime, dict):
+        raise ValueError("runtime selection missing runtime object")
+    required_runtime = {
+        "boot_completed": True,
+        "binder_impl": "c",
+        "binder_active_impl": "c",
+        "rust_binder_sysfs": "ABSENT",
+        "rust_binder_proc_modules": "ABSENT",
+        "kernelsu_lkm_proc_modules": "ABSENT",
+        "root_context": "u:r:ksu:s0",
+        "active_lsm_contains_baseband_guard": True,
+    }
+    for key, value in required_runtime.items():
+        if runtime.get(key) != value:
+            raise ValueError("runtime selection missing direct runtime proof: " + key)
+    if runtime.get("loaded_required_modules") != ["node_cache", "zram", "zsmalloc"]:
+        raise ValueError("runtime selection required module list drift")
+
+    workflow = selection.get("standard_workflow")
+    if not isinstance(workflow, dict):
+        raise ValueError("runtime selection missing standard workflow identity")
+    for key in ("image_sha256", "module_symvers_sha256", "fastboot_boot_sha256"):
+        if not HEX64.fullmatch(workflow.get(key, "")):
+            raise ValueError("runtime selection invalid workflow hash: " + key)
+    if workflow.get("boot_v4_audit") != "PASS" or workflow.get("run_id") != 45047763911:
+        raise ValueError("runtime selection workflow attestation drift")
+    if sha(symvers_path.read_bytes()) != workflow["module_symvers_sha256"]:
+        raise ValueError("runtime-selected Module.symvers does not match attested standard workflow")
+
+    if feature_image is None or feature_abi_report is None:
+        raise ValueError("runtime selection requires feature Image and feature ABI report")
+    feature_image_sha = sha(feature_image.read_bytes())
+    if feature_image_sha != workflow["image_sha256"]:
+        raise ValueError("runtime-selected feature Image hash mismatch")
+    if feature_meta.get("IMAGE_SHA256") != feature_image_sha:
+        raise ValueError("feature metadata Image hash mismatch")
+    if feature_meta.get("SYMVERS_SHA256") != workflow["module_symvers_sha256"]:
+        raise ValueError("feature metadata Module.symvers hash mismatch")
+    if stock["uname"].encode("ascii") not in feature_image.read_bytes():
+        raise ValueError("runtime-selected feature Image missing stock uname marker")
+    abi = json.loads(feature_abi_report.read_text(encoding="utf-8"))
+    if (abi.get("gate") != "PASS" or abi.get("missing_or_crc_changed_total") != 0
+            or abi.get("feature_symvers_sha256") != workflow["module_symvers_sha256"]
+            or abi.get("build") != stock.get("build")
+            or abi.get("kernel_release") != stock.get("uname")
+            or abi.get("source_commit") != gki.get("candidate_commit")):
+        raise ValueError("runtime-selected feature ABI report does not certify this Image/Symvers source")
+
+    identities = selection.get("module_identity_evidence")
+    if not isinstance(identities, dict) or identities.get("same_stock_build") is not True:
+        raise ValueError("runtime module identity evidence missing")
+    if not HEX64.fullmatch(identities.get("evidence_sha256", "")):
+        raise ValueError("runtime module identity evidence hash invalid")
+    selected = identities.get("selected_modules")
+    if not isinstance(selected, dict) or set(selected) != {"node_cache", "zram", "zsmalloc"}:
+        raise ValueError("runtime selected module set must be exact")
+    for name, item in selected.items():
+        if not isinstance(item, dict):
+            raise ValueError("runtime selected module record invalid: " + name)
+        if not HEX64.fullmatch(item.get("module_sha256", "")):
+            raise ValueError("runtime selected module binary hash invalid: " + name)
+        if not HEX64.fullmatch(item.get("runtime_note_sha256", "")):
+            raise ValueError("runtime selected module note hash invalid: " + name)
+
+    suppressed = selection.get("suppressed_modules")
+    if not isinstance(suppressed, dict) or set(suppressed) != {"rust_binder"}:
+        raise ValueError("runtime suppressed module set must contain only rust_binder")
+    rust = suppressed["rust_binder"]
+    if (not HEX64.fullmatch(rust.get("module_sha256", ""))
+            or rust.get("mechanism") != "EXACT_EEXIST_AFTER_BLACKLIST_BEFORE_MODVERSION"
+            or rust.get("required_runtime_parameter") != "pandora_rust_binder_eexist=1"
+            or rust.get("replacement_runtime") != "C_BINDER_DIRECTLY_OBSERVED"):
+        raise ValueError("runtime rust_binder suppression contract drift")
+
+    overlaps = selection.get("equivalent_provider_overlaps")
+    if not isinstance(overlaps, list) or len(overlaps) != 1:
+        raise ValueError("runtime equivalent provider overlap set must be exact")
+    seen = set()
+    for item in overlaps:
+        if not isinstance(item, dict):
+            raise ValueError("runtime equivalent provider overlap must be an object")
+        required = {
+            "consumer", "symbol", "expected_crc", "vmlinux_crc",
+            "oem_provider", "oem_provider_crc", "justification",
+        }
+        if set(item) != required:
+            raise ValueError("runtime equivalent provider overlap schema drift")
+        key = (item["consumer"], item["symbol"], item["oem_provider"])
+        if key in seen:
+            raise ValueError("duplicate runtime equivalent provider overlap")
+        seen.add(key)
+        if (not isinstance(item["consumer"], str)
+                or not isinstance(item["oem_provider"], str)
+                or not SYMBOL.fullmatch(item["symbol"])):
+            raise ValueError("invalid runtime equivalent provider overlap identity")
+        for field in ("expected_crc", "vmlinux_crc", "oem_provider_crc"):
+            if not re.fullmatch(r"0x[0-9a-f]{8}", item[field]):
+                raise ValueError("invalid runtime equivalent provider overlap CRC: " + field)
+        if not (item["expected_crc"] == item["vmlinux_crc"] == item["oem_provider_crc"]):
+            raise ValueError("runtime equivalent provider overlap CRCs are not identical")
+        if item["justification"] != "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH":
+            raise ValueError("runtime equivalent provider overlap justification drift")
+    return selection
+
+
+def resolve_runtime_equivalent_overlap(selection: dict, consumer: str, symbol: str,
+                                       expected_crc: int, vmlinux_crc: int,
+                                       candidates: list[tuple[str, int]]) -> dict | None:
+    """Accept only an exact, pre-attested same-CRC vmlinux/OEM overlap.
+
+    This is deliberately narrower than a generic "same CRC is safe" rule:
+    consumer path, symbol, provider path and all three CRCs must match the
+    version-scoped runtime record exactly.
+    """
+    if len(candidates) != 1:
+        return None
+    provider, provider_crc = candidates[0]
+    if not (expected_crc == vmlinux_crc == provider_crc):
+        return None
+    observed = {
+        "consumer": consumer,
+        "symbol": symbol,
+        "expected_crc": f"0x{expected_crc:08x}",
+        "vmlinux_crc": f"0x{vmlinux_crc:08x}",
+        "oem_provider": provider,
+        "oem_provider_crc": f"0x{provider_crc:08x}",
+        "justification": "EXACT_FEATURE_IMAGE_BOOTED_AND_ALL_PROVIDER_CRCS_MATCH",
+    }
+    matches = [item for item in selection.get("equivalent_provider_overlaps", [])
+               if item == observed]
+    if len(matches) != 1:
+        return None
+    return observed
+
+
+def apply_runtime_module_selection(records: list[dict], selection: dict,
+                                   report: dict) -> list[dict]:
+    selected = selection["module_identity_evidence"]["selected_modules"]
+    suppressed = selection["suppressed_modules"]
+    runtime_inactive_modules = []
+    runtime_suppressed_modules = []
+    runtime_selected_modules = {}
+
+    for module_name, evidence in selected.items():
+        matches = [x for x in records
+                   if x["module_name"] == module_name
+                   and x["sha256"] == evidence["module_sha256"]]
+        if len(matches) != 1:
+            raise ValueError("runtime-selected module binary not unique: " + module_name)
+        match = matches[0]
+        if match["note_sha256"] != evidence["runtime_note_sha256"]:
+            raise ValueError("runtime-selected GNU Note mismatch: " + module_name)
+        runtime_selected_modules[module_name] = {
+            "path": match["path"],
+            "sha256": match["sha256"],
+            "note_sha256": match["note_sha256"],
+        }
+
+    rust_evidence = suppressed["rust_binder"]
+    rust_matches = [x for x in records
+                    if x["module_name"] == "rust_binder"
+                    and x["sha256"] == rust_evidence["module_sha256"]]
+    if len(rust_matches) != 1:
+        raise ValueError("attested rust_binder binary is not unique in OEM inventory")
+    if report.get("stock_rust_binder_sha256") != rust_evidence["module_sha256"]:
+        raise ValueError("runtime rust_binder suppression binary differs from stock audit")
+
+    active = []
+    for record in records:
+        module_name = record["module_name"]
+        if module_name == "rust_binder":
+            if record["sha256"] != rust_evidence["module_sha256"]:
+                raise ValueError("unexpected second rust_binder binary in runtime graph")
+            runtime_suppressed_modules.append({
+                "path": record["path"],
+                "module_name": module_name,
+                "sha256": record["sha256"],
+                "imports": len(record["imported"]),
+                "reason": rust_evidence["mechanism"],
+            })
+            continue
+        if module_name in selected and record["sha256"] != selected[module_name]["module_sha256"]:
+            runtime_inactive_modules.append({
+                "path": record["path"],
+                "module_name": module_name,
+                "sha256": record["sha256"],
+                "reason": "SAME_MODULE_NAME_DIFFERENT_BINARY_NOT_SELECTED_BY_RUNTIME_NOTE",
+            })
+            continue
+        active.append(record)
+
+    report["runtime_selection_status"] = "APPLIED_FAIL_CLOSED"
+    report["runtime_selected_modules"] = runtime_selected_modules
+    report["runtime_inactive_duplicate_modules"] = runtime_inactive_modules
+    report["runtime_suppressed_modules"] = runtime_suppressed_modules
+    report["runtime_selection_scope"] = selection["gate_scope"]
+    report["runtime_selection_workflow_run_id"] = selection["standard_workflow"]["run_id"]
+    report["runtime_selection_feature_image_sha256"] = selection["standard_workflow"]["image_sha256"]
+    return active
 
 
 def unpack_module(data: bytes, name: str) -> bytes:
@@ -258,6 +536,10 @@ def main() -> int:
     parser.add_argument("--candidate-report", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
     parser.add_argument("--symvers", type=Path, required=True)
+    parser.add_argument("--runtime-selection", type=Path)
+    parser.add_argument("--feature-image", type=Path)
+    parser.add_argument("--feature-abi-report", type=Path)
+    parser.add_argument("--feature-metadata", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     a = parser.parse_args()
     report = {"schema": 1, "gate": "BLOCKED", "eligible_for_fastboot_boot": False,
@@ -281,6 +563,11 @@ def main() -> int:
         release = metadata.get("KERNEL_RELEASE", "")
         if not release or release != stock.get("uname"):
             raise ValueError("GKI candidate kernel release does not equal OEM module vermagic release")
+        runtime_selection = load_runtime_selection(a.runtime_selection)
+        if runtime_selection is not None:
+            validate_runtime_selection(
+                runtime_selection, stock, gki, a.symvers,
+                a.feature_image, a.feature_abi_report, a.feature_metadata)
         exports = symvers(a.symvers)
         if sha(a.stock_zip.read_bytes()) != stock.get("ota_source_id"):
             raise ValueError("stock zip bytes changed after initial audit")
@@ -345,9 +632,9 @@ def main() -> int:
                         report["stock_rust_binder_sha256"] = sha(data)
                         report["stock_rust_binder_scmversion"] = revision or "NOT_RECORDED"
                         report["stock_rust_binder_imports"] = len(imported)
-                    records.append((name, imported))
-                    for symbol, crc in provided.items():
-                        providers.setdefault(symbol, []).append((name, crc))
+                    identity = module_identity(name, data, sections)
+                    identity.update(imported=imported, provided=provided)
+                    records.append(identity)
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
             # The stock vendor_boot (same SHA-bound OTA archive) carries early
@@ -370,13 +657,22 @@ def main() -> int:
                         full_vermagic_modules += 1
                     imported = imported_versions(sections)
                     provided = module_export_crcs(data)
-                    records.append((name, imported))
+                    identity = module_identity(name, data, sections)
+                    identity.update(imported=imported, provided=provided)
+                    records.append(identity)
                     early_accepted_modules += 1
                     early_import_count += len(imported)
-                    for symbol, crc in provided.items():
-                        providers.setdefault(symbol, []).append((name, crc))
                 except Exception as exc:
                     report["failed_modules"].append({"name": name, "reason": str(exc)[:180]})
+            inventory_imports_before_runtime_selection = sum(len(x["imported"]) for x in records)
+            if runtime_selection is not None:
+                records = apply_runtime_module_selection(records, runtime_selection, report)
+
+            providers = {}
+            for record in records:
+                for symbol, crc in record["provided"].items():
+                    providers.setdefault(symbol, []).append((record["path"], crc))
+
             total_imports = 0
             core_imports = 0
             oem_imports = 0
@@ -384,15 +680,42 @@ def main() -> int:
             ambiguous_details = []
             ambiguous_same_crc = 0
             ambiguous_split_crc = 0
+            runtime_equivalent_overlaps = []
             dependencies = {}
-            for name, imported in records:
+            for record in records:
+                name = record["path"]
+                imported = record["imported"]
                 total_imports += len(imported)
                 for symbol, expected_crc in imported.items():
                     candidates = providers.get(symbol, [])
                     if symbol in exports:
-                        # Any duplicate provider is ambiguous even if CRCs agree.
+                        # Duplicate vmlinux/OEM providers remain ambiguous by default.
+                        # The exact OS4.0.6 runtime-selected graph has one observed
+                        # overlap whose consumer/provider paths and all CRCs are pinned.
                         if candidates:
+                            overlap = (resolve_runtime_equivalent_overlap(
+                                runtime_selection, name, symbol, expected_crc,
+                                exports[symbol], candidates)
+                                if runtime_selection is not None else None)
+                            if overlap is not None:
+                                runtime_equivalent_overlaps.append(overlap)
+                                core_imports += 1
+                                continue
                             ambiguous.append(f"{name}:{symbol}:vmlinux+OEM")
+                            if len(ambiguous_details) < 50:
+                                ambiguous_details.append({
+                                    "consumer": name,
+                                    "symbol": symbol,
+                                    "expected_crc": f"0x{expected_crc:08x}",
+                                    "vmlinux_crc": f"0x{exports[symbol]:08x}",
+                                    "providers": [{
+                                        "module": provider,
+                                        "actual_crc": f"0x{crc:08x}",
+                                        "crc_matches": crc == expected_crc,
+                                    } for provider, crc in candidates[:12]],
+                                    "provider_crc_variants": len({crc for _provider, crc in candidates}),
+                                    "kind": "vmlinux+OEM",
+                                })
                             continue
                         core_imports += 1
                         if exports[symbol] != expected_crc:
@@ -429,6 +752,14 @@ def main() -> int:
                             })
                     else:
                         report["unresolved_kernel_imports"].append(f"{name}:{symbol}")
+            if runtime_selection is not None:
+                expected_overlaps = runtime_selection.get("equivalent_provider_overlaps", [])
+                if len(runtime_equivalent_overlaps) != len(expected_overlaps):
+                    raise ValueError("runtime equivalent provider overlap evidence was not fully consumed")
+                if {json.dumps(x, sort_keys=True) for x in runtime_equivalent_overlaps} != {
+                        json.dumps(x, sort_keys=True) for x in expected_overlaps}:
+                    raise ValueError("runtime equivalent provider overlap identity drift")
+            report["runtime_equivalent_provider_overlaps"] = runtime_equivalent_overlaps
             report["ambiguous_providers"] = ambiguous
             report["ambiguous_provider_details"] = ambiguous_details
             report["ambiguous_same_crc"] = ambiguous_same_crc
@@ -449,6 +780,7 @@ def main() -> int:
         report.update(stock_build=stock["build"], stock_input_sha256=stock["ota_source_id"],
                       candidate_commit=gki["candidate_commit"], kernel_release=release,
                       module_count=len(files), imports_checked=total_imports,
+                      inventory_imports_before_runtime_selection=inventory_imports_before_runtime_selection,
                       vendor_boot_modules_seen=len(early_modules),
                       vendor_boot_modules_in_graph=early_accepted_modules,
                       vendor_boot_identical_dlkm_aliases=early_byte_identical_aliases,
@@ -463,8 +795,20 @@ def main() -> int:
                 or report["crc_mismatches"] or report["ambiguous_providers"]
                 or total_imports == 0 or core_imports == 0):
             raise ValueError("OEM .ko CRC/vermagic/provider graph has errors or unresolved imports")
-        report.update(gate="CRC_AND_VERMAGIC_MATCH_CANDIDATE", eligible_for_fastboot_boot=True,
-                      reason="Static module version CRC check passed; OEM boot still needs human fastboot boot and runtime validation")
+        if runtime_selection is not None:
+            report.update(
+                gate="CRC_VERMAGIC_AND_RUNTIME_SELECTION_MATCH_CANDIDATE",
+                eligible_for_fastboot_boot=True,
+                eligible_for_persistent_kernel_payload=False,
+                formal_oem_gate="PASS_RUNTIME_SELECTED_EXACT_OS406",
+                reason=("Static OEM CRC/vermagic graph passes after applying only the exact "
+                        "human-attested OS4.0.6 runtime module selection: C Binder replaces "
+                        "suppressed rust_binder, and GNU Note identity selects vendor "
+                        "node_cache/zram/zsmalloc. Persistent boot equivalence remains a separate gate."),
+            )
+        else:
+            report.update(gate="CRC_AND_VERMAGIC_MATCH_CANDIDATE", eligible_for_fastboot_boot=True,
+                          reason="Static module version CRC check passed; OEM boot still needs human fastboot boot and runtime validation")
     except Exception as exc:
         report["reason"] = str(exc)[:300]
         print("::warning::OTA OEM ABI gate BLOCKED: " + report["reason"])

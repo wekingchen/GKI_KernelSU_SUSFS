@@ -70,8 +70,8 @@
   "stock_boot_file_size": 41906176,
   "required_fastboot_boot_size": 44404736,
   "fastboot_boot_growth_bytes": 2498560,
-  "next_stage": "STANDARD_OS4_CUSTOM_BUILD_ROUTE_RESTORED_NONFLASH",
-  "formal_oem_gate": "BLOCKED",
+  "next_stage": "PERSISTENT_BOOT_EQUIVALENCE",
+  "formal_oem_gate": "PASS_RUNTIME_SELECTED_EXACT_OS406",
   "safe_to_flash": false,
   "anykernel3_built": false,
   "persistent_flash": false,
@@ -381,5 +381,19 @@
     "scope": "MANUAL_CMD_RUNTIME_OBSERVATION_AFTER_FASTBOOT_BOOT",
     "formal_oem_gate": "BLOCKED",
     "safe_to_flash": false
+  },
+  "runtime_selected_oem_gate": {
+    "status": "PASS_RUNTIME_SELECTED_EXACT_OS406",
+    "report_path": ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/runtime-selected-oem-gate.json",
+    "source_run_id": 45102932564,
+    "source_artifact_id": 14786505411,
+    "full_report_sha256": "d6c97c7039487cb54896b5f1fa4a8241f338c02f4710bb5ffa89c9ae8d12276d",
+    "inventory_imports": 38998,
+    "active_imports_checked": 38528,
+    "unresolved_kernel_imports": 0,
+    "ambiguous_providers": 0,
+    "crc_mismatches": 0,
+    "failed_modules": 0,
+    "persistent_kernel_payload": false
   }
 }
