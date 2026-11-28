@@ -105,6 +105,40 @@ class MobileIntakeIntegration(unittest.TestCase):
             self.assertEqual(report["init_boot_source"], "ROOTED_ACTIVE_SLOT_MAY_BE_PATCHED")
             self.assertEqual(report["init_boot_role"], "DIAGNOSTIC_ONLY_NOT_FACTORY_IMAGE")
 
+    def test_real_forward_ota_with_manual_d02_through_both_gates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source, xm = base / "mobile.zip", base / "xm.zip"
+            current, config = base / "current.zip", base / "stock.env"
+            report = base / "report.json"
+            build = "OS4.0.8.0.XBLCNXM"
+            capture(source, build=build, revision="D02")
+            normalize(source, xm)
+            config.write_text(
+                "OS4_STOCK_INPUT_BUILD=OS4.0.5.0.XBLCNXM\n"
+                "OS4_STOCK_BOOT_SHA256=" + "0" * 64 + "\n", encoding="utf-8")
+            with zipfile.ZipFile(current, "w") as archive:
+                archive.writestr("README.txt", "build=OS4.0.6.0.XBLCNXM\n")
+            run = subprocess.run(
+                [sys.executable, str(STOCK_AUDIT), "--zip", str(xm),
+                 "--stock-config", str(config), "--output", str(report)],
+                text=True, capture_output=True)
+            self.assertEqual(0, run.returncode, run.stderr + run.stdout)
+            audit = json.loads(report.read_text())
+            self.assertEqual("NEW_OTA_CANDIDATE", audit["status"])
+            self.assertEqual("D02", audit["software_revision"])
+            self.assertFalse(audit["software_revision_verified_by_device"])
+            self.assertFalse(audit["safe_to_flash"])
+            guard = STOCK_AUDIT.with_name("guard-current-stock-input.py")
+            result = subprocess.run(
+                [sys.executable, str(guard), "--current-zip", str(current),
+                 "--incoming-zip", str(xm), "--incoming-build", build,
+                 "--fallback-current-build", "OS4.0.5.0.XBLCNXM",
+                 "--incoming-state", audit["status"]],
+                text=True, capture_output=True)
+            self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+            self.assertIn("OTA_REPLACEMENT_DECISION=FORWARD", result.stdout)
+
     def test_unsafe_oem_init_boot_claim_cannot_pass_stock_audit(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

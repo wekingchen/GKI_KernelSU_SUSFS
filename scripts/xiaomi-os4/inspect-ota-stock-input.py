@@ -167,8 +167,9 @@ def main() -> None:
     pinned = stock.get("OS4_STOCK_INPUT_BUILD", "")
     expected_boot = stock.get("OS4_STOCK_BOOT_SHA256", "")
     boot_hash = sha(boot)
-    if manual_revision and build_order(build)[:2] != build_order(pinned)[:2]:
-        abort("software revision evidence cannot masquerade as a new firmware build")
+    # A bound update-screen revision is supplemental evidence, not the build.
+    # Classify the property-reported build independently; the current-release
+    # guard separately rejects rollback and same-build software-only replacement.
     if build == pinned:
         # Explicit update-screen testimony is review-only, even when the
         # Android Build and boot partition remain byte-for-byte unchanged.

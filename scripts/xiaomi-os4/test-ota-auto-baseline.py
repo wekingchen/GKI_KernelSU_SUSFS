@@ -135,11 +135,23 @@ class AutoOTAGuards(unittest.TestCase):
         self.assertFalse(report["may_build_gki_candidate"])
         self.assertEqual("SOFTWARE_OTA_EVIDENCE_REVIEW", report["next_gate"])
 
-    def test_manual_d02_cannot_disguise_new_real_firmware(self):
+    def test_new_real_firmware_with_manual_d02_remains_candidate(self):
         result = self.run_inspect(self.make_zip(
-            build="OS4.0.6.0.XBLCNXM", software_revision="D02"))
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("cannot masquerade", result.stderr + result.stdout)
+            build="OS4.0.8.0.XBLCNXM", software_revision="D02"))
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        report = json.loads(self.report.read_text())
+        self.assertEqual("OS4.0.8.0.XBLCNXM", report["build"])
+        self.assertEqual("D02", report["software_revision"])
+        self.assertFalse(report["software_revision_verified_by_device"])
+        self.assertEqual("NEW_OTA_CANDIDATE", report["status"])
+        self.assertTrue(report["may_build_gki_candidate"])
+        self.assertFalse(report["safe_to_flash"])
+
+    def test_manual_d02_does_not_bypass_build_order_or_channel(self):
+        for build in ("OS4.0.4.0.XBLCNXM", "OS4.0.8.0.XBLMIXM"):
+            result = self.run_inspect(self.make_zip(
+                build=build, software_revision="D02"))
+            self.assertNotEqual(0, result.returncode)
 
     def test_d02_is_recorded_without_gki_build(self):
         result = self.run_inspect(self.make_zip(build="OS4.0.5.0.XBLCNXM.D02"))

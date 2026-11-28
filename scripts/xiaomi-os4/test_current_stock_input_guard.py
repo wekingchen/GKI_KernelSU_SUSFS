@@ -45,6 +45,29 @@ class CurrentStockInputGuardTest(unittest.TestCase):
         self.assertEqual("FORWARD", decision)
         self.assertEqual("OS4.0.7.0.XBLCNXM", current)
 
+    def test_forward_build_with_manual_d02_is_allowed(self):
+        current = "OS4.0.6.0.XBLCNXM"
+        incoming = "OS4.0.8.0.XBLCNXM"
+        stock_zip(self.current, current)
+        stock_zip(self.incoming, incoming, revision="D02")
+        self.assertEqual(("FORWARD", current), GUARD.decide(
+            self.current, self.incoming, incoming, self.fallback, "NEW_OTA_CANDIDATE"))
+
+    def test_manual_d02_on_current_build_is_review_despite_old_pinned_config(self):
+        current = "OS4.0.6.0.XBLCNXM"
+        stock_zip(self.current, current)
+        stock_zip(self.incoming, current, b"changed", revision="D02")
+        self.assertEqual(("SOFTWARE_REVIEW", current), GUARD.decide(
+            self.current, self.incoming, current, self.fallback, "NEW_OTA_CANDIDATE"))
+
+    def test_manual_d02_candidate_cannot_roll_back_current_build(self):
+        stock_zip(self.current, "OS4.0.8.0.XBLCNXM")
+        older = "OS4.0.6.0.XBLCNXM"
+        stock_zip(self.incoming, older, revision="D02")
+        with self.assertRaises(SystemExit):
+            GUARD.decide(self.current, self.incoming, older,
+                         self.fallback, "NEW_OTA_CANDIDATE")
+
     def test_historical_build_cannot_roll_back_current_release(self):
         stock_zip(self.current, "OS4.0.7.0.XBLCNXM", b"current")
         stock_zip(self.incoming, "OS4.0.6.0.XBLCNXM", b"historical")
