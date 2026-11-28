@@ -132,7 +132,7 @@ final class FeedbackClient {
             int status=c.getResponseCode();
             if(status!=expected) throw new ApiException(status,"GitHub HTTP "+status+(status==403||status==404?"：请确认目标仓库的 PAT 已启用 Actions 读写权限":"，请检查网络及令牌"));
             if(expected==204)return new JSONObject();
-            try(InputStream in=c.getInputStream()){return new JSONObject(new String(read(in,1024*1024),StandardCharsets.UTF_8));}
+            try(InputStream in=c.getInputStream()){return parseJson(read(in,1024*1024),"GitHub API");}
         } finally {c.disconnect();}
     }
     private HttpURLConnection connection(URL url,boolean authenticated) throws Exception {
@@ -163,15 +163,7 @@ final class FeedbackClient {
             } finally {c.disconnect();}
         }
         if(archive==null)throw new IOException("候选元数据下载重定向过多");
-        JSONObject result=null;int entries=0;
-        try(ZipInputStream zip=new ZipInputStream(new ByteArrayInputStream(archive))) {
-            ZipEntry e;while((e=zip.getNextEntry())!=null) {
-                if(++entries>4||e.isDirectory()||!filename.equals(e.getName())||result!=null)
-                    throw new IOException("候选元数据附件格式异常");
-                result=new JSONObject(new String(read(zip,limit),StandardCharsets.UTF_8));
-            }
-        }
-        if(result==null)throw new IOException("缺少手机反馈元数据");return result;
+        return readArchiveJson(archive,filename,limit,false);
     }
     /** Read exactly one named JSON entry from a small, possibly multi-file, trusted Action artifact. */
     JSONObject bundledJson(long id, String filename, int maxJsonBytes) throws Exception {
@@ -194,24 +186,49 @@ final class FeedbackClient {
             } finally {c.disconnect();}
         }
         if(archive==null)throw new IOException("诊断附件下载重定向过多");
-        JSONObject result=null;int entries=0;
-        try(ZipInputStream zip=new ZipInputStream(new ByteArrayInputStream(archive))) {
-            ZipEntry e;
-            while((e=zip.getNextEntry())!=null) {
-                String name=e.getName();
-                if(++entries>12||e.isDirectory()||name.contains("/")||name.contains("\\")
-                        ||name.contains("..")||e.getSize()>256*1024)
-                    throw new IOException("诊断附件结构异常");
-                byte[] bytes=read(zip,name.equals(filename)?maxJsonBytes:256*1024);
-                if(filename.equals(name)) {
-                    if(result!=null)throw new IOException("重复的诊断任务文件");
-                    result=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
+        return readArchiveJson(archive,filename,maxJsonBytes,true);
+    }
+
+    // GitHub Actions may emit STORED entries with data descriptors and zero
+    // local-header sizes. ZipInputStream cannot reliably read that layout.
+    // Use the central directory, with bounded decompression and CRC checks.
+    static JSONObject readArchiveJson(byte[] archive,String filename,int limit,boolean bundle)throws Exception {
+        File temp=File.createTempFile("pandora-ota-meta-",".zip");
+        try {
+            try(OutputStream out=new FileOutputStream(temp)){out.write(archive);}
+            JSONObject result=null;int entries=0;
+            Set<String> names=new HashSet<>();
+            try(ZipFile zip=new ZipFile(temp)){
+                Enumeration<? extends ZipEntry> all=zip.entries();
+                while(all.hasMoreElements()){
+                    ZipEntry e=all.nextElement();
+                    String name=e.getName();
+                    boolean match=filename.equals(name);
+                    int bound=match?limit:256*1024;
+                    if(++entries>(bundle?12:4)||e.isDirectory()||name.contains("/")||name.contains("\\")
+                            ||name.contains("..")||!names.add(name)||(!bundle&&!match)
+                            ||e.getSize()<0||e.getSize()>bound)
+                        throw new IOException("GitHub 附件结构异常");
+                    byte[] bytes;
+                    try(InputStream in=zip.getInputStream(e)){bytes=read(in,bound);}
+                    CRC32 crc=new CRC32();crc.update(bytes);
+                    if(bytes.length!=e.getSize()||crc.getValue()!=e.getCrc())
+                        throw new IOException("GitHub 附件完整性校验失败");
+                    if(match)result=parseJson(bytes,bundle?"补采任务文件":"阶段/候选元数据");
                 }
-                zip.closeEntry();
-            }
+            }catch(ZipException e){throw new IOException("GitHub 附件 ZIP 格式异常，请重新读取",e);}
+            if(result==null)throw new IOException("GitHub 附件缺少所需任务文件");
+            return result;
+        }finally{
+            if(!temp.delete())temp.deleteOnExit();
         }
-        if(result==null)throw new IOException("诊断任务尚未发布；请查看来源工作流");
-        return result;
+    }
+
+    private static JSONObject parseJson(byte[] bytes,String source)throws IOException{
+        String content=new String(bytes,StandardCharsets.UTF_8);
+        if(content.trim().isEmpty())throw new IOException(source+"返回空内容，请重新读取");
+        try{return new JSONObject(content);}
+        catch(JSONException e){throw new IOException(source+"格式异常，请重新读取",e);}
     }
 
     private static byte[] read(InputStream in,int max) throws IOException {
