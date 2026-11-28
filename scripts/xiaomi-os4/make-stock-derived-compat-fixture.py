@@ -79,7 +79,18 @@ def main():
         if total<256 or total>len(region):
             fail(label+" declared AVB size out of range")
         if region[total:].strip(b"\0"):
-            fail(label+" has nonzero bytes after declared AVB image")
+            tail=region[total:]
+            first=next((i for i,x in enumerate(tail) if x),-1)
+            more=[]
+            off=0
+            while True:
+                pos=region.find(b"AVB0",off)
+                if pos<0: break
+                more.append(pos); off=pos+1
+            fail(label+" has nonzero bytes after declared AVB image: "+
+                 f"auth={auth} aux={aux} total={total} region={len(region)} "+
+                 f"tail_first={first} tail_sample={tail[first:first+24].hex() if first>=0 else ''} "+
+                 f"avb0_offsets={more}")
         return total
     if suffix.strip(b"\0"):
         if len(boot)<64 or boot[-64:-60]!=b"AVBf":
