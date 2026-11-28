@@ -223,10 +223,10 @@ if [[ "$PANDORA_RUST_BINDER_EEXIST_SHIM" == "1" ]]; then
   [[ "$NEW_OTA_MODE" == "1" ]] || {
     echo "::error::pandora rust_binder EEXIST shim is forbidden on legacy/LKG builds"; exit 1;
   }
-  [[ "$OS4_SYSTEM_BUILD" == "OS4.0.6.0.XBLCNXM" &&
+  [[ ( "$OS4_SYSTEM_BUILD" == "OS4.0.6.0.XBLCNXM" || "$OS4_SYSTEM_BUILD" == "OS4.0.8.0.XBLCNXM" ) &&
       "$OS4_GKI_TAG" == "android16-6.12-2026-03_r74" &&
       "$OS4_GKI_COMMON_COMMIT" == "b1d12d482d767c50cb792d988e4479d3f75c342a" ]] || {
-    echo "::error::EEXIST shim is scoped only to the real-device-tested OS4.0.6 exact-r74 compatibility baseline"; exit 1;
+    echo "::error::EEXIST shim is scoped only to the real-device-tested OS4.0.6 or OS4.0.8 exact-r74 compatibility baseline"; exit 1;
   }
   expected_patch_sha="${OS4_PANDORA_RUST_BINDER_EEXIST_PATCH_SHA256:-}"
   [[ "$expected_patch_sha" == "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee" ]] || {

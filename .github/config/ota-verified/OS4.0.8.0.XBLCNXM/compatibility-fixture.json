@@ -1,0 +1,35 @@
+{
+  "schema": 2,
+  "source": "OS4.0.8 user-reported boot of exact same-OTA compatibility image",
+  "stock_build": "OS4.0.8.0.XBLCNXM",
+  "stock_input_sha256": "957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9",
+  "stock_boot_sha256": "1b73c648be2797548e9dcda88046be70bd8b023590c54f3dd15c1d6ec28ee82f",
+  "baseline_kernel_sha256": "3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397",
+  "tested_boot_sha256": "7b9570667715a2b6d0d2d1893486e1a6d55e8675f18c2ca09402ec371bf73044",
+  "boot_size": 41906176,
+  "kernel_size": 41900544,
+  "header_version": 4,
+  "header_size": 1584,
+  "ramdisk_size": 0,
+  "signature_size": 0,
+  "header_v4": {
+    "cmdline": "pandora_rust_binder_eexist=1 module_blacklist=kernelsu",
+    "os_version": 0,
+    "reserved": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "ramdisk_region_b64": "",
+  "suffix_b64": "",
+  "compatibility_kind": "PANDORA_RUST_BINDER_EEXIST_SHIM",
+  "compatibility_parameter": "pandora_rust_binder_eexist=1",
+  "shim_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+  "formal_oem_gate": "BLOCKED",
+  "safe_to_flash": false,
+  "human_tested": "USER_ATTESTATION_NOT_REMOTE_HARDWARE_PROOF",
+  "original_stock_structural_size": 41517056,
+  "original_stock_partition_size": 100663296
+}

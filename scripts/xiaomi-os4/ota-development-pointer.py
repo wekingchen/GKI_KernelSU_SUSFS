@@ -15,6 +15,7 @@ SHA64 = re.compile(r"^[a-f0-9]{64}$")
 SHA40 = re.compile(r"^[a-f0-9]{40}$")
 TAG = re.compile(r"^android16-6\.12-[0-9]{4}-[0-9]{2}_r[1-9][0-9]*$")
 COMPAT_BUILD = "OS4.0.6.0.XBLCNXM"
+COMPAT_408 = "OS4.0.8.0.XBLCNXM"
 COMPAT_RELEASE = "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
 COMPAT_GKI_TAG = "android16-6.12-2026-03_r74"
 COMPAT_GKI_COMMIT = "b1d12d482d767c50cb792d988e4479d3f75c342a"
@@ -48,13 +49,16 @@ def is_compatibility_record(record):
 
 
 def verified_compatibility(record, fixture):
+    build = record.get("stock_build")
+    if build not in (COMPAT_BUILD, COMPAT_408):
+        fail("unsupported EEXIST compatibility build")
     expected = {
         "schema": 2,
         "status": "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED",
         "verification_mode": "USER_ATTESTATION_PLUS_READ_ONLY_RUNTIME_EVIDENCE",
         "device": "pandora",
-        "stock_build": COMPAT_BUILD,
-        "observed_build": COMPAT_BUILD,
+        "stock_build": build,
+        "observed_build": build,
         "kernel_release": COMPAT_RELEASE,
         "observed_uname": COMPAT_RELEASE,
         "candidate_gki_tag": COMPAT_GKI_TAG,
@@ -75,7 +79,7 @@ def verified_compatibility(record, fixture):
     for field in ("stock_input_sha256", "stock_boot_sha256",
                   "candidate_gki_image_sha256", "module_symvers_sha256",
                   "compatibility_image_sha256", "compatibility_boot_sha256",
-                  "compatibility_patch_sha256", "runtime_evidence_zip_sha256"):
+                  "compatibility_patch_sha256") + (("runtime_evidence_zip_sha256",) if build == COMPAT_BUILD else ()):
         if not SHA64.fullmatch(record.get(field, "")):
             fail("invalid compatibility baseline hash: " + field)
     if not isinstance(record.get("stock_release_asset_id"), int) or record["stock_release_asset_id"] < 1:
@@ -86,16 +90,33 @@ def verified_compatibility(record, fixture):
     if not isinstance(runtime, dict):
         fail("missing compatibility runtime evidence")
     if (runtime.get("boot_completed") is not True
-        or runtime.get("rust_binder_loaded") is not False
-        or runtime.get("rust_binder_initstate") != "ABSENT"
         or runtime.get("binder_activity_service") != "found"
-        or runtime.get("binder_package_service") != "found"
-        or runtime.get("loaded_vendor_memory_stack") != ["node_cache", "zram", "zsmalloc"]):
+        or runtime.get("binder_package_service") != "found"):
         fail("compatibility runtime evidence is incomplete")
+    if build == COMPAT_BUILD:
+        if (runtime.get("rust_binder_loaded") is not False
+            or runtime.get("rust_binder_initstate") != "ABSENT"
+            or runtime.get("loaded_vendor_memory_stack") != ["node_cache", "zram", "zsmalloc"]):
+            fail("compatibility runtime evidence is incomplete")
+    else:
+        # This is an exact-build, user-attested non-root observation, NOT
+        # a remote hardware attestation or proof of loaded module ELF identity.
+        pinned = {"stock_input_sha256":"957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9","stock_release_asset_id":804619319,"stock_boot_sha256":"1b73c648be2797548e9dcda88046be70bd8b023590c54f3dd15c1d6ec28ee82f","candidate_gki_image_sha256":"2cbb9925b791c16d19e3c58c475be47d62ff257715ebbcd099ea8342634a7981","module_symvers_sha256":"242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25","compatibility_image_sha256":"3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397","compatibility_boot_sha256":"7b9570667715a2b6d0d2d1893486e1a6d55e8675f18c2ca09402ec371bf73044","verification_run_id":46157442679,"verification_run_role":"PACKAGING_SOURCE_NOT_HARDWARE_PROOF","runtime_evidence_kind":"USER_REPORTED_ADB_TRANSCRIPT","source_experiment_run_id":46154744059,"source_conditional_graph_run_id":46159502342,"source_packaging_artifact_id":15268187296}
+        for key, value in pinned.items():
+            if record.get(key) != value:
+                fail("OS408 source identity mismatch: " + key)
+        observed = {"slot":"_a","rust_binder_sysfs":"ABSENT_FROM_REPORTED_LIST","kernelsu_sysfs":"ABSENT_FROM_REPORTED_LIST","rust_binder_proc_modules":"NOT_READ","binder_activity_service":"found","binder_package_service":"found","binder_impl_direct":"PERMISSION_DENIED","binder_active_impl_direct":"PERMISSION_DENIED","c_binder_continuity":"SUPPORTED_NOT_DIRECT","observed_memory_module_sysfs":["node_cache","zram","zsmalloc"],"runtime_note_sha256_after_test":"NOT_READ_NONROOT","root":"SU_INACCESSIBLE_OR_NOT_FOUND"}
+        for key, value in observed.items():
+            if runtime.get(key) != value:
+                fail("OS408 reported runtime evidence mismatch: " + key)
+        if (fixture.get("boot_size") != 41906176
+            or fixture.get("kernel_size") != 41900544
+            or fixture.get("header_v4", {}).get("cmdline") != "pandora_rust_binder_eexist=1 module_blacklist=kernelsu"):
+            fail("OS408 tested boot geometry/parameters drift")
     if fixture.get("schema") != 2 or fixture.get("safe_to_flash") is not False:
         fail("compatibility fixture is not schema2 nonflash")
     for key, value in {
-        "stock_build": COMPAT_BUILD,
+        "stock_build": build,
         "stock_input_sha256": record["stock_input_sha256"],
         "stock_boot_sha256": record["stock_boot_sha256"],
         "baseline_kernel_sha256": record["compatibility_image_sha256"],
@@ -127,7 +148,7 @@ def verified_compatibility(record, fixture):
     blocked = blacklists[0].split("=", 1)[1].split(",")
     if "kernelsu" not in blocked or "rust_binder" in blocked:
         fail("compatibility fixture KernelSU/rust_binder blacklist contract failed")
-    return COMPAT_BUILD, COMPAT_RELEASE
+    return build, COMPAT_RELEASE
 
 
 def verified(record, fixture):
@@ -264,8 +285,8 @@ def persistent_compat_unlocked(lkg_path, persistent_path, record):
     if not lkg_path.is_file() or not persistent_path.is_file():
         return False
     lkg, persistent = load(lkg_path), load(persistent_path)
-    if not is_compatibility_record(record):
-        return False
+    if not is_compatibility_record(record) or record.get("stock_build") != COMPAT_BUILD:
+        return False  # OS408 has no persistent mechanism attestation yet.
     expected_lkg = {
         "schema": 1,
         "status": "USER_PROMOTED_OTA_LKG",

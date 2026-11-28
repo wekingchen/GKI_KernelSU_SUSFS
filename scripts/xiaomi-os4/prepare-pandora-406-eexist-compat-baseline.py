@@ -15,6 +15,7 @@ import struct
 from pathlib import Path
 
 BUILD = "OS4.0.6.0.XBLCNXM"
+BUILD_408 = "OS4.0.8.0.XBLCNXM"
 RELEASE = "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k"
 GKI_TAG = "android16-6.12-2026-03_r74"
 GKI_COMMIT = "b1d12d482d767c50cb792d988e4479d3f75c342a"
@@ -46,13 +47,13 @@ def req(obj: dict, key: str, expected):
         fail(f"{key} mismatch: {obj.get(key)!r} != {expected!r}")
 
 
-def validate_record(rec: dict):
+def validate_record(rec: dict, build=BUILD):
     req(rec, "schema", 2)
     req(rec, "status", "HUMAN_ATTESTED_COMPAT_BASELINE_BOOTED")
     req(rec, "verification_mode", "USER_ATTESTATION_PLUS_READ_ONLY_RUNTIME_EVIDENCE")
     req(rec, "device", "pandora")
-    req(rec, "stock_build", BUILD)
-    req(rec, "observed_build", BUILD)
+    req(rec, "stock_build", build)
+    req(rec, "observed_build", build)
     req(rec, "kernel_release", RELEASE)
     req(rec, "observed_uname", RELEASE)
     req(rec, "candidate_gki_tag", GKI_TAG)
@@ -71,18 +72,18 @@ def validate_record(rec: dict):
         fail("missing runtime evidence")
     if runtime.get("boot_completed") is not True:
         fail("compatibility baseline was not observed boot-complete")
-    if runtime.get("rust_binder_loaded") is not False or runtime.get("rust_binder_initstate") != "ABSENT":
+    if build == BUILD and (runtime.get("rust_binder_loaded") is not False or runtime.get("rust_binder_initstate") != "ABSENT"):
         fail("rust_binder suppression runtime evidence missing")
     if runtime.get("binder_activity_service") != "found" or runtime.get("binder_package_service") != "found":
         fail("Binder liveness evidence missing")
-    if runtime.get("loaded_vendor_memory_stack") != ["node_cache", "zram", "zsmalloc"]:
+    if build == BUILD and runtime.get("loaded_vendor_memory_stack") != ["node_cache", "zram", "zsmalloc"]:
         fail("vendor memory-stack evidence drift")
 
 
-def validate_fixture(rec: dict, fx: dict):
+def validate_fixture(rec: dict, fx: dict, build=BUILD):
     req(fx, "schema", 2)
     req(fx, "safe_to_flash", False)
-    req(fx, "stock_build", BUILD)
+    req(fx, "stock_build", build)
     req(fx, "stock_input_sha256", rec["stock_input_sha256"])
     req(fx, "stock_boot_sha256", rec["stock_boot_sha256"])
     req(fx, "baseline_kernel_sha256", rec["compatibility_image_sha256"])
@@ -137,7 +138,7 @@ def validate_fixture(rec: dict, fx: dict):
         fail("tested compatibility fixture must not blacklist rust_binder")
 
 
-def validate_candidate(rec: dict, candidate: Path):
+def validate_candidate(rec: dict, candidate: Path, build=BUILD):
     required = [
         "Image", "Module.symvers", "gki-candidate.json", "stock-report.json",
         "locked-candidate.env", "build-metadata.txt",
@@ -156,7 +157,7 @@ def validate_candidate(rec: dict, candidate: Path):
     req(gki, "selection_reason", GKI_SELECTION)
     req(gki, "not_oem_source_proven", True)
     stock = load(candidate / "stock-report.json")
-    req(stock, "build", BUILD)
+    req(stock, "build", build)
     req(stock, "uname", RELEASE)
     req(stock, "ota_source_id", rec["stock_input_sha256"])
     req(stock, "stock_boot_sha256", rec["stock_boot_sha256"])
@@ -190,12 +191,21 @@ def main():
 
     rec = load(args.record)
     fx = load(args.fixture)
-    validate_record(rec)
-    validate_fixture(rec, fx)
-    validate_candidate(rec, args.candidate_dir)
+    build = rec.get("stock_build")
+    if build not in (BUILD, BUILD_408):
+        fail("unsupported compatibility build")
+    if build == BUILD_408:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ota_pointer", Path(__file__).with_name("ota-development-pointer.py"))
+        router = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(router)
+        router.verified_compatibility(rec, fx)
+    validate_record(rec, build)
+    validate_fixture(rec, fx, build)
+    validate_candidate(rec, args.candidate_dir, build)
 
     values = {
-        "OS4_SYSTEM_BUILD": BUILD,
+        "OS4_SYSTEM_BUILD": build,
         "OS4_KERNEL_VERSION": "6.12.69",
         "OS4_STOCK_KERNEL_RELEASE": RELEASE,
         "OS4_STOCK_KMI": "android16-6",
@@ -214,7 +224,7 @@ def main():
             fail("unsafe compatibility environment value: " + k)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
-    print("PANDORA_406_COMPAT_BASELINE=VERIFIED_EEXIST_BOOT_ONLY")
+    print("PANDORA_COMPAT_BASELINE=VERIFIED_EEXIST_BOOT_ONLY " + build)
     print("FORMAL_OEM_GATE=BLOCKED")
     print("PERSISTENT_FLASH=FORBIDDEN")
 
