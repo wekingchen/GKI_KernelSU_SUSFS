@@ -49,6 +49,14 @@ class WorkflowShellSyntaxTest(unittest.TestCase):
                 checked+=1
         self.assertGreaterEqual(checked,15,"Too few shell blocks checked; update YAML extractor")
 
+    def test_diagnostic_draft_permission_is_job_scoped(self):
+        text=(ROOT/WORKFLOWS[1]).read_text(encoding="utf-8")
+        self.assertIn("permissions:\n  contents: read\n  actions: read",text)
+        self.assertIn("    permissions:\n      contents: write\n      actions: read",text)
+        self.assertIn("无法读取手机诊断 Draft Release",text)
+        for forbidden in ("gh api -X", "gh release edit", "gh release delete", "gh release upload", "gh release create"):
+            self.assertNotIn(forbidden,text)
+
     def test_diagnostic_intake_never_dispatches_rebuild(self):
         text=(ROOT/WORKFLOWS[1]).read_text(encoding="utf-8")
         self.assertIn("plan-ota-v2-recovery.py",text)
