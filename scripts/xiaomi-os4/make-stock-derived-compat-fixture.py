@@ -71,7 +71,7 @@ def main():
     suffix=boot[structural_size:]
     boot_payload_size=structural_size
     avb={"stock_structural_size":structural_size}
-    def vbmeta_size(region:bytes,label:str)->int:
+    def declared_vbmeta_size(region:bytes,label:str)->int:
         if len(region)<256 or region[:4]!=b"AVB0":
             fail(label+" AVB0 magic/header missing")
         auth,aux=struct.unpack_from(">QQ",region,12)
@@ -104,8 +104,8 @@ def main():
         post=boot[vbmeta_offset+vbmeta_size:-64]
         if not pre or pre[:4]!=b"AVB0":
             fail("stock original image has unexplained bytes before footer vbmeta")
-        embedded_declared=vbmeta_size(pre,"embedded stock vbmeta")
-        outer_declared=vbmeta_size(outer,"footer stock vbmeta")
+        embedded_declared=declared_vbmeta_size(pre,"embedded stock vbmeta")
+        outer_declared=declared_vbmeta_size(outer,"footer stock vbmeta")
         if outer_declared!=vbmeta_size or gap.strip(b"\0") or post.strip(b"\0"):
             fail("stock AVB metadata ranges/padding are inconsistent")
         # Both AVB images authenticate the original kernel bytes.  After kernel
