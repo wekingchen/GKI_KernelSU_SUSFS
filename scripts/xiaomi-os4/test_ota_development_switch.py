@@ -412,5 +412,30 @@ class CompatibilityOTA(unittest.TestCase):
         self.assertIn("OS4_PANDORA_RUST_BINDER_EEXIST_PATCH_SHA256=", env)
 
 
+class Compatibility408(unittest.TestCase):
+    def test_exact_new_record_and_negative_routes(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("router", ROUTER)
+        router = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(router)
+        source = ROOT.parents[1]
+        base = source / ".github/config/ota-verified/OS4.0.8.0.XBLCNXM"
+        if not base.is_dir():
+            self.skipTest("OS408 record not present")
+        r = json.loads((base / "compatibility-verification.json").read_text())
+        f = json.loads((base / "compatibility-fixture.json").read_text())
+        self.assertEqual(router.verified_compatibility(r, f)[0], r["stock_build"])
+        self.assertFalse(router.persistent_compat_unlocked(
+            source / ".github/config/ota-lkg-current.json",
+            source / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json", r))
+        for k, v in (("stock_input_sha256", "0"*64), ("compatibility_boot_sha256", "0"*64),
+                     ("safe_to_flash", True), ("stock_build", "OS4.0.9.0.XBLCNXM")):
+            with self.assertRaises(SystemExit):
+                router.verified_compatibility({**r, k:v}, f)
+        with self.assertRaises(SystemExit):
+            router.verified_compatibility({**r, "runtime": {**r["runtime"], "binder_active_impl_direct":"c"}}, f)
+        with self.assertRaises(SystemExit):
+            router.verified_compatibility(r, {**f, "boot_size":41906177})
+
 if __name__ == "__main__":
     unittest.main()

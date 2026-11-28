@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/config/ota-development-current.json"
       - ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/**"
+      - ".github/config/ota-verified/OS4.0.8.0.XBLCNXM/**"
       - ".github/workflows/xiaomi-sm8850-os4-custom.yml"
       - ".github/workflows/xiaomi-sm8850-os4-promote-lkg.yml"
       - ".github/workflows/pandora-os4-compat-custom-build-route-tests.yml"
@@ -161,14 +162,22 @@ jobs:
           lkg = json.loads((root / ".github/config/ota-lkg-current.json").read_text())
           persistent = json.loads((root / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json").read_text())
           assert pointer["status"] == "VERIFIED_OTA_COMPATIBILITY_DEVELOPMENT_ONLY"
-          assert pointer["build"] == "OS4.0.6.0.XBLCNXM"
+          assert pointer["build"] in ("OS4.0.6.0.XBLCNXM", "OS4.0.8.0.XBLCNXM")
           assert record["formal_oem_gate"] == "BLOCKED"
           assert record["safe_to_flash"] is False
           assert fixture["safe_to_flash"] is False
           assert pointer["full_parity_lkg_promoted"] is False
           assert lkg["status"] == "USER_PROMOTED_OTA_LKG"
           assert lkg["generation"] >= 6
-          assert lkg["stock_build"] == pointer["build"]
+          assert lkg["stock_build"] == "OS4.0.6.0.XBLCNXM"
+          if pointer["build"] == "OS4.0.8.0.XBLCNXM":
+              import importlib.util
+              spec = importlib.util.spec_from_file_location("router", root / "scripts/xiaomi-os4/ota-development-pointer.py")
+              router = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(router)
+              assert router.pointer_check(pointer, record, fixture)[0] == pointer["build"]
+              assert not router.persistent_compat_unlocked(root / ".github/config/ota-lkg-current.json", root / ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json", record)
+              print("PANDORA_408_COMPAT_BASELINE=NONFLASH; PERSISTENT_GATE=BLOCKED")
           anchor = lkg if lkg["generation"] == 6 else json.loads(
               (root / ".github/config/ota-lkg-history/gen6.json").read_text()
           )

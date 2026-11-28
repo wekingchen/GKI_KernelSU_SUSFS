@@ -1,6 +1,12 @@
 name: "小米17 Pro OS4 / 自定义内核"
 
 on:
+  # One version-scoped automatic build upon accepting the OS408 runtime baseline.
+  # Manual builds retain their original inputs and defaults.
+  push:
+    branches: [dev]
+    paths:
+      - '.github/config/ota-verified/OS4.0.8.0.XBLCNXM/compatibility-verification.json'
   workflow_dispatch:
     inputs:
       root_mode:
@@ -67,6 +73,7 @@ concurrency:
 jobs:
   select-baseline:
     name: "确认当前 stock-input 与新 OTA 已验证基线，禁止旧核回退"
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev' && github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -111,6 +118,12 @@ jobs:
             --lkg-pointer ".github/config/ota-lkg-current.json" \
             --persistent-candidate ".github/config/ota-verified/OS4.0.6.0.XBLCNXM/persistent-candidate.json" \
             --output "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            grep -Fxq "mode=ota" "$GITHUB_OUTPUT"
+            grep -Fxq "build=OS4.0.8.0.XBLCNXM" "$GITHUB_OUTPUT"
+            grep -Fxq "compatibility_mode=1" "$GITHUB_OUTPUT"
+            grep -Fxq "persistent_compat_enabled=0" "$GITHUB_OUTPUT"
+          fi
           cat "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
   resolve-upstreams:
@@ -255,15 +268,15 @@ jobs:
           cat <<'EOF'
           设备：Xiaomi 17 Pro / pandora
           系统：OS4.0.5.0.XBLCNXM
-          Root：${{ inputs.root_mode }}
-          SUSFS 扩展：${{ inputs.susfs_extra_features }}
-          NoMount：${{ inputs.use_nomount }}
-          DroidSpaces：${{ inputs.droidspaces }}
-          NTSync：${{ inputs.droidspaces_ntsync }}
-          BBG：${{ inputs.use_bbg }}
-          Re-Kernel：${{ inputs.use_rekernel }}
-          网络增强：${{ inputs.use_networking }}
-          CVE 修复链：${{ inputs.use_cve }}
+          Root：${{ github.event_name == 'push' && 'bakasu-susfs' || inputs.root_mode }}
+          SUSFS 扩展：${{ github.event_name == 'push' || inputs.susfs_extra_features }}
+          NoMount：${{ github.event_name == 'push' || inputs.use_nomount }}
+          DroidSpaces：${{ github.event_name == 'push' && 'on' || inputs.droidspaces }}
+          NTSync：${{ github.event_name == 'push' || inputs.droidspaces_ntsync }}
+          BBG：${{ github.event_name == 'push' || inputs.use_bbg }}
+          Re-Kernel：${{ github.event_name == 'push' || inputs.use_rekernel }}
+          网络增强：${{ github.event_name == 'push' || inputs.use_networking }}
+          CVE 修复链：${{ github.event_name == 'push' || inputs.use_cve }}
           BakaSU：${{ needs.resolve-upstreams.outputs.bakasu_version }} @ ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
           SUSFS：${{ needs.resolve-upstreams.outputs.susfs_version }} @ ${{ needs.resolve-upstreams.outputs.susfs_commit }}
           NoMount：${{ needs.resolve-upstreams.outputs.nomount_version }} @ ${{ needs.resolve-upstreams.outputs.nomount_commit }}
@@ -370,15 +383,15 @@ jobs:
         shell: bash
         env:
           XIAOMI_OS4_SELECTABLE_BUILD: "1"
-          XIAOMI_OS4_ROOT_MODE: ${{ inputs.root_mode }}
-          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: ${{ inputs.susfs_extra_features && '1' || '0' }}
-          XIAOMI_OS4_USE_NOMOUNT: ${{ inputs.use_nomount && '1' || '0' }}
-          XIAOMI_OS4_DROIDSPACES: ${{ inputs.droidspaces == 'on' && '1' || '0' }}
-          XIAOMI_OS4_USE_NTSYNC: ${{ inputs.droidspaces_ntsync && '1' || '0' }}
-          XIAOMI_OS4_USE_BBG: ${{ inputs.use_bbg && '1' || '0' }}
-          XIAOMI_OS4_USE_REKERNEL: ${{ inputs.use_rekernel && '1' || '0' }}
-          XIAOMI_OS4_USE_NETWORKING: ${{ inputs.use_networking && '1' || '0' }}
-          XIAOMI_OS4_USE_CVE: ${{ inputs.use_cve && '1' || '0' }}
+          XIAOMI_OS4_ROOT_MODE: ${{ github.event_name == 'push' && 'bakasu-susfs' || inputs.root_mode }}
+          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: ${{ (github.event_name == 'push' || inputs.susfs_extra_features) && '1' || '0' }}
+          XIAOMI_OS4_USE_NOMOUNT: ${{ (github.event_name == 'push' || inputs.use_nomount) && '1' || '0' }}
+          XIAOMI_OS4_DROIDSPACES: ${{ (github.event_name == 'push' || inputs.droidspaces == 'on') && '1' || '0' }}
+          XIAOMI_OS4_USE_NTSYNC: ${{ (github.event_name == 'push' || inputs.droidspaces_ntsync) && '1' || '0' }}
+          XIAOMI_OS4_USE_BBG: ${{ (github.event_name == 'push' || inputs.use_bbg) && '1' || '0' }}
+          XIAOMI_OS4_USE_REKERNEL: ${{ (github.event_name == 'push' || inputs.use_rekernel) && '1' || '0' }}
+          XIAOMI_OS4_USE_NETWORKING: ${{ (github.event_name == 'push' || inputs.use_networking) && '1' || '0' }}
+          XIAOMI_OS4_USE_CVE: ${{ (github.event_name == 'push' || inputs.use_cve) && '1' || '0' }}
           OS4_BAKASU_COMMIT: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
           OS4_BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
           OS4_BAKASU_REF_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
@@ -628,15 +641,15 @@ jobs:
           {
             echo "DEVICE=pandora"
             echo "SYSTEM_BUILD=OS4.0.5.0.XBLCNXM"
-            echo "REQUEST_ROOT_MODE=${{ inputs.root_mode }}"
-            echo "REQUEST_SUSFS_EXTRA=${{ inputs.susfs_extra_features }}"
-            echo "REQUEST_NOMOUNT=${{ inputs.use_nomount }}"
-            echo "REQUEST_DROIDSPACES=${{ inputs.droidspaces }}"
-            echo "REQUEST_NTSYNC=${{ inputs.droidspaces_ntsync }}"
-            echo "REQUEST_BBG=${{ inputs.use_bbg }}"
-            echo "REQUEST_REKERNEL=${{ inputs.use_rekernel }}"
-            echo "REQUEST_NETWORKING=${{ inputs.use_networking }}"
-            echo "REQUEST_CVE=${{ inputs.use_cve }}"
+            echo "REQUEST_ROOT_MODE=${{ github.event_name == 'push' && 'bakasu-susfs' || inputs.root_mode }}"
+            echo "REQUEST_SUSFS_EXTRA=${{ github.event_name == 'push' || inputs.susfs_extra_features }}"
+            echo "REQUEST_NOMOUNT=${{ github.event_name == 'push' || inputs.use_nomount }}"
+            echo "REQUEST_DROIDSPACES=${{ github.event_name == 'push' && 'on' || inputs.droidspaces }}"
+            echo "REQUEST_NTSYNC=${{ github.event_name == 'push' || inputs.droidspaces_ntsync }}"
+            echo "REQUEST_BBG=${{ github.event_name == 'push' || inputs.use_bbg }}"
+            echo "REQUEST_REKERNEL=${{ github.event_name == 'push' || inputs.use_rekernel }}"
+            echo "REQUEST_NETWORKING=${{ github.event_name == 'push' || inputs.use_networking }}"
+            echo "REQUEST_CVE=${{ github.event_name == 'push' || inputs.use_cve }}"
             echo "UPSTREAM_SET_SHA256=${{ needs.resolve-upstreams.outputs.snapshot_sha256 }}"
             echo "UPSTREAMS_MATCH_LKG=${{ needs.resolve-upstreams.outputs.match_lkg }}"
             echo "UPSTREAM_CHANGED_COMPONENTS=${{ needs.resolve-upstreams.outputs.changed_components }}"
@@ -814,15 +827,15 @@ jobs:
         shell: bash
         env:
           XIAOMI_OS4_SELECTABLE_BUILD: "1"
-          XIAOMI_OS4_ROOT_MODE: ${{ inputs.root_mode }}
-          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: ${{ inputs.susfs_extra_features && '1' || '0' }}
-          XIAOMI_OS4_USE_NOMOUNT: ${{ inputs.use_nomount && '1' || '0' }}
-          XIAOMI_OS4_DROIDSPACES: ${{ inputs.droidspaces == 'on' && '1' || '0' }}
-          XIAOMI_OS4_USE_NTSYNC: ${{ inputs.droidspaces_ntsync && '1' || '0' }}
-          XIAOMI_OS4_USE_BBG: ${{ inputs.use_bbg && '1' || '0' }}
-          XIAOMI_OS4_USE_REKERNEL: ${{ inputs.use_rekernel && '1' || '0' }}
-          XIAOMI_OS4_USE_NETWORKING: ${{ inputs.use_networking && '1' || '0' }}
-          XIAOMI_OS4_USE_CVE: ${{ inputs.use_cve && '1' || '0' }}
+          XIAOMI_OS4_ROOT_MODE: ${{ github.event_name == 'push' && 'bakasu-susfs' || inputs.root_mode }}
+          XIAOMI_OS4_SUSFS_EXTRA_FEATURES: ${{ (github.event_name == 'push' || inputs.susfs_extra_features) && '1' || '0' }}
+          XIAOMI_OS4_USE_NOMOUNT: ${{ (github.event_name == 'push' || inputs.use_nomount) && '1' || '0' }}
+          XIAOMI_OS4_DROIDSPACES: ${{ (github.event_name == 'push' || inputs.droidspaces == 'on') && '1' || '0' }}
+          XIAOMI_OS4_USE_NTSYNC: ${{ (github.event_name == 'push' || inputs.droidspaces_ntsync) && '1' || '0' }}
+          XIAOMI_OS4_USE_BBG: ${{ (github.event_name == 'push' || inputs.use_bbg) && '1' || '0' }}
+          XIAOMI_OS4_USE_REKERNEL: ${{ (github.event_name == 'push' || inputs.use_rekernel) && '1' || '0' }}
+          XIAOMI_OS4_USE_NETWORKING: ${{ (github.event_name == 'push' || inputs.use_networking) && '1' || '0' }}
+          XIAOMI_OS4_USE_CVE: ${{ (github.event_name == 'push' || inputs.use_cve) && '1' || '0' }}
           OS4_BAKASU_COMMIT: ${{ needs.resolve-upstreams.outputs.bakasu_commit }}
           OS4_BAKASU_REF: ${{ needs.resolve-upstreams.outputs.bakasu_ref }}
           OS4_BAKASU_REF_KIND: ${{ needs.resolve-upstreams.outputs.bakasu_kind }}
