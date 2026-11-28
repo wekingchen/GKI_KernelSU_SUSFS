@@ -27,6 +27,11 @@ permissions:
 
 jobs:
   review:
+    # GitHub restricts visibility of draft releases to callers with push access.
+    # Only this job needs the capability; its commands remain GET/download only.
+    permissions:
+      contents: write
+      actions: read
     if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -52,7 +57,7 @@ jobs:
           }
           DIR="$RUNNER_TEMP/pandora-v2-review"
           mkdir -p "$DIR/source"
-          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")"
+          RUN="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")" || { echo "::error::无法读取来源 Actions Run"; exit 1; }
           jq -e --argjson id "$SOURCE_RUN" '
             .id == $id and .head_branch == "dev" and .status == "completed"
             and .conclusion == "success"
@@ -60,7 +65,7 @@ jobs:
             and (.event == "release" or .event == "schedule" or .event == "workflow_dispatch")
             and (.head_sha | test("^[a-f0-9]{40}$"))' <<<"$RUN" >/dev/null || exit 1
           HEAD="$(jq -r .head_sha <<<"$RUN")"
-          RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          RELEASE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")" || { echo "::error::无法读取手机诊断 Draft Release（请检查 Contents 权限）"; exit 1; }
           jq -e --argjson id "$RELEASE_ID" --arg run "$SOURCE_RUN" '
             .id == $id and .draft == true and .prerelease == true
             and (.tag_name | test("^pandora-ota-diagnostic-" + $run + "-[a-f0-9]{32}$"))
@@ -69,7 +74,7 @@ jobs:
             [.assets[] | select(.id == $id and .name == "diagnostic-evidence.json"
               and .state == "uploaded" and .size > 0 and .size <= 32768
               and .digest == ("sha256:" + $digest))] | length == 1' <<<"$RELEASE" >/dev/null || exit 1
-          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")" || { echo "::error::无法读取固定 OTA 输入 Release"; exit 1; }
           echo "$STOCK" > "$DIR/stock-release.json"
           # Determine build from the signed-by-provenance stock input's exact name.
           mapfile -t ASSET_NAMES < <(jq -r '.assets[] | select(.name | endswith("xm.zip")) | .name' "$DIR/stock-release.json")
@@ -104,7 +109,7 @@ jobs:
             --header "Authorization: Bearer $GH_TOKEN" \
             --header "Accept: application/octet-stream" \
             --output "$DIR/diagnostic-evidence.json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID"
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" || { echo "::error::无法下载已核验的诊断草稿附件"; exit 1; }
           [[ -s "$DIR/diagnostic-evidence.json" ]] || exit 1
           [[ "$(stat -c%s "$DIR/diagnostic-evidence.json")" == "$ASSET_SIZE" ]] || exit 1
           [[ "$(sha256sum "$DIR/diagnostic-evidence.json" | cut -d' ' -f1)" == "$EXPECTED_SHA" ]] || exit 1
