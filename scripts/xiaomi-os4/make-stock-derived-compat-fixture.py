@@ -59,7 +59,7 @@ def main():
     if len(boot)<PAGE or boot[:8]!=b"ANDROID!":
         fail("stock boot magic invalid")
     kernel_size,ramdisk_size,os_version,header_size=struct.unpack_from("<IIII",boot,8)
-    reserved=list(struct.unpack_from("<4I",boot,24))
+    header_reserved=list(struct.unpack_from("<4I",boot,24))
     header_version=struct.unpack_from("<I",boot,40)[0]
     signature_size=struct.unpack_from("<I",boot,1580)[0]
     if header_version!=4 or header_size!=1584 or ramdisk_size!=0 or signature_size!=0:
@@ -103,7 +103,7 @@ def main():
         if len(boot)<64 or boot[-64:-60]!=b"AVBf":
             fail("stock boot has unexplained nonzero suffix")
         try:
-            magic,major,minor,original_size,vbmeta_offset,vbmeta_size,reserved=struct.unpack(">4sIIQQQ28s",boot[-64:])
+            magic,major,minor,original_size,vbmeta_offset,vbmeta_size,_footer_reserved=struct.unpack(">4sIIQQQ28s",boot[-64:])
         except struct.error:
             fail("stock AVB footer cannot be parsed")
         if magic!=b"AVBf" or major!=1 or original_size<structural_size:
@@ -177,7 +177,7 @@ def main():
         "kernel_size":kernel_size,
         "ramdisk_size":0,
         "signature_size":0,
-        "header_v4":{"cmdline":cmdline.decode("ascii"),"os_version":os_version,"reserved":reserved},
+        "header_v4":{"cmdline":cmdline.decode("ascii"),"os_version":os_version,"reserved":header_reserved},
         "ramdisk_region_b64":"",
         "suffix_b64":"",
         "compatibility_kind":"PANDORA_RUST_BINDER_EEXIST_SHIM",
