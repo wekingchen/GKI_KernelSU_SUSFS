@@ -1,0 +1,119 @@
+name: "小米17 Pro OS4 / 4.0.8 EEXIST 兼容内核隔离构建（不可刷）"
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "scripts/xiaomi-os4/build-408-compatibility-nonflash.sh"
+      - ".github/workflows/pandora-os4-408-compat-nonflash.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  experiment:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 锁定本次原始候选及真实模块差异报告
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/verified-input"
+          mkdir -p "$DIR/delta"
+          gh release download pandora-os4-ota-candidate-OS4.0.8.0.XBLCNXM --repo "$GITHUB_REPOSITORY" --dir "$DIR" --pattern locked-candidate.env --pattern stock-report.json --pattern Module.symvers --pattern final.config --pattern gki-candidate.json
+          (cd "$DIR"; printf '%s\n' \
+            'ba0c6e0a2798bc96d4b9f279290da766c6b67674f2ce38a16030f902604b5de9  locked-candidate.env' \
+            '326c3c842e47c9cefec42bea00a27b208576e0b4c411843aabff78d2f5787419  stock-report.json' \
+            '242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25  Module.symvers' \
+            'f9c26021d6984036dbd3d34b1ce9709169cbb43e2dfc0758218ce9a2b52150f9  final.config' \
+            '36d75c17e3bed869eff86c8cd40c5e65bda9901dbc274c56615768a6fcc6f392  gki-candidate.json' | sha256sum -c -)
+          gh run download 46154406781 --repo "$GITHUB_REPOSITORY" --name pandora-408-stock-abi-delta-readonly --dir "$DIR/delta"
+          jq -e '.new_stock_sha256 == "957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9" and .evidence_sha256 == "6330868f3c2f834e525ed4112dced3bc2aed1b55ccca09f41f312a4c34069c61" and .unchanged_module_count == 961 and (.changed_modules|length) == 5 and .safe_to_flash == false and .oem_gate_unlocked == false and ([.runtime_note_comparison[].unique_binary_match] | all)' "$DIR/delta/stock-abi-delta.json" >/dev/null
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          jq -e '[.assets[]|select(.name|endswith("xm.zip"))] | length == 1 and .[0].id == 804619319 and .[0].digest == "sha256:957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9"' <<<"$STOCK" >/dev/null
+          bash -n scripts/xiaomi-os4/build-408-compatibility-nonflash.sh
+      - name: 安装构建依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bc bison build-essential ccache cpio curl flex git jq libdw-dev libelf-dev libssl-dev patch perl python3 rsync tar unzip xz-utils zip zstd dwarves
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/xiaomi-os4/toolchain-r536225
+          key: xiaomi-pandora-os4-toolchain-r536225-verified-v1
+      - name: 构建独立实验 Image，禁止打包 boot
+        env:
+          OTA_CANDIDATE_ENV: ${{ runner.temp }}/verified-input/locked-candidate.env
+          OTA_STOCK_REPORT_PATH: ${{ runner.temp }}/verified-input/stock-report.json
+          XIAOMI_OS4_JOBS: '6'
+        run: bash scripts/xiaomi-os4/build-408-compatibility-nonflash.sh
+      - name: 核验新增导入与原 GKI 全量导出 CRC
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/verified-input"
+          RES="$RUNNER_TEMP/ota-candidate/results"
+          python3 - "$DIR" "$RES" <<'PY'
+          import json, sys
+          from pathlib import Path
+          src, res = map(Path, sys.argv[1:])
+          def exports(p):
+              result = {}
+              for line in p.read_text().splitlines():
+                  fields = line.split()
+                  if len(fields) < 4:
+                      raise ValueError("invalid Module.symvers line")
+                  if fields[2] == "vmlinux":
+                      name, crc = fields[1], int(fields[0], 16)
+                      if name in result:
+                          raise ValueError("duplicate vmlinux export " + name)
+                      result[name] = crc
+              return result
+          old, new = exports(src/"Module.symvers"), exports(res/"Module.symvers")
+          lost = sorted(k for k,v in old.items() if new.get(k) != v)
+          if lost:
+              raise ValueError("original vmlinux exports missing/changed: " + str(lost[:20]))
+          added = {}
+          for row in json.loads((src/"delta/stock-abi-delta.json").read_text())["changed_modules"]:
+              for name, crc in row["imports"]["added"].items():
+                  if name in added and added[name] != crc:
+                      raise ValueError("conflicting added CRC")
+                  added[name] = crc
+          if set(added) != {"__rcu_read_lock", "__rcu_read_unlock", "enable_irq"}:
+              raise ValueError("unexpected added import set")
+          if any(new.get(k) != v for k,v in added.items()):
+              raise ValueError("new OEM imports do not match candidate vmlinux")
+          report = {"original_vmlinux_exports":len(old),"candidate_vmlinux_exports":len(new),
+                    "original_missing_or_changed":lost,"new_oem_imports_crc":added,
+                    "stock_build":"OS4.0.8.0.XBLCNXM","safe_to_flash":False,
+                    "oem_gate_unlocked":False,"lkg_promotion":False}
+          (res/"compat-static-precheck.json").write_text(json.dumps(report,indent=2)+"\n")
+          print(json.dumps(report,indent=2))
+          PY
+          cmp "$DIR/final.config" "$RES/final.config"
+          grep -Fxq FLASHABLE=NO "$RES/build-metadata.txt"
+          grep -Fxq FASTBOOT_BOOT=NOT_BUILT "$RES/build-metadata.txt"
+          grep -Fxq ANYKERNEL3=NOT_BUILT "$RES/build-metadata.txt"
+          cat "$RES/compat-static-precheck.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-408-eexist-EXPERIMENT-NOT-FLASHABLE
+          path: |
+            ${{ runner.temp }}/ota-candidate/results/Image
+            ${{ runner.temp }}/ota-candidate/results/Module.symvers
+            ${{ runner.temp }}/ota-candidate/results/final.config
+            ${{ runner.temp }}/ota-candidate/results/build-metadata.txt
+            ${{ runner.temp }}/ota-candidate/results/eexist-shim.patch
+            ${{ runner.temp }}/ota-candidate/results/compat-static-precheck.json
+            ${{ runner.temp }}/ota-candidate/results/SHA256SUMS.txt
+            ${{ runner.temp }}/ota-candidate/results/STATUS.txt
+          if-no-files-found: error
+          retention-days: 30
