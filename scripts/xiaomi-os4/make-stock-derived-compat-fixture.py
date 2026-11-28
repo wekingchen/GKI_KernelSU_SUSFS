@@ -71,27 +71,34 @@ def main():
     suffix=boot[structural_size:]
     boot_payload_size=structural_size
     avb={"stock_structural_size":structural_size}
-    def declared_vbmeta_size(region:bytes,label:str)->int:
+    def one_vbmeta_size(region:bytes,label:str)->int:
         if len(region)<256 or region[:4]!=b"AVB0":
             fail(label+" AVB0 magic/header missing")
         auth,aux=struct.unpack_from(">QQ",region,12)
+        if auth%64 or aux%64:
+            fail(label+" AVB block size is not 64-byte aligned")
         total=256+auth+aux
         if total<256 or total>len(region):
             fail(label+" declared AVB size out of range")
-        if region[total:].strip(b"\0"):
-            tail=region[total:]
-            first=next((i for i,x in enumerate(tail) if x),-1)
-            more=[]
-            off=0
-            while True:
-                pos=region.find(b"AVB0",off)
-                if pos<0: break
-                more.append(pos); off=pos+1
-            fail(label+" has nonzero bytes after declared AVB image: "+
-                 f"auth={auth} aux={aux} total={total} region={len(region)} "+
-                 f"tail_first={first} tail_sample={tail[first:first+24].hex() if first>=0 else ''} "+
-                 f"avb0_offsets={more}")
         return total
+
+    def vbmeta_chain(region:bytes,label:str):
+        pos=0
+        items=[]
+        while pos<len(region):
+            rest=region[pos:]
+            if not rest.strip(b"\0"):
+                break
+            total=one_vbmeta_size(rest,label+f"[{len(items)}]")
+            blob=rest[:total]
+            items.append({"offset":pos,"size":total,"sha256":sha(blob)})
+            pos+=total
+        if region[pos:].strip(b"\0"):
+            fail(label+" has unexplained nonzero bytes after AVB chain")
+        if not items:
+            fail(label+" contains no AVB image")
+        return items
+
     if suffix.strip(b"\0"):
         if len(boot)<64 or boot[-64:-60]!=b"AVBf":
             fail("stock boot has unexplained nonzero suffix")
@@ -115,9 +122,10 @@ def main():
         post=boot[vbmeta_offset+vbmeta_size:-64]
         if not pre or pre[:4]!=b"AVB0":
             fail("stock original image has unexplained bytes before footer vbmeta")
-        embedded_declared=declared_vbmeta_size(pre,"embedded stock vbmeta")
-        outer_declared=declared_vbmeta_size(outer,"footer stock vbmeta")
-        if outer_declared!=vbmeta_size or gap.strip(b"\0") or post.strip(b"\0"):
+        embedded_chain=vbmeta_chain(pre,"embedded stock vbmeta")
+        outer_chain=vbmeta_chain(outer,"footer stock vbmeta")
+        if (len(outer_chain)!=1 or outer_chain[0]["size"]!=vbmeta_size or
+                gap.strip(b"\0") or post.strip(b"\0")):
             fail("stock AVB metadata ranges/padding are inconsistent")
         # Both AVB images authenticate the original kernel bytes.  After kernel
         # replacement they are intentionally omitted from the transient image;
@@ -127,8 +135,8 @@ def main():
                     "stock_partition_size":len(boot),
                     "stock_avb_original_image_size":original_size,
                     "stock_embedded_vbmeta_region_size":len(pre),
-                    "stock_embedded_vbmeta_declared_size":embedded_declared,
-                    "stock_embedded_vbmeta_sha256":sha(pre[:embedded_declared]),
+                    "stock_embedded_vbmeta_chain":embedded_chain,
+                    "stock_embedded_vbmeta_region_sha256":sha(pre),
                     "stock_avb_footer_sha256":sha(boot[-64:]),
                     "stock_vbmeta_sha256":sha(outer),
                     "stock_avb_version":f"{major}.{minor}"})
