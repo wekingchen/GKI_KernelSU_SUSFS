@@ -1,0 +1,134 @@
+name: "小米17 Pro OS4 / 4.0.8 EEXIST 临时启动包（仅 fastboot boot）"
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "scripts/xiaomi-os4/make-stock-derived-compat-fixture.py"
+      - ".github/workflows/pandora-os4-408-fastboot-boot-only.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: "锁定 4.0.8 stock、差异证据和成功的隔离 EEXIST 构建"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/os408-fastboot"
+          mkdir -p "$DIR/stock" "$DIR/candidate"
+          STOCK="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/pandora-os4-stock-input")"
+          jq -e '[.assets[]|select(.name=="pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip")] |
+            length==1 and .[0].id==804619319 and
+            .[0].digest=="sha256:957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9"' <<<"$STOCK" >/dev/null
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip' --dir "$DIR/stock"
+          gh release download pandora-os4-ota-candidate-OS4.0.8.0.XBLCNXM --repo "$GITHUB_REPOSITORY" \
+            --pattern stock-report.json --dir "$DIR/stock"
+          echo '957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9  '"$DIR/stock/pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip" | sha256sum -c -
+          echo '326c3c842e47c9cefec42bea00a27b208576e0b4c411843aabff78d2f5787419  '"$DIR/stock/stock-report.json" | sha256sum -c -
+          gh run download 46154744059 --repo "$GITHUB_REPOSITORY" \
+            --name pandora-408-eexist-EXPERIMENT-NOT-FLASHABLE --dir "$DIR/candidate"
+          echo '3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397  '"$DIR/candidate/Image" | sha256sum -c -
+          echo '242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25  '"$DIR/candidate/Module.symvers" | sha256sum -c -
+          echo 'f9c26021d6984036dbd3d34b1ce9709169cbb43e2dfc0758218ce9a2b52150f9  '"$DIR/candidate/final.config" | sha256sum -c -
+          echo '5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee  '"$DIR/candidate/eexist-shim.patch" | sha256sum -c -
+          jq -e '.stock_build=="OS4.0.8.0.XBLCNXM" and .original_missing_or_changed==[] and
+            .new_oem_imports_crc=={"__rcu_read_lock":3530740806,"__rcu_read_unlock":3530740806,"enable_irq":2385721053} and
+            .safe_to_flash==false and .oem_gate_unlocked==false and .lkg_promotion==false' \
+            "$DIR/candidate/compat-static-precheck.json" >/dev/null
+          grep -Fxq FLASHABLE=NO "$DIR/candidate/build-metadata.txt"
+          grep -Fxq FASTBOOT_BOOT=NOT_BUILT "$DIR/candidate/build-metadata.txt"
+          grep -Fxq ANYKERNEL3=NOT_BUILT "$DIR/candidate/build-metadata.txt"
+          echo "OS408_FASTBOOT_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: "从同 OTA stock boot 生成未验证 NONFLASH fixture"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/xiaomi-os4/make-stock-derived-compat-fixture.py scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py
+          python3 scripts/xiaomi-os4/make-stock-derived-compat-fixture.py \
+            --stock-zip "$OS408_FASTBOOT_DIR/stock/pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip" \
+            --stock-report "$OS408_FASTBOOT_DIR/stock/stock-report.json" \
+            --expected-build OS4.0.8.0.XBLCNXM \
+            --expected-stock-sha256 957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9 \
+            --compatibility-parameter pandora_rust_binder_eexist=1 \
+            --output "$OS408_FASTBOOT_DIR/fixture.json"
+          jq -e '.schema==2 and .human_tested==false and .safe_to_flash==false and
+            .formal_oem_gate=="BLOCKED_PREBOOT_COMPAT_EXPERIMENT" and
+            .stock_build=="OS4.0.8.0.XBLCNXM" and
+            .compatibility_parameter=="pandora_rust_binder_eexist=1"' "$OS408_FASTBOOT_DIR/fixture.json" >/dev/null
+
+      - name: "打包仅供 fastboot boot 的 4.0.8 EEXIST 临时镜像"
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$OS408_FASTBOOT_DIR/pandora-OS4.0.8.0-EEXIST-UNVERIFIED-FASTBOOT-BOOT-ONLY.img"
+          python3 scripts/xiaomi-os4/repack-fastboot-boot-v4-from-fixture.py \
+            "$OS408_FASTBOOT_DIR/fixture.json" "$OS408_FASTBOOT_DIR/candidate/Image" "$OUT" \
+            --expected-image-sha256 3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397 \
+            --expected-release 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k \
+            --expected-build OS4.0.8.0.XBLCNXM \
+            --fastboot-boot-only-allow-growth \
+            | tee "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'FINAL_BOOT_V4_AUDIT=PASS' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'FLASHABLE=NO' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'USE=fastboot boot ONLY' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fq 'pandora_rust_binder_eexist=1' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fq 'module_blacklist=kernelsu' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'boot_file_growth=389120' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          if grep -Eq 'module_blacklist=[^ ]*rust_binder' "$OS408_FASTBOOT_DIR/repack-report.txt"; then
+            echo "::error::rust_binder must not be blacklisted"; exit 1
+          fi
+          BOOT_SHA="$(sha256sum "$OUT"|cut -d' ' -f1)"
+          cat > "$OS408_FASTBOOT_DIR/manifest.json" <<EOF
+          {
+            "schema": "pandora-os408-eexist-fastboot-test-v1",
+            "stock_build": "OS4.0.8.0.XBLCNXM",
+            "stock_input_sha256": "957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9",
+            "candidate_image_sha256": "3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397",
+            "candidate_module_symvers_sha256": "242f6b3668e6f895c894bfbd35096c2f408a1b546b3cd0649bae4ed1d99dce25",
+            "compatibility_patch_sha256": "5aab8a0a41369829707d6ea5ade437bc91a75dda4a5ac1fb6b1cb60158bef5ee",
+            "source_experiment_run": 46154744059,
+            "source_stock_delta_run": 46154406781,
+            "source_diagnostic_run": 46153969289,
+            "boot_sha256": "$BOOT_SHA",
+            "safe_to_flash": false,
+            "fastboot_boot_only": true,
+            "persistent_install_authorized": false,
+            "lkg_promotion_authorized": false
+          }
+          EOF
+          cat > "$OS408_FASTBOOT_DIR/README-FASTBOOT-BOOT-ONLY.txt" <<'EOF'
+          小米17 Pro pandora / OS4.0.8.0 EEXIST 兼容性临时启动实验。
+          仅允许：fastboot boot <此镜像>
+          禁止：fastboot flash、AnyKernel3、持久安装、LKG 晋升。
+          这是同 OTA stock boot 头 + 已完成静态 CRC 预检的实验 Image，不代表 ABI/KMI 已通过。
+          临时启动成功后必须重新采集运行时 Binder、rust_binder、node_cache/zram/zsmalloc、Root/LSM 证据。
+          EOF
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-OS4.0.8.0-EEXIST-UNVERIFIED-FASTBOOT-BOOT-ONLY
+          path: |
+            ${{ env.OS408_FASTBOOT_DIR }}/pandora-OS4.0.8.0-EEXIST-UNVERIFIED-FASTBOOT-BOOT-ONLY.img
+            ${{ env.OS408_FASTBOOT_DIR }}/manifest.json
+            ${{ env.OS408_FASTBOOT_DIR }}/fixture.json
+            ${{ env.OS408_FASTBOOT_DIR }}/repack-report.txt
+            ${{ env.OS408_FASTBOOT_DIR }}/README-FASTBOOT-BOOT-ONLY.txt
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
