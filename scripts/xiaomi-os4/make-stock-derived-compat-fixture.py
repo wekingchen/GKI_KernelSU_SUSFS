@@ -71,6 +71,16 @@ def main():
     suffix=boot[structural_size:]
     boot_payload_size=structural_size
     avb={"stock_structural_size":structural_size}
+    def vbmeta_size(region:bytes,label:str)->int:
+        if len(region)<256 or region[:4]!=b"AVB0":
+            fail(label+" AVB0 magic/header missing")
+        auth,aux=struct.unpack_from(">QQ",region,12)
+        total=256+auth+aux
+        if total<256 or total>len(region):
+            fail(label+" declared AVB size out of range")
+        if region[total:].strip(b"\0"):
+            fail(label+" has nonzero bytes after declared AVB image")
+        return total
     if suffix.strip(b"\0"):
         if len(boot)<64 or boot[-64:-60]!=b"AVBf":
             fail("stock boot has unexplained nonzero suffix")
@@ -90,21 +100,26 @@ def main():
             fail("stock AVB vbmeta magic missing")
         pre=boot[structural_size:original_size]
         gap=boot[original_size:vbmeta_offset]
+        outer=boot[vbmeta_offset:vbmeta_offset+vbmeta_size]
         post=boot[vbmeta_offset+vbmeta_size:-64]
-        if pre.strip(b"\0") or gap.strip(b"\0") or post.strip(b"\0"):
-            def desc(data):
-                nz=sum(1 for x in data if x)
-                first=next((i for i,x in enumerate(data) if x),-1)
-                sample=(data[first:first+16].hex() if first>=0 else "")
-                return f"len={len(data)},nonzero={nz},first={first},sample={sample}"
-            fail("unexpected nonzero data outside stock AVB metadata: "+
-                 "pre["+desc(pre)+"] gap["+desc(gap)+"] post["+desc(post)+"]")
-        boot_payload_size=original_size
+        if not pre or pre[:4]!=b"AVB0":
+            fail("stock original image has unexplained bytes before footer vbmeta")
+        embedded_declared=vbmeta_size(pre,"embedded stock vbmeta")
+        outer_declared=vbmeta_size(outer,"footer stock vbmeta")
+        if outer_declared!=vbmeta_size or gap.strip(b"\0") or post.strip(b"\0"):
+            fail("stock AVB metadata ranges/padding are inconsistent")
+        # Both AVB images authenticate the original kernel bytes.  After kernel
+        # replacement they are intentionally omitted from the transient image;
+        # retaining stale signatures would be more dangerous than stripping
+        # verified metadata.  This path is never authorized for flashing.
         avb.update({"stock_had_avb_footer":True,
                     "stock_partition_size":len(boot),
                     "stock_avb_original_image_size":original_size,
+                    "stock_embedded_vbmeta_region_size":len(pre),
+                    "stock_embedded_vbmeta_declared_size":embedded_declared,
+                    "stock_embedded_vbmeta_sha256":sha(pre[:embedded_declared]),
                     "stock_avb_footer_sha256":sha(boot[-64:]),
-                    "stock_vbmeta_sha256":sha(boot[vbmeta_offset:vbmeta_offset+vbmeta_size]),
+                    "stock_vbmeta_sha256":sha(outer),
                     "stock_avb_version":f"{major}.{minor}"})
     else:
         avb.update({"stock_had_avb_footer":False,"stock_partition_size":len(boot)})

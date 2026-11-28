@@ -89,7 +89,7 @@ jobs:
           grep -Fxq 'USE=fastboot boot ONLY' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fq 'pandora_rust_binder_eexist=1' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fq 'module_blacklist=kernelsu' "$OS408_FASTBOOT_DIR/repack-report.txt"
-          grep -Fxq 'boot_file_growth=372736' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'boot_file_growth=389120' "$OS408_FASTBOOT_DIR/repack-report.txt"
           if grep -Eq 'module_blacklist=[^ ]*rust_binder' "$OS408_FASTBOOT_DIR/repack-report.txt"; then
             echo "::error::rust_binder must not be blacklisted"; exit 1
           fi
