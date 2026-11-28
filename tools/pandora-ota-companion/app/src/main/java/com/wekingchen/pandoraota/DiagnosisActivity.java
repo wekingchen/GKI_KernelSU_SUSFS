@@ -100,6 +100,13 @@ public final class DiagnosisActivity extends Activity {
     }
     private String token()throws Exception{return secrets.loadToken();}
     private void loadTask(){
+        if(busy)return;
+        currentTask=null;evidence=null;receipt=null;reviewRunId=0;previewed=false;
+        reviewed.setChecked(false);
+        taskInfo.setText("正在核验当前 GitHub 来源与待补充的证据…");
+        taskInfo.setTextColor(INK);
+        readInfo.setText("正在读取任务，请先完成来源核验");
+        uploadInfo.setText("尚未提交");
         run("正在核验诊断任务…",()->{
             StageClient.State stage=new StageClient(secrets.repo(),token()).latest();
             if(!"ABI_BLOCKED".equals(stage.stage))
@@ -281,7 +288,11 @@ public final class DiagnosisActivity extends Activity {
                 if(error!=null){
                     errorText=error.getMessage()==null?"操作未完成":error.getMessage();
                     if(errorText.length()>230)errorText=errorText.substring(0,230);
-                    if(currentTask==null)taskInfo.setText(errorText);
+                    if(currentTask==null){
+                        taskInfo.setText("补采任务读取失败："+errorText+"\n请点击「重新读取补采任务」。核验成功后才能开始采集。");
+                        taskInfo.setTextColor(WARNING);
+                        readInfo.setText("任务未核验，暂不能采集");
+                    }
                     else uploadInfo.setText("操作未完成："+errorText+
                             (receipt!=null?"\\n草稿仍保留；不要重复上传。":""));
                 }
@@ -292,6 +303,9 @@ public final class DiagnosisActivity extends Activity {
     private void renderControls(){
         if(loadButton==null)return;
         loadButton.setEnabled(!busy);
+        loadButton.setText(busy&&currentTask==null?"正在核验补采任务…":"重新读取补采任务");
+        readButton.setAlpha(!busy&&currentTask!=null&&receipt==null?1f:0.45f);
+        previewButton.setAlpha(!busy&&evidence!=null?1f:0.45f);
         readButton.setEnabled(!busy&&currentTask!=null&&receipt==null);
         previewButton.setEnabled(!busy&&evidence!=null);
         reviewed.setEnabled(!busy&&evidence!=null&&previewed&&receipt==null);

@@ -103,6 +103,28 @@ public class FeedbackEmulatorTest {
     byte[] archive()throws Exception{
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(ZipOutputStream z=new ZipOutputStream(bytes)){z.putNextEntry(new ZipEntry("mobile-test-feedback.json"));z.write(manifest().toString().getBytes(StandardCharsets.UTF_8));z.closeEntry();}return bytes.toByteArray();
     }
+    @Test public void githubStoredDataDescriptorBundleReadsThroughRealDownloadPath()throws Exception{
+        // Real Actions-style ZIP: method STORED, flag 8, local sizes zero,
+        // CRC and sizes in data descriptors / central directory.
+        byte[] zip=android.util.Base64.decode(
+            "UEsDBBQACAAAAONtfF0AAAAAAAAAAAAAAAAbAAAAb3RhLXYyLWRpYWdub3N0aWMtdGFzay5qc29ueyJzdGF0dXMiOiJBQklfQkxPQ0tFRF9ESUFHTk9TQUJMRSJ9UEsHCC1oz9QkAAAAJAAAAFBLAwQUAAgAAADjbXxdAAAAAAAAAAAAAAAAEwAAAG90YS1hYmktcmVwb3J0Lmpzb257fVBLBwhDv6ajAgAAAAIAAABQSwECFAMUAAgAAADjbXxdLWjP1CQAAAAkAAAAGwAAAAAAAAAAAAAAgAEAAAAAb3RhLXYyLWRpYWdub3N0aWMtdGFzay5qc29uUEsBAhQDFAAIAAAA4218XUO/pqMCAAAAAgAAABMAAAAAAAAAAAAAAIABbQAAAG90YS1hYmktcmVwb3J0Lmpzb25QSwUGAAAAAAIAAgCKAAAAsAAAAAAA",
+            android.util.Base64.DEFAULT);
+        Fake f=new Fake(zip);
+        JSONObject j=new FeedbackClient(REPO,"synthetic",f).bundledJson(555,"ota-v2-diagnostic-task.json",16384);
+        assertEquals("ABI_BLOCKED_DIAGNOSABLE",j.getString("status"));
+        assertEquals(2,f.connections.size());
+    }
+    @Test public void emptyTaskHasActionableErrorAndCannotBeAccepted()throws Exception{
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        try(ZipOutputStream z=new ZipOutputStream(bytes)){
+            z.putNextEntry(new ZipEntry("ota-v2-diagnostic-task.json"));z.closeEntry();
+        }
+        try{
+            new FeedbackClient(REPO,"synthetic",new Fake(bytes.toByteArray()))
+                .bundledJson(555,"ota-v2-diagnostic-task.json",16384);
+            fail("empty task accepted");
+        }catch(IOException e){assertTrue(e.getMessage().contains("空内容"));}
+    }
     @Test public void candidateDownloadsOnlyTinyManifestAndNeverForwardsPatToBlobStorage()throws Exception{
         Fake f=new Fake(archive());FeedbackClient.Candidate c=new FeedbackClient(REPO,"synthetic",f).candidate(123,true);
         assertEquals(SHA,c.sha);assertEquals(4,f.connections.size());
