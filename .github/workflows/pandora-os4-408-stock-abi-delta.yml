@@ -1,0 +1,49 @@
+name: "小米17 Pro OS4 / 4.0.8 原厂模块差异只读核验"
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "scripts/xiaomi-os4/compare-stock-abi-inventory.py"
+      - ".github/workflows/pandora-os4-408-stock-abi-delta.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 安装只读分析依赖
+        run: sudo apt-get install -y --no-install-recommends zstd lz4 jq
+      - name: 核对冻结旧版与当前 OTA 原始模块及手机指纹
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/stock-delta"
+          mkdir -p "$DIR/old" "$DIR/new" "$DIR/review"
+          gh release download pandora-ota-v2-os406-raw-stock-reference --repo "$GITHUB_REPOSITORY" --pattern 'pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip' --dir "$DIR/old"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern 'pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip' --dir "$DIR/new"
+          gh run download 46153969289 --repo "$GITHUB_REPOSITORY" --name pandora-OTA-V2-DIAGNOSTIC-REVIEW-46148429897-46153969289 --dir "$DIR/review"
+          python3 -m py_compile scripts/xiaomi-os4/compare-stock-abi-inventory.py
+          python3 scripts/xiaomi-os4/compare-stock-abi-inventory.py \
+            --old "$DIR/old/pandora-stock-OS4.0.6.0.XBLCNXM-_b-xm.zip" \
+            --new "$DIR/new/pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip" \
+            --old-sha bebb8754c16dd30c724fdba3687694e615e03342d6f5f55918cd06f1dca8cbb8 \
+            --new-sha 957ea67209374ce18465859bd5088bcb382b7518fd809cb30cfdfb3b636541a9 \
+            --evidence "$DIR/review/diagnostic-evidence.json" \
+            --evidence-sha 6330868f3c2f834e525ed4112dced3bc2aed1b55ccca09f41f312a4c34069c61 \
+            --output "$DIR/stock-abi-delta.json"
+          jq '{old_inventory_count,new_inventory_count,unchanged_module_count,added_paths,removed_paths,changed_modules:[.changed_modules[].path],runtime_note_comparison,safe_to_flash}' "$DIR/stock-abi-delta.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-408-stock-abi-delta-readonly
+          path: ${{ runner.temp }}/stock-delta/stock-abi-delta.json
+          if-no-files-found: error
+          retention-days: 30
