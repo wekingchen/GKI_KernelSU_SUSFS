@@ -69,7 +69,8 @@ def main():
     if kernel_size<=0 or structural_size>len(boot):
         fail("stock kernel range invalid")
     suffix=boot[structural_size:]
-    avb={}
+    boot_payload_size=structural_size
+    avb={"stock_structural_size":structural_size}
     if suffix.strip(b"\0"):
         if len(boot)<64 or boot[-64:-60]!=b"AVBf":
             fail("stock boot has unexplained nonzero suffix")
@@ -77,7 +78,7 @@ def main():
             magic,major,minor,original_size,vbmeta_offset,vbmeta_size,reserved=struct.unpack(">4sIIQQQ28s",boot[-64:])
         except struct.error:
             fail("stock AVB footer cannot be parsed")
-        if magic!=b"AVBf" or major!=1 or original_size!=structural_size:
+        if magic!=b"AVBf" or major!=1 or original_size<structural_size:
             fail("stock AVB footer identity/original size mismatch: "+
                  f"major={major} minor={minor} original_size={original_size} "+
                  f"structural_size={structural_size} vbmeta_offset={vbmeta_offset} "+
@@ -87,15 +88,19 @@ def main():
             fail("stock AVB vbmeta range invalid")
         if boot[vbmeta_offset:vbmeta_offset+4]!=b"AVB0":
             fail("stock AVB vbmeta magic missing")
-        if boot[original_size:vbmeta_offset].strip(b"\0") or boot[vbmeta_offset+vbmeta_size:-64].strip(b"\0"):
+        if (boot[structural_size:original_size].strip(b"\0") or
+                boot[original_size:vbmeta_offset].strip(b"\0") or
+                boot[vbmeta_offset+vbmeta_size:-64].strip(b"\0")):
             fail("unexpected nonzero data outside stock AVB metadata")
-        avb={"stock_had_avb_footer":True,
-             "stock_partition_size":len(boot),
-             "stock_avb_footer_sha256":sha(boot[-64:]),
-             "stock_vbmeta_sha256":sha(boot[vbmeta_offset:vbmeta_offset+vbmeta_size]),
-             "stock_avb_version":f"{major}.{minor}"}
+        boot_payload_size=original_size
+        avb.update({"stock_had_avb_footer":True,
+                    "stock_partition_size":len(boot),
+                    "stock_avb_original_image_size":original_size,
+                    "stock_avb_footer_sha256":sha(boot[-64:]),
+                    "stock_vbmeta_sha256":sha(boot[vbmeta_offset:vbmeta_offset+vbmeta_size]),
+                    "stock_avb_version":f"{major}.{minor}"})
     else:
-        avb={"stock_had_avb_footer":False,"stock_partition_size":len(boot)}
+        avb.update({"stock_had_avb_footer":False,"stock_partition_size":len(boot)})
     raw=boot[CMD:CMD+CMD_LEN]
     if b"\0" not in raw:
         fail("stock boot cmdline is not NUL-terminated")
@@ -125,7 +130,7 @@ def main():
         # fastboot boot uses the unsigned structural boot image.  If the
         # partition capture carries an AVB footer, never copy the now-invalid
         # footer after replacing the kernel.
-        "boot_size":structural_size,
+        "boot_size":boot_payload_size,
         "header_version":4,
         "header_size":1584,
         "kernel_size":kernel_size,

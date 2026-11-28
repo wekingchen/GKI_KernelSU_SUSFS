@@ -82,12 +82,14 @@ jobs:
             --expected-image-sha256 3e4bab6b9ffaa4825908a8c02fdb4ffbbfc6273c8156f19d7a5904f6667a2397 \
             --expected-release 6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k \
             --expected-build OS4.0.8.0.XBLCNXM \
+            --fastboot-boot-only-allow-growth \
             | tee "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fxq 'FINAL_BOOT_V4_AUDIT=PASS' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fxq 'FLASHABLE=NO' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fxq 'USE=fastboot boot ONLY' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fq 'pandora_rust_binder_eexist=1' "$OS408_FASTBOOT_DIR/repack-report.txt"
           grep -Fq 'module_blacklist=kernelsu' "$OS408_FASTBOOT_DIR/repack-report.txt"
+          grep -Fxq 'boot_file_growth=372736' "$OS408_FASTBOOT_DIR/repack-report.txt"
           if grep -Eq 'module_blacklist=[^ ]*rust_binder' "$OS408_FASTBOOT_DIR/repack-report.txt"; then
             echo "::error::rust_binder must not be blacklisted"; exit 1
           fi
