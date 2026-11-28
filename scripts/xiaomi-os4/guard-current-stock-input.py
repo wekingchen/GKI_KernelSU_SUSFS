@@ -80,10 +80,10 @@ def decide(current_zip: Path, incoming_zip: Path, incoming_build: str,
             return "SOFTWARE_REVIEW", current_build
         if incoming_build != current_build:
             abort("ambiguous HyperOS build ordering at equal numeric version")
-        if incoming_state == "SOFTWARE_OTA_REVIEW":
-            # Same real Android Build but a user-confirmed update-screen Dxx
-            # is evidence only; never treat a manually asserted label as a
-            # new kernel, canonical stock input or verified software release.
+        if incoming_state in ("SOFTWARE_OTA_REVIEW", "NEW_OTA_CANDIDATE"):
+            # The inspector uses the legacy pinned config, which may predate
+            # this current full build. A bound manual Dxx on the same current
+            # build remains evidence only, even if classified as a candidate.
             with zipfile.ZipFile(incoming_zip) as incoming:
                 raw = incoming.read("README.txt").decode("utf-8", "strict")
             rows = {}
