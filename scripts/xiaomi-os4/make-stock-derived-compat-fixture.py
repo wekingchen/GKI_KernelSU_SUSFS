@@ -88,10 +88,17 @@ def main():
             fail("stock AVB vbmeta range invalid")
         if boot[vbmeta_offset:vbmeta_offset+4]!=b"AVB0":
             fail("stock AVB vbmeta magic missing")
-        if (boot[structural_size:original_size].strip(b"\0") or
-                boot[original_size:vbmeta_offset].strip(b"\0") or
-                boot[vbmeta_offset+vbmeta_size:-64].strip(b"\0")):
-            fail("unexpected nonzero data outside stock AVB metadata")
+        pre=boot[structural_size:original_size]
+        gap=boot[original_size:vbmeta_offset]
+        post=boot[vbmeta_offset+vbmeta_size:-64]
+        if pre.strip(b"\0") or gap.strip(b"\0") or post.strip(b"\0"):
+            def desc(data):
+                nz=sum(1 for x in data if x)
+                first=next((i for i,x in enumerate(data) if x),-1)
+                sample=(data[first:first+16].hex() if first>=0 else "")
+                return f"len={len(data)},nonzero={nz},first={first},sample={sample}"
+            fail("unexpected nonzero data outside stock AVB metadata: "+
+                 "pre["+desc(pre)+"] gap["+desc(gap)+"] post["+desc(post)+"]")
         boot_payload_size=original_size
         avb.update({"stock_had_avb_footer":True,
                     "stock_partition_size":len(boot),
