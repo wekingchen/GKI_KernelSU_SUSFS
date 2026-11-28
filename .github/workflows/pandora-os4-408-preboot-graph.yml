@@ -1,0 +1,40 @@
+name: "小米17 Pro OS4 / 4.0.8 临时启动前条件依赖图复核（只读）"
+on:
+  pull_request:
+    branches: ["audit/pandora-408-stock-abi-delta"]
+    paths:
+      - "scripts/xiaomi-os4/audit-408-preboot-graph.py"
+      - ".github/workflows/pandora-os4-408-preboot-graph.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    if: github.repository == 'wekingchen/GKI_KernelSU_SUSFS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 核验真实库存和完整条件图
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends zstd lz4
+          D="$RUNNER_TEMP/preboot-graph"
+          mkdir -p "$D/stock" "$D/candidate" "$D/review" "$D/raw"
+          gh release download pandora-os4-stock-input --repo "$GITHUB_REPOSITORY" --pattern 'pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip' --dir "$D/stock"
+          gh run download 46154744059 --repo "$GITHUB_REPOSITORY" --name pandora-408-eexist-EXPERIMENT-NOT-FLASHABLE --dir "$D/candidate"
+          gh run download 46153969289 --repo "$GITHUB_REPOSITORY" --name pandora-OTA-V2-DIAGNOSTIC-REVIEW-46148429897-46153969289 --dir "$D/review"
+          gh run download 46148429897 --repo "$GITHUB_REPOSITORY" --name pandora-OTA-OEM-ABI-TESTBOOT-OS4.0.8.0.XBLCNXM-46148429897 --dir "$D/raw"
+          python3 scripts/xiaomi-os4/audit-408-preboot-graph.py --stock "$D/stock/pandora-stock-OS4.0.8.0.XBLCNXM-_a-xm.zip" --symvers "$D/candidate/Module.symvers" --evidence "$D/review/diagnostic-evidence.json" --raw-report "$D/raw/ota-abi-report.json" --output "$D/preboot-graph.json"
+          cat "$D/preboot-graph.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pandora-408-conditional-preboot-graph
+          path: ${{ runner.temp }}/preboot-graph/preboot-graph.json
+          if-no-files-found: error
+          retention-days: 30
