@@ -78,7 +78,10 @@ def main():
         except struct.error:
             fail("stock AVB footer cannot be parsed")
         if magic!=b"AVBf" or major!=1 or original_size!=structural_size:
-            fail("stock AVB footer identity/original size mismatch")
+            fail("stock AVB footer identity/original size mismatch: "+
+                 f"major={major} minor={minor} original_size={original_size} "+
+                 f"structural_size={structural_size} vbmeta_offset={vbmeta_offset} "+
+                 f"vbmeta_size={vbmeta_size} partition_size={len(boot)}")
         if not (original_size<=vbmeta_offset<=len(boot)-64 and
                 0<vbmeta_size<=len(boot)-64-vbmeta_offset):
             fail("stock AVB vbmeta range invalid")
